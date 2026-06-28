@@ -1,0 +1,8 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: PDE Bundle A
+Bundle-SymbolicName: org.goja.fixture.a;singleton:=true
+Bundle-Version: 1.0.0.qualifier
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Require-Bundle: org.goja.fixture.b;bundle-version="1.0.0",
+ org.eclipse.osgi

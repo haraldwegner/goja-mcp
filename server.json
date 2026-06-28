@@ -1,0 +1,41 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.haraldwegner/goja",
+  "title": "GOJA",
+  "description": "63 semantic Java analysis tools via Eclipse JDT: navigation, refactoring, code intelligence.",
+  "repository": {
+    "url": "https://github.com/haraldwegner/goja-mcp",
+    "source": "github"
+  },
+  "version": "1.1.5",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "goja-mcp",
+      "version": "1.1.5",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "JAVA_PROJECT_PATH",
+          "description": "Auto-load project on startup",
+          "format": "string"
+        },
+        {
+          "name": "GOJA_TIMEOUT_SECONDS",
+          "description": "Operation timeout in seconds",
+          "format": "number",
+          "default": "30"
+        },
+        {
+          "name": "GOJA_LOG_LEVEL",
+          "description": "Log level: TRACE, DEBUG, INFO, WARN, ERROR",
+          "format": "string",
+          "default": "INFO"
+        }
+      ]
+    }
+  ]
+}

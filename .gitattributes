@@ -1,0 +1,15 @@
+# Sprint 16a: exclude internal/historical docs from the fresh public archive.
+# git archive PRUNES export-ignored directories wholesale, so we exclude leaf
+# paths (subdirs with nothing to keep, plus individual files) rather than the
+# whole docs/ tree — that keeps docs/release-notes/v1.0.0.md (the launch note,
+# read by release.yml) in the public archive.
+docs/adr/** export-ignore
+docs/sprints/** export-ignore
+docs/architecture.md export-ignore
+docs/bugs.md export-ignore
+docs/javalens_feeback_from_cursor.md export-ignore
+docs/refactoring-tool-contract.md export-ignore
+docs/upgrade-checklist.md export-ignore
+docs/upstream-parity-v1.4.2.md export-ignore
+npm/** export-ignore
+CHANGELOG.md export-ignore

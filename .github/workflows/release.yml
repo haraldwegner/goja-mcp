@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    - name: Build and Test
+      run: ./mvnw clean verify
+
+    - name: Create Universal Distribution
+      run: |
+        cd org.goja.product/target/products/org.goja.product/linux/gtk/x86_64
+        mv goja goja-${{ github.ref_name }}
+        zip -r ../../../../goja-${{ github.ref_name }}.zip goja-${{ github.ref_name }}
+        tar -czvf ../../../../goja-${{ github.ref_name }}.tar.gz goja-${{ github.ref_name }}
+
+    - name: Pick release body
+      id: notes
+      run: |
+        notes_file="docs/release-notes/${{ github.ref_name }}.md"
+        if [ -f "$notes_file" ]; then
+          echo "body_path=$notes_file" >> "$GITHUB_OUTPUT"
+        else
+          echo "body_path=" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          org.goja.product/target/products/goja-${{ github.ref_name }}.zip
+          org.goja.product/target/products/goja-${{ github.ref_name }}.tar.gz
+        body_path: ${{ steps.notes.outputs.body_path }}
+        generate_release_notes: ${{ steps.notes.outputs.body_path == '' }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # NOTE: npm-publish and MCP-Registry-publish steps are intentionally
+    # omitted. goja-studio downloads the jar archives directly from the
+    # GitHub Release attached above, which is all the runtime path needs.
+    # (A goja npm package / registry entry can be added later if desired.)
