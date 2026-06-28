@@ -34,13 +34,11 @@ import org.goja.mcp.tools.FindPatternUsagesTool;
 import org.goja.mcp.tools.FindQualityIssueTool;
 import org.goja.mcp.tools.RenameSymbolTool;
 import org.goja.mcp.tools.OrganizeImportsTool;
-import org.goja.mcp.tools.ExtractVariableTool;
-import org.goja.mcp.tools.ExtractMethodTool;
+import org.goja.mcp.tools.ExtractTool;
+import org.goja.mcp.tools.InlineTool;
+import org.goja.mcp.tools.MoveTool;
+import org.goja.mcp.tools.MoveInHierarchyTool;
 import org.goja.mcp.tools.FindMethodReferencesTool;
-import org.goja.mcp.tools.MoveClassTool;
-import org.goja.mcp.tools.MovePackageTool;
-import org.goja.mcp.tools.PullUpTool;
-import org.goja.mcp.tools.PushDownTool;
 import org.goja.mcp.tools.EncapsulateFieldTool;
 import org.goja.mcp.tools.CompileWorkspaceTool;
 import org.goja.mcp.tools.RefreshWorkspaceTool;
@@ -55,23 +53,14 @@ import org.goja.mcp.tools.RunTestsTool;
 import org.goja.mcp.tools.build.AddDependencyTool;
 import org.goja.mcp.tools.build.FindUnusedDependenciesTool;
 import org.goja.mcp.tools.build.UpdateDependencyTool;
-import org.goja.mcp.tools.codegen.GenerateConstructorTool;
-import org.goja.mcp.tools.codegen.GenerateEqualsHashCodeTool;
-import org.goja.mcp.tools.codegen.GenerateGettersSettersTool;
-import org.goja.mcp.tools.codegen.GenerateTestSkeletonTool;
-import org.goja.mcp.tools.codegen.GenerateToStringTool;
-import org.goja.mcp.tools.codegen.OverrideMethodsTool;
+import org.goja.mcp.tools.codegen.GenerateTool;
 import org.goja.mcp.tools.workflow.FormatTool;
 import org.goja.mcp.tools.workflow.OptimizeImportsWorkspaceTool;
 import org.goja.mcp.tools.AnalyzeFileTool;
 import org.goja.mcp.tools.AnalyzeTypeTool;
 import org.goja.mcp.tools.AnalyzeMethodTool;
 import org.goja.mcp.tools.GetTypeUsageSummaryTool;
-import org.goja.mcp.tools.ExtractConstantTool;
-import org.goja.mcp.tools.InlineVariableTool;
-import org.goja.mcp.tools.InlineMethodTool;
 import org.goja.mcp.tools.ChangeMethodSignatureTool;
-import org.goja.mcp.tools.ExtractInterfaceTool;
 import org.goja.mcp.tools.ConvertAnonymousToLambdaTool;
 import org.goja.mcp.tools.SuggestImportsTool;
 import org.goja.mcp.tools.GetQuickFixesTool;
@@ -370,8 +359,15 @@ public class GojaApplication implements IApplication {
         // Refactoring tools
         toolRegistry.register(new RenameSymbolTool(() -> jdtService, refactoringChangeCache));
         toolRegistry.register(new OrganizeImportsTool(() -> jdtService, refactoringChangeCache));
-        toolRegistry.register(new ExtractVariableTool(() -> jdtService, refactoringChangeCache));
-        toolRegistry.register(new ExtractMethodTool(() -> jdtService, refactoringChangeCache));
+
+        // Sprint 16b/A: apply-tool category front doors. Collapse 16 narrow
+        // refactor/codegen tools into 5 parametric verbs; the narrow classes
+        // remain as the delegated implementations, no longer registered.
+        toolRegistry.register(new ExtractTool(() -> jdtService, refactoringChangeCache));
+        toolRegistry.register(new InlineTool(() -> jdtService, refactoringChangeCache));
+        toolRegistry.register(new MoveTool(() -> jdtService, refactoringChangeCache));
+        toolRegistry.register(new MoveInHierarchyTool(() -> jdtService, refactoringChangeCache));
+        toolRegistry.register(new GenerateTool(() -> jdtService, refactoringChangeCache));
 
         // Fine-grained reference search (JDT-unique capabilities).
         // Sprint 11 Phase D: 13 narrow find_* tools collapsed to 2 parametric ones.
@@ -391,19 +387,12 @@ public class GojaApplication implements IApplication {
         toolRegistry.register(new AnalyzeMethodTool(() -> jdtService));
         toolRegistry.register(new GetTypeUsageSummaryTool(() -> jdtService));
 
-        // Advanced refactoring tools
-        toolRegistry.register(new ExtractConstantTool(() -> jdtService, refactoringChangeCache));
-        toolRegistry.register(new InlineVariableTool(() -> jdtService, refactoringChangeCache));
-        toolRegistry.register(new InlineMethodTool(() -> jdtService, refactoringChangeCache));
+        // Advanced refactoring tools (extract/inline now via the `extract`/`inline` front doors above)
         toolRegistry.register(new ChangeMethodSignatureTool(() -> jdtService, refactoringChangeCache));
-        toolRegistry.register(new ExtractInterfaceTool(() -> jdtService, refactoringChangeCache));
         toolRegistry.register(new ConvertAnonymousToLambdaTool(() -> jdtService, refactoringChangeCache));
 
-        // Sprint 11 Phase E (v1.5.1): JDT-LTK structural refactoring tools.
-        toolRegistry.register(new MoveClassTool(() -> jdtService, refactoringChangeCache));
-        toolRegistry.register(new MovePackageTool(() -> jdtService, refactoringChangeCache));
-        toolRegistry.register(new PullUpTool(() -> jdtService, refactoringChangeCache));
-        toolRegistry.register(new PushDownTool(() -> jdtService, refactoringChangeCache));
+        // Sprint 11 Phase E (v1.5.1): JDT-LTK structural refactoring.
+        // move/pull-up/push-down now via the `move`/`move_in_hierarchy` front doors above.
         toolRegistry.register(new EncapsulateFieldTool(() -> jdtService, refactoringChangeCache));
 
         // Sprint 12 (v1.6.0): Ring 1 workspace verification tools.
@@ -430,13 +419,7 @@ public class GojaApplication implements IApplication {
         toolRegistry.register(new AnalyzeNullnessTool(() -> jdtService));
         toolRegistry.register(new ApplyNullAnnotationsTool(() -> jdtService, refactoringChangeCache));
 
-        // Sprint 13 (v1.7.0): Ring 2 code generation tools.
-        toolRegistry.register(new GenerateConstructorTool(() -> jdtService, refactoringChangeCache));
-        toolRegistry.register(new GenerateGettersSettersTool(() -> jdtService, refactoringChangeCache));
-        toolRegistry.register(new GenerateEqualsHashCodeTool(() -> jdtService, refactoringChangeCache));
-        toolRegistry.register(new GenerateToStringTool(() -> jdtService, refactoringChangeCache));
-        toolRegistry.register(new OverrideMethodsTool(() -> jdtService, refactoringChangeCache));
-        toolRegistry.register(new GenerateTestSkeletonTool(() -> jdtService, refactoringChangeCache));
+        // Sprint 13 (v1.7.0): Ring 2 code generation — now via the parametric `generate` front door above.
 
         // Sprint 13 (v1.7.0): Ring 3 build/dep management (Maven-only).
         toolRegistry.register(new AddDependencyTool(() -> jdtService));
