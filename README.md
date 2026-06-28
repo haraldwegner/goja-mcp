@@ -1,18 +1,29 @@
-# GOJA — IDE-grade Java intelligence for AI agents
+# GOJA — surgical, risk-free Java refactoring for autonomous agents
 
 [![GitHub release](https://img.shields.io/github/v/release/haraldwegner/goja-mcp)](https://github.com/haraldwegner/goja-mcp/releases)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Java 21](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
 
-**GOJA gives an AI coding agent the Java understanding a developer gets from Eclipse or IntelliJ** —
-compiler-accurate analysis, navigation, and *behaviour-preserving* refactoring, exposed over the
-Model Context Protocol. It drives Eclipse JDT (the engine behind the Eclipse IDE) across
-multi-project workspaces, so the agent resolves types, traces real references, and applies
-refactorings on actual code instead of guessing from text.
+**GOJA lets an AI agent refactor and maintain Java *surgically* — compiler-accurate,
+behaviour-preserving, and reversible in one call.** Every change runs through Eclipse JDT and the
+Eclipse LTK refactoring engine (the same machinery behind the Eclipse IDE), so the agent edits
+*real* code with IDE-grade guarantees instead of guessing from text — then checks it against the
+compiler and can undo it instantly. That precision is what makes **fully autonomous** Java
+maintenance safe: surgical improvements across an entire codebase, without the risk of a text-based
+tool getting it subtly wrong.
 
-**85 MCP tools** — navigation, deep analysis, auto-applying refactorings with one-call undo, code
-generation, Maven + Gradle dependency management, workspace-wide compilation, and duplicate-code
-detection.
+**Why an autonomous agent can trust it**
+
+- **Compiler-accurate** — every answer comes from Eclipse JDT's resolved model, not text matching.
+  GOJA *knows* which `save()` you meant.
+- **Behaviour-preserving** — refactorings pass the LTK pre/post-condition checks the IDE enforces,
+  so the transformation provably preserves semantics.
+- **Verified** — `compile_workspace` + `get_diagnostics` are a real compiler gate the agent runs
+  after every edit.
+- **Reversible** — every mutating tool returns an `undoChangeId`; one call rolls the change back.
+
+**85 MCP tools** cover the whole loop — navigate, analyse, refactor-and-apply, modernise, generate,
+manage dependencies (Maven + Gradle), compile the workspace, and detect + remove duplicate code.
 
 ```bash
 # Linux — installs goja-studio, which fetches and runs the GOJA engine for you
@@ -40,7 +51,7 @@ agent *fully engineer* Java, not merely generate it.
 
 ---
 
-## Why an agent needs GOJA
+## Precision in practice
 
 When an agent reaches for `grep` or plain file-reading to understand Java, it cannot distinguish:
 
