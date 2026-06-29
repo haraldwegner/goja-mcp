@@ -29,7 +29,10 @@ public class ToolRegistry {
         Set.of("find_", "get_", "analyze_", "search_");
     private static final Set<String> READ_ONLY_NAMES = Set.of(
         "go_to_definition", "health_check", "list_projects",
-        "validate_syntax", "inspect_refactoring", "suggest_imports");
+        "validate_syntax", "inspect_refactoring", "suggest_imports",
+        // Sprint 16b/A (v1.1.1): parametric read-only front doors whose names
+        // match no detect prefix.
+        "analyze", "inspect");
 
     private final Map<String, Tool> tools = new LinkedHashMap<>();
 

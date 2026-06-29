@@ -6,25 +6,19 @@ import org.goja.mcp.protocol.McpProtocolHandler;
 import org.goja.core.IJdtService;
 import org.goja.core.workspace.WorkspaceFileWatcher;
 import org.goja.mcp.refactoring.RefactoringChangeCache;
-import org.goja.mcp.tools.AddProjectTool;
-import org.goja.mcp.tools.ApplyRefactoringTool;
-import org.goja.mcp.tools.InspectRefactoringTool;
 import org.goja.mcp.tools.ReplaceDuplicatesTool;
-import org.goja.mcp.tools.UndoRefactoringTool;
 import org.goja.mcp.tools.HealthCheckTool;
-import org.goja.mcp.tools.ListProjectsTool;
 import org.goja.mcp.tools.LoadProjectTool;
-import org.goja.mcp.tools.RemoveProjectTool;
 import org.goja.mcp.tools.SearchSymbolsTool;
 import org.goja.mcp.tools.GoToDefinitionTool;
-import org.goja.mcp.tools.FindReferencesTool;
-import org.goja.mcp.tools.FindImplementationsTool;
-import org.goja.mcp.tools.GetTypeHierarchyTool;
-import org.goja.mcp.tools.GetDocumentSymbolsTool;
-import org.goja.mcp.tools.GetTypeMembersTool;
-import org.goja.mcp.tools.GetClasspathInfoTool;
-import org.goja.mcp.tools.GetProjectStructureTool;
 import org.goja.mcp.tools.GetAtPositionTool;
+import org.goja.mcp.tools.FindRefsTool;
+import org.goja.mcp.tools.RefactoringTool;
+import org.goja.mcp.tools.ProjectTool;
+import org.goja.mcp.tools.QuickFixTool;
+import org.goja.mcp.tools.build.DependencyTool;
+import org.goja.mcp.tools.AnalyzeTool;
+import org.goja.mcp.tools.InspectTool;
 import org.goja.mcp.tools.GetDiagnosticsTool;
 import org.goja.mcp.tools.ValidateSyntaxTool;
 import org.goja.mcp.tools.GetCallHierarchyTool;
@@ -38,39 +32,19 @@ import org.goja.mcp.tools.ExtractTool;
 import org.goja.mcp.tools.InlineTool;
 import org.goja.mcp.tools.MoveTool;
 import org.goja.mcp.tools.MoveInHierarchyTool;
-import org.goja.mcp.tools.FindMethodReferencesTool;
 import org.goja.mcp.tools.EncapsulateFieldTool;
 import org.goja.mcp.tools.CompileWorkspaceTool;
 import org.goja.mcp.tools.RefreshWorkspaceTool;
 import org.goja.mcp.tools.FindDuplicateCodeTool;
-import org.goja.mcp.tools.AnalyzeJavadocsTool;
-import org.goja.mcp.tools.AnalyzeNamingTool;
-import org.goja.mcp.tools.AnalyzeNullnessTool;
 import org.goja.mcp.tools.ApplyCleanupTool;
 import org.goja.mcp.tools.ApplyNullAnnotationsTool;
 import org.goja.mcp.tools.FindModernizationTool;
 import org.goja.mcp.tools.RunTestsTool;
-import org.goja.mcp.tools.build.AddDependencyTool;
-import org.goja.mcp.tools.build.FindUnusedDependenciesTool;
-import org.goja.mcp.tools.build.UpdateDependencyTool;
 import org.goja.mcp.tools.codegen.GenerateTool;
 import org.goja.mcp.tools.workflow.FormatTool;
 import org.goja.mcp.tools.workflow.OptimizeImportsWorkspaceTool;
-import org.goja.mcp.tools.AnalyzeFileTool;
-import org.goja.mcp.tools.AnalyzeTypeTool;
-import org.goja.mcp.tools.AnalyzeMethodTool;
-import org.goja.mcp.tools.GetTypeUsageSummaryTool;
 import org.goja.mcp.tools.ChangeMethodSignatureTool;
 import org.goja.mcp.tools.ConvertAnonymousToLambdaTool;
-import org.goja.mcp.tools.SuggestImportsTool;
-import org.goja.mcp.tools.GetQuickFixesTool;
-import org.goja.mcp.tools.ApplyQuickFixTool;
-import org.goja.mcp.tools.GetComplexityMetricsTool;
-import org.goja.mcp.tools.GetDependencyGraphTool;
-import org.goja.mcp.tools.AnalyzeChangeImpactTool;
-import org.goja.mcp.tools.AnalyzeControlFlowTool;
-import org.goja.mcp.tools.AnalyzeDataFlowTool;
-import org.goja.mcp.tools.GetDiRegistrationsTool;
 import org.goja.mcp.tools.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -318,32 +292,23 @@ public class GojaApplication implements IApplication {
             service -> this.jdtService = service
         ));
 
-        // Sprint 10 multi-project tools — orchestrated by goja-studio
-        // for port-grouped service consolidation. AI agents can also call
-        // them, but typically don't need to: the manager pre-loads the
-        // workspace's projects on service startup.
-        toolRegistry.register(new AddProjectTool(() -> jdtService));
-        toolRegistry.register(new RemoveProjectTool(() -> jdtService));
-        toolRegistry.register(new ListProjectsTool(() -> jdtService));
+        // Sprint 16b/A (v1.1.1): project(action) collapses list/add/remove_project
+        // (load_project stays separate — it installs the workspace service).
+        toolRegistry.register(new ProjectTool(() -> jdtService));
 
         // Batch 1: Core Navigation Tools
         toolRegistry.register(new SearchSymbolsTool(() -> jdtService));
         toolRegistry.register(new GoToDefinitionTool(() -> jdtService));
-        toolRegistry.register(new FindReferencesTool(() -> jdtService));
-        toolRegistry.register(new FindImplementationsTool(() -> jdtService));
+        // Sprint 16b/A (v1.1.1): find_references(kind) collapses references/implementations/method_references.
+        toolRegistry.register(new FindRefsTool(() -> jdtService));
 
-        // Batch 2: Type Hierarchy & Document Symbols
-        toolRegistry.register(new GetTypeHierarchyTool(() -> jdtService));
-        toolRegistry.register(new GetDocumentSymbolsTool(() -> jdtService));
-        toolRegistry.register(new GetTypeMembersTool(() -> jdtService));
-        toolRegistry.register(new GetClasspathInfoTool(() -> jdtService));
+        // Sprint 16b/A (v1.1.1): inspect(kind) collapses the 9 read-only structural
+        // get_* tools; analyze(kind) collapses the 9 analyze_* tools. Narrow classes
+        // stay in-package as delegates; they're no longer registered.
+        toolRegistry.register(new InspectTool(() -> jdtService));
+        toolRegistry.register(new AnalyzeTool(() -> jdtService));
 
-        // Batch 3: Project Structure & Position Info
-        toolRegistry.register(new GetProjectStructureTool(() -> jdtService));
-        // Sprint 16b/A: get_at_position collapses the 9 read-only position-lookup
-        // tools (type/method/field/hover/javadoc/signature/enclosing/super/symbol)
-        // into one always-loaded front door. The narrow classes remain as the
-        // delegated implementations; they're no longer registered.
+        // Sprint 16b/A: get_at_position collapses the 9 read-only position-lookup tools.
         toolRegistry.register(new GetAtPositionTool(() -> jdtService));
 
         // Batch 5: Diagnostics & Call Hierarchy
@@ -379,13 +344,10 @@ public class GojaApplication implements IApplication {
         // longer registered as user-facing MCP tools.
         toolRegistry.register(new FindPatternUsagesTool(() -> jdtService));
         toolRegistry.register(new FindQualityIssueTool(() -> jdtService));
-        toolRegistry.register(new FindMethodReferencesTool(() -> jdtService));
+        // find_method_references now via find_references(kind=method_references).
 
-        // Compound analysis tools
-        toolRegistry.register(new AnalyzeFileTool(() -> jdtService));
-        toolRegistry.register(new AnalyzeTypeTool(() -> jdtService));
-        toolRegistry.register(new AnalyzeMethodTool(() -> jdtService));
-        toolRegistry.register(new GetTypeUsageSummaryTool(() -> jdtService));
+        // Compound analysis (analyze_file/type/method now via analyze(kind);
+        // get_type_usage_summary via inspect(kind)).
 
         // Advanced refactoring tools (extract/inline now via the `extract`/`inline` front doors above)
         toolRegistry.register(new ChangeMethodSignatureTool(() -> jdtService, refactoringChangeCache));
@@ -411,49 +373,32 @@ public class GojaApplication implements IApplication {
         // Sprint 15 (v1.10.0): parametric clean-up catalog (upstream v1.4.2 harvest).
         toolRegistry.register(new ApplyCleanupTool(() -> jdtService, refactoringChangeCache));
 
-        // Sprint 15a (v1.11.0): naming + Javadoc knowledge tools.
-        toolRegistry.register(new AnalyzeJavadocsTool(() -> jdtService));
-        toolRegistry.register(new AnalyzeNamingTool(() -> jdtService));
-
-        // Sprint 15b (v1.12.0): Java null-safety tools.
-        toolRegistry.register(new AnalyzeNullnessTool(() -> jdtService));
+        // Sprint 15a/15b: naming/Javadoc/nullness analysis now via analyze(kind);
+        // apply_null_annotations stays (it mutates).
         toolRegistry.register(new ApplyNullAnnotationsTool(() -> jdtService, refactoringChangeCache));
 
         // Sprint 13 (v1.7.0): Ring 2 code generation — now via the parametric `generate` front door above.
 
-        // Sprint 13 (v1.7.0): Ring 3 build/dep management (Maven-only).
-        toolRegistry.register(new AddDependencyTool(() -> jdtService));
-        toolRegistry.register(new UpdateDependencyTool(() -> jdtService));
-        toolRegistry.register(new FindUnusedDependenciesTool(() -> jdtService));
+        // Sprint 16b/A (v1.1.1): dependency(action) collapses add/update/find_unused (Maven-only).
+        toolRegistry.register(new DependencyTool(() -> jdtService));
 
         // Sprint 13 (v1.7.0): Ring 4 formatter / workflow polish.
         toolRegistry.register(new FormatTool(() -> jdtService));
         toolRegistry.register(new OptimizeImportsWorkspaceTool(() -> jdtService));
 
-        // Quick fix tools
-        toolRegistry.register(new SuggestImportsTool(() -> jdtService));
-        toolRegistry.register(new GetQuickFixesTool(() -> jdtService));
-        toolRegistry.register(new ApplyQuickFixTool(() -> jdtService));
+        // Sprint 16b/A (v1.1.1): quick_fix(action) collapses suggest_imports/get_quick_fixes/apply_quick_fix.
+        toolRegistry.register(new QuickFixTool(() -> jdtService));
 
-        // Metrics tools
-        toolRegistry.register(new GetComplexityMetricsTool(() -> jdtService));
-        toolRegistry.register(new GetDependencyGraphTool(() -> jdtService));
-
-        // Advanced analysis tools
-        toolRegistry.register(new AnalyzeChangeImpactTool(() -> jdtService));
-        toolRegistry.register(new AnalyzeControlFlowTool(() -> jdtService));
-        toolRegistry.register(new AnalyzeDataFlowTool(() -> jdtService));
-        toolRegistry.register(new GetDiRegistrationsTool(() -> jdtService));
+        // Metrics + advanced analysis now via inspect(kind) (complexity/dependency_graph/
+        // di_registrations) and analyze(kind) (change_impact/control_flow/data_flow).
         // Sprint 11 Phase D: FindCircularDependencies / FindReflectionUsage /
         // FindLargeClasses / FindNamingViolations / FindUnusedCode /
         // FindPossibleBugs registrations dropped — exposed via
         // find_quality_issue(kind=...) above.
 
-        // Sprint 14b: refactoring apply/undo primitives. Staged changes and
-        // undo handles live in refactoringChangeCache (1 h TTL, LRU-capped).
-        toolRegistry.register(new ApplyRefactoringTool(() -> jdtService, refactoringChangeCache));
-        toolRegistry.register(new UndoRefactoringTool(() -> jdtService, refactoringChangeCache));
-        toolRegistry.register(new InspectRefactoringTool(() -> jdtService, refactoringChangeCache));
+        // Sprint 16b/A (v1.1.1): refactoring(action) collapses the staged apply/undo/
+        // inspect lifecycle (changes + undo handles in refactoringChangeCache, 1h TTL, LRU).
+        toolRegistry.register(new RefactoringTool(() -> jdtService, refactoringChangeCache));
         // Sprint 14b: composite closing the find_duplicate_code loop.
         toolRegistry.register(new ReplaceDuplicatesTool(() -> jdtService, refactoringChangeCache));
     }
