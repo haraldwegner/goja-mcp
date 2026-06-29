@@ -28,7 +28,11 @@ public final class FowlerDetectors {
             .register(new FeatureEnvyDetector())
             .register(new MessageChainsDetector())
             .register(new InappropriateIntimacyDetector())
-            .register(new MiddleManDetector());
-        // Stage 3+ append: primitive_obsession, switch_statements, refused_bequest, temporary_field, …
+            .register(new MiddleManDetector())
+            .register(new PrimitiveObsessionDetector())
+            .register(new SwitchStatementsDetector())
+            .register(new RefusedBequestDetector())
+            .register(new TemporaryFieldDetector());
+        // Stage 4+ append: lazy_class, speculative_generality, parallel_inheritance, incomplete_delegation, …
     }
 }

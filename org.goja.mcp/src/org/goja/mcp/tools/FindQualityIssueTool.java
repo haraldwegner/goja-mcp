@@ -71,7 +71,8 @@ public class FindQualityIssueTool extends AbstractTool {
 
             Fowler smell kinds (Sprint 17) are also registered — long_method,
             god_class, long_parameter_list, data_clumps, feature_envy,
-            message_chains, inappropriate_intimacy, middle_man; most accept an
+            message_chains, inappropriate_intimacy, middle_man, primitive_obsession,
+            switch_statements, refused_bequest, temporary_field; most accept an
             optional `threshold`. See the kind enum for the full list.
 
             The available kinds are the registered detectors (see the kind enum);
