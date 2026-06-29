@@ -24,7 +24,11 @@ public final class FowlerDetectors {
             .register(new LongMethodDetector())
             .register(new GodClassDetector())
             .register(new LongParameterListDetector())
-            .register(new DataClumpsDetector());
-        // Stage 2+ append: feature_envy, message_chains, inappropriate_intimacy, middle_man, …
+            .register(new DataClumpsDetector())
+            .register(new FeatureEnvyDetector())
+            .register(new MessageChainsDetector())
+            .register(new InappropriateIntimacyDetector())
+            .register(new MiddleManDetector());
+        // Stage 3+ append: primitive_obsession, switch_statements, refused_bequest, temporary_field, …
     }
 }
