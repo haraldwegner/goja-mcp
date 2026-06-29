@@ -64,10 +64,25 @@ public class LongMethodTargets {
         a += 48;
         a += 49;
         a += 50;
+        a += 51;
+        a += 52;
+        a += 53;
+        a += 54;
+        a += 55;
+        a += 56;
+        a += 57;
+        a += 58;
+        a += 59;
+        a += 60;
+        a += 61;
+        a += 62;
+        a += 63;
+        a += 64;
+        a += 65;
         return a;
     }
 
-    // Short, but highly branchy (cyclomatic complexity > 10) — always flagged.
+    // Short, but highly branchy (cyclomatic complexity > 15) — always flagged.
     public int branchy(int x) {
         int r = 0;
         if (x > 1) { r++; }
@@ -81,6 +96,11 @@ public class LongMethodTargets {
         if (x > 9) { r++; }
         if (x > 10) { r++; }
         if (x > 11) { r++; }
+        if (x > 12) { r++; }
+        if (x > 13) { r++; }
+        if (x > 14) { r++; }
+        if (x > 15) { r++; }
+        if (x > 16) { r++; }
         return r;
     }
 

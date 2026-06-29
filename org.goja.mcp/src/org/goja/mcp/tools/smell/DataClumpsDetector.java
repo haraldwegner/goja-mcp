@@ -50,12 +50,16 @@ public final class DataClumpsDetector implements Detector {
     public ToolResponse detect(IJdtService service, JsonNode arguments) {
         int threshold = AbstractAstDetector.readInt(arguments, "threshold", 2);
         String filePath = AbstractAstDetector.readString(arguments, "filePath");
+        boolean includeTests = AbstractAstDetector.includeTests(arguments);
         Map<String, List<Occurrence>> byTuple = new LinkedHashMap<>();
         try {
             List<Path> files = (filePath != null && !filePath.isBlank())
                 ? List.of(Path.of(filePath))
                 : service.getAllJavaFiles();
             for (Path path : files) {
+                if (!includeTests && AbstractAstDetector.isTestSource(path, service)) {
+                    continue;
+                }
                 ICompilationUnit cu = service.getCompilationUnit(path);
                 if (cu == null) {
                     continue;

@@ -27,6 +27,14 @@ import java.util.Map;
  */
 public final class FeatureEnvyDetector extends AbstractAstDetector {
 
+    /**
+     * The envied type must beat the method's own type by at least this margin —
+     * v1.2.1 raised the bar from "strictly greater" because the v1.2.0 dogfood
+     * showed methods that barely edge their own type flooding the results
+     * (test sources, now excluded by default, were the other half).
+     */
+    private static final int ENVY_MARGIN = 2;
+
     public FeatureEnvyDetector() {
         super("feature_envy",
             "Feature Envy — a method accessing one foreign type's members more than its own "
@@ -85,7 +93,8 @@ public final class FeatureEnvyDetector extends AbstractAstDetector {
                         enviedType = e.getKey();
                     }
                 }
-                if (enviedType != null && enviedCount >= threshold && enviedCount > ownCount[0]) {
+                if (enviedType != null && enviedCount >= threshold
+                    && enviedCount >= ownCount[0] + ENVY_MARGIN) {
                     int line = ast.getLineNumber(node.getStartPosition());
                     String name = node.getName().getIdentifier();
                     out.add(new Finding(

@@ -48,11 +48,15 @@ public final class InappropriateIntimacyDetector implements Detector {
     @Override
     public ToolResponse detect(IJdtService service, JsonNode arguments) {
         int threshold = AbstractAstDetector.readInt(arguments, "threshold", 2);
+        boolean includeTests = AbstractAstDetector.includeTests(arguments);
         // accessor type -> (target type -> count of field accesses)
         Map<String, Map<String, Integer>> access = new HashMap<>();
         Map<String, Loc> typeLoc = new HashMap<>();
         try {
             for (Path path : service.getAllJavaFiles()) {
+                if (!includeTests && AbstractAstDetector.isTestSource(path, service)) {
+                    continue;
+                }
                 ICompilationUnit cu = service.getCompilationUnit(path);
                 if (cu == null) {
                     continue;

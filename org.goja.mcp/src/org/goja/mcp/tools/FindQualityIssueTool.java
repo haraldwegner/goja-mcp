@@ -143,6 +143,14 @@ public class FindQualityIssueTool extends AbstractTool {
                 + "omit to use the kind's default.");
         properties.put("threshold", threshold);
 
+        Map<String, Object> includeTests = new LinkedHashMap<>();
+        includeTests.put("type", "boolean");
+        includeTests.put("description",
+            "Fowler smell kinds only — include test sources (src/test, *.tests) in the scan. "
+                + "Default false: test code legitimately has long methods and subject-under-test "
+                + "access, so it is excluded to keep findings actionable.");
+        properties.put("includeTests", includeTests);
+
         schema.put("properties", properties);
         schema.put("required", List.of("kind"));
 

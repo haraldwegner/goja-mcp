@@ -42,10 +42,18 @@ class LongMethodDetectorTest {
 
     @SuppressWarnings("unchecked")
     private Set<String> longMethodSymbols(Integer threshold) {
+        return longMethodSymbols(threshold, false);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Set<String> longMethodSymbols(Integer threshold, boolean includeTests) {
         ObjectNode args = mapper.createObjectNode();
         args.put("kind", "long_method");
         if (threshold != null) {
             args.put("threshold", threshold.intValue());
+        }
+        if (includeTests) {
+            args.put("includeTests", true);
         }
         ToolResponse r = tool.execute(args);
         assertTrue(r.isSuccess(), "long_method must dispatch");
@@ -82,5 +90,14 @@ class LongMethodDetectorTest {
         assertFalse(hits.contains("longOne"), "LOC-gated method should clear a high threshold: " + hits);
         assertTrue(hits.contains("branchy"), "CC trigger is independent of the LOC threshold: " + hits);
         assertFalse(hits.contains("clean"), "clean method never flagged: " + hits);
+    }
+
+    @Test
+    @DisplayName("test sources are excluded by default, included on opt-in (v1.2.1)")
+    void test_sources_excluded_by_default() {
+        assertFalse(longMethodSymbols(null).contains("longTestHelper"),
+            "a long method in test source must NOT be flagged by default");
+        assertTrue(longMethodSymbols(null, true).contains("longTestHelper"),
+            "includeTests=true must surface the test-source long method");
     }
 }

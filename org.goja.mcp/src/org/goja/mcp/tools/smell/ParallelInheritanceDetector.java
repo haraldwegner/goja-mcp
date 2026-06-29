@@ -51,12 +51,16 @@ public final class ParallelInheritanceDetector implements Detector {
     @Override
     public ToolResponse detect(IJdtService service, JsonNode arguments) {
         int threshold = AbstractAstDetector.readInt(arguments, "threshold", 2);
+        boolean includeTests = AbstractAstDetector.includeTests(arguments);
         // base simple name -> (variant token -> subclass location)
         Map<String, Map<String, Loc>> byBase = new HashMap<>();
         // base simple name -> (variant token -> subclass simple name)
         Map<String, Map<String, String>> subName = new HashMap<>();
         try {
             for (Path path : service.getAllJavaFiles()) {
+                if (!includeTests && AbstractAstDetector.isTestSource(path, service)) {
+                    continue;
+                }
                 ICompilationUnit cu = service.getCompilationUnit(path);
                 if (cu == null) {
                     continue;

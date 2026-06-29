@@ -61,12 +61,16 @@ public abstract class AbstractAstDetector implements Detector {
     public ToolResponse detect(IJdtService service, JsonNode arguments) {
         int threshold = readInt(arguments, "threshold", defaultThreshold);
         String filePath = readString(arguments, "filePath");
+        boolean includeTests = includeTests(arguments);
         List<Finding> findings = new ArrayList<>();
         try {
             List<Path> files = (filePath != null && !filePath.isBlank())
                 ? List.of(Path.of(filePath))
                 : service.getAllJavaFiles();
             for (Path path : files) {
+                if (!includeTests && isTestSource(path, service)) {
+                    continue;
+                }
                 ICompilationUnit cu = service.getCompilationUnit(path);
                 if (cu == null) {
                     continue;
@@ -123,4 +127,37 @@ public abstract class AbstractAstDetector implements Detector {
         }
         return args.get(name).asText();
     }
+
+    /** Whether the caller opted into scanning test sources (default false). */
+    public static boolean includeTests(JsonNode args) {
+        return args != null && args.has("includeTests") && !args.get("includeTests").isNull()
+            && args.get("includeTests").asBoolean(false);
+    }
+
+    /**
+     * Heuristic: is this a test source? Test code legitimately has long methods
+     * and methods that hammer their subject-under-test, so smell scans exclude it
+     * by default (the v1.2.1 dogfood found ~70% of long_method/feature_envy noise
+     * came from test sources). Matches Maven ({@code src/test/}) and PDE/Tycho
+     * test bundles ({@code *.tests/}).
+     *
+     * <p>The check runs on the path <em>relative to the project root</em> — an
+     * absolute check falsely flags a project that merely lives under a
+     * {@code *.tests/} directory (e.g. a fixture under
+     * {@code org.goja.core.tests/test-resources/…}).</p>
+     */
+    public static boolean isTestSource(Path path, IJdtService service) {
+        if (path == null) {
+            return false;
+        }
+        String rel;
+        try {
+            Path root = service != null ? service.getProjectRoot() : null;
+            rel = (root != null ? root.relativize(path) : path).toString().replace('\\', '/');
+        } catch (Exception e) {
+            rel = path.toString().replace('\\', '/');
+        }
+        return rel.contains("src/test/") || rel.contains("test/java/") || rel.contains(".tests/");
+    }
 }
+

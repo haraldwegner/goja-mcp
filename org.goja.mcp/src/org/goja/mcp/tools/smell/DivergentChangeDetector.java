@@ -51,6 +51,7 @@ public final class DivergentChangeDetector implements Detector {
     @Override
     public ToolResponse detect(IJdtService service, JsonNode arguments) {
         int threshold = AbstractAstDetector.readInt(arguments, "threshold", 5);
+        boolean includeTests = AbstractAstDetector.includeTests(arguments);
         List<Finding> out = new ArrayList<>();
         Path root = service.getProjectRoot();
         GitHistory history = historyProvider.apply(root);
@@ -58,6 +59,9 @@ public final class DivergentChangeDetector implements Detector {
             return Findings.toResponse(out); // graceful no-op
         }
         for (Path file : service.getAllJavaFiles()) {
+            if (!includeTests && AbstractAstDetector.isTestSource(file, service)) {
+                continue;
+            }
             String rel = root.relativize(file).toString().replace('\\', '/');
             int commits = history.commitCount(rel);
             int areas = history.coChangeAreaCount(rel);

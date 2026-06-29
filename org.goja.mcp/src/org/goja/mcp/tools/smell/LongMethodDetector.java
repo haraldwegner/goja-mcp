@@ -15,14 +15,19 @@ import java.util.List;
  */
 public final class LongMethodDetector extends AbstractAstDetector {
 
-    /** Secondary trigger: a short but very branchy method is still a Long Method. */
-    private static final int CC_TRIGGER = 10;
+    /**
+     * Secondary trigger: a short but very branchy method is still a Long Method.
+     * Raised 10 → 15 in v1.2.1 — the v1.2.0 dogfood showed CC&gt;10 flooded on real
+     * code (modestly-sized methods at CC 11-14 are common and not actionable).
+     */
+    private static final int CC_TRIGGER = 15;
 
     public LongMethodDetector() {
         super("long_method",
-            "Long Method — methods over the LOC threshold (default 40) or cyclomatic complexity "
-                + CC_TRIGGER + "; points to Extract Method. `threshold` sets the LOC cutoff.",
-            40);
+            "Long Method — methods over the LOC threshold (default 60) or cyclomatic complexity "
+                + CC_TRIGGER + "; points to Extract Method. `threshold` sets the LOC cutoff "
+                + "(lower it, e.g. 40, or pass filePath, to scope tighter).",
+            60);
     }
 
     @Override
