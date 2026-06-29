@@ -51,7 +51,7 @@ class FamilyProjectionTest {
 
     @SuppressWarnings("unchecked")
     @Test
-    @DisplayName("family=solid runs the tagged set and merges findings (Stage 0: the 4 tagged kinds)")
+    @DisplayName("family=solid runs the tagged set and merges findings")
     void solid_family_runs_the_tagged_set() {
         ObjectNode args = mapper.createObjectNode();
         args.put("family", "solid");
@@ -59,10 +59,12 @@ class FamilyProjectionTest {
         assertTrue(r.isSuccess(), "family=solid must dispatch");
         Map<String, Object> data = (Map<String, Object>) r.getData();
         List<String> kinds = (List<String>) data.get("kinds");
+        // the four tagged Fowler kinds (re-framed, not re-detected) are always in solid;
+        // the net-new SOLID detectors (dip, then isp/srp_cohesion/lsp) join as stages land.
         assertTrue(kinds.containsAll(List.of(
                 "incomplete_delegation", "refused_bequest", "divergent_change", "shotgun_surgery")),
             "solid family must include the four tagged Fowler kinds: " + kinds);
-        assertEquals(4, kinds.size(), "Stage 0: only the four tagged kinds are solid yet: " + kinds);
+        assertTrue(kinds.contains("dip"), "dip joined the solid family in Stage 1: " + kinds);
         assertTrue(data.containsKey("findings"), "family run merges a findings list");
     }
 

@@ -8,6 +8,7 @@ import org.goja.mcp.domain.IGojaService;
 import org.goja.mcp.models.ResponseMeta;
 import org.goja.mcp.models.ToolResponse;
 import org.goja.mcp.tools.smell.FowlerDetectors;
+import org.goja.mcp.tools.smell.SolidDetectors;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -39,7 +40,8 @@ public class FindQualityIssueTool extends AbstractTool {
      */
     public FindQualityIssueTool(Supplier<IJdtService> serviceSupplier) {
         this(new GojaService(serviceSupplier,
-            FowlerDetectors.registerInto(QualityDetectors.builtins(serviceSupplier))));
+            SolidDetectors.registerInto(
+                FowlerDetectors.registerInto(QualityDetectors.builtins(serviceSupplier)))));
     }
 
     /** The seam: project from the supplied service's detector catalog. */
