@@ -34,6 +34,33 @@ class TwoJobs {
     }
 }
 
+// A fluent builder: each withX() touches one field, but it's ONE responsibility.
+// v1.3.1: fluent setters are excluded, so this must NOT be flagged as low-cohesion.
+class PointBuilder {
+    private int x;
+    private int y;
+    private int z;
+
+    PointBuilder withX(int x) {
+        this.x = x;
+        return this;
+    }
+
+    PointBuilder withY(int y) {
+        this.y = y;
+        return this;
+    }
+
+    PointBuilder withZ(int z) {
+        this.z = z;
+        return this;
+    }
+
+    int build() {
+        return x + y + z;
+    }
+}
+
 class Cohesive {
     private int x;
     private int y;

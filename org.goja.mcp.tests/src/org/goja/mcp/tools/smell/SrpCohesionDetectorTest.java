@@ -54,5 +54,7 @@ class SrpCohesionDetectorTest {
             "class with two disjoint field-usage clusters should be flagged: " + hits);
         assertFalse(hits.contains("Cohesive"),
             "class whose methods share state must NOT be flagged: " + hits);
+        assertFalse(hits.contains("PointBuilder"),
+            "a fluent builder (each withX touches one field) must NOT be flagged — one responsibility: " + hits);
     }
 }

@@ -16,6 +16,7 @@ import org.eclipse.jdt.core.dom.Modifier;
 import org.eclipse.jdt.core.dom.ReturnStatement;
 import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.Statement;
+import org.eclipse.jdt.core.dom.ThisExpression;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
 import org.eclipse.jdt.core.dom.VariableDeclarationFragment;
 import org.goja.core.IJdtService;
@@ -179,18 +180,37 @@ public final class SrpCohesionDetector extends AbstractAstDetector {
             || ("toString".equals(n) && p == 0);
     }
 
-    /** A single-statement getter ({@code return field;}) or setter ({@code field = ...;}). */
+    /**
+     * A getter ({@code return field;}), a void setter ({@code field = ...;}), or a
+     * <b>fluent builder setter</b> ({@code field = ...; return ...;}). Excluding the
+     * fluent form keeps builders out of the LCOM graph — each {@code withX} touches one
+     * field, so they look disjoint, but a builder is one responsibility (v1.3.1 dogfood:
+     * {@code SymbolFact.Builder} was a false positive).
+     */
     private static boolean isAccessor(MethodDeclaration m, Set<String> fields) {
         Block body = m.getBody();
-        if (body == null || body.statements().size() != 1) {
+        if (body == null) {
             return false;
         }
-        Statement s = (Statement) body.statements().get(0);
-        if (s instanceof ReturnStatement rs) {
-            return isFieldRef(rs.getExpression(), fields);
+        List<?> stmts = body.statements();
+        if (stmts.size() == 1) {
+            Statement s = (Statement) stmts.get(0);
+            if (s instanceof ReturnStatement rs) {
+                return isFieldRef(rs.getExpression(), fields);
+            }
+            if (s instanceof ExpressionStatement es && es.getExpression() instanceof Assignment a) {
+                return isFieldRef(a.getLeftHandSide(), fields);
+            }
+            return false;
         }
-        if (s instanceof ExpressionStatement es && es.getExpression() instanceof Assignment a) {
-            return isFieldRef(a.getLeftHandSide(), fields);
+        if (stmts.size() == 2) {
+            // fluent BUILDER setter: field = ...; return this;  (must return `this` — a
+            // method that returns the field/a computation, e.g. `a = a*2; return a;`, is real work).
+            return stmts.get(0) instanceof ExpressionStatement es
+                && es.getExpression() instanceof Assignment a
+                && isFieldRef(a.getLeftHandSide(), fields)
+                && stmts.get(1) instanceof ReturnStatement rs
+                && rs.getExpression() instanceof ThisExpression;
         }
         return false;
     }
