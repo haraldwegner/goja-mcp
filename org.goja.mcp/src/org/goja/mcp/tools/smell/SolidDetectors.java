@@ -21,7 +21,7 @@ public final class SolidDetectors {
         return catalog
             .register(new DipDetector(), "solid")
             .register(new IspDetector(), "solid")
-            .register(new SrpCohesionDetector(), "solid");
-        // Stage 4: lsp
+            .register(new SrpCohesionDetector(), "solid")
+            .register(new LspDetector(), "solid");
     }
 }
