@@ -181,11 +181,16 @@ public final class SrpCohesionDetector extends AbstractAstDetector {
     }
 
     /**
-     * A getter ({@code return field;}), a void setter ({@code field = ...;}), or a
-     * <b>fluent builder setter</b> ({@code field = ...; return ...;}). Excluding the
-     * fluent form keeps builders out of the LCOM graph — each {@code withX} touches one
-     * field, so they look disjoint, but a builder is one responsibility (v1.3.1 dogfood:
-     * {@code SymbolFact.Builder} was a false positive).
+     * A method that must not count toward cohesion: a getter ({@code return field;}), a
+     * void setter ({@code field = ...;}), or a <b>fluent mutator</b> — any method whose
+     * <em>last statement is {@code return this}</em>. Fluent builder methods ({@code withX},
+     * {@code scope(a,b)}, {@code addEvidence(x)}) chain by returning {@code this}; each may
+     * touch a different field, so LCOM would see them as disjoint clusters, but a builder is
+     * one responsibility. Keying on {@code return this} (not statement count) catches the
+     * multi-field/multi-statement forms too (v1.3.1 flagged {@code SymbolFact.Builder}'s
+     * {@code scope}/{@code source}/{@code addEvidence} at 3 clusters; v1.3.2 fixes it). A
+     * method returning the field or a computation ({@code a = a*2; return a;}) is real work
+     * and still counts.
      */
     private static boolean isAccessor(MethodDeclaration m, Set<String> fields) {
         Block body = m.getBody();
@@ -193,6 +198,14 @@ public final class SrpCohesionDetector extends AbstractAstDetector {
             return false;
         }
         List<?> stmts = body.statements();
+        if (stmts.isEmpty()) {
+            return false;
+        }
+        // fluent mutator: last statement chains by returning `this`, regardless of length.
+        if (stmts.get(stmts.size() - 1) instanceof ReturnStatement last
+            && last.getExpression() instanceof ThisExpression) {
+            return true;
+        }
         if (stmts.size() == 1) {
             Statement s = (Statement) stmts.get(0);
             if (s instanceof ReturnStatement rs) {
@@ -201,16 +214,6 @@ public final class SrpCohesionDetector extends AbstractAstDetector {
             if (s instanceof ExpressionStatement es && es.getExpression() instanceof Assignment a) {
                 return isFieldRef(a.getLeftHandSide(), fields);
             }
-            return false;
-        }
-        if (stmts.size() == 2) {
-            // fluent BUILDER setter: field = ...; return this;  (must return `this` — a
-            // method that returns the field/a computation, e.g. `a = a*2; return a;`, is real work).
-            return stmts.get(0) instanceof ExpressionStatement es
-                && es.getExpression() instanceof Assignment a
-                && isFieldRef(a.getLeftHandSide(), fields)
-                && stmts.get(1) instanceof ReturnStatement rs
-                && rs.getExpression() instanceof ThisExpression;
         }
         return false;
     }
