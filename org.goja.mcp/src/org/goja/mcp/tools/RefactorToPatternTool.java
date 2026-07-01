@@ -37,11 +37,13 @@ public class RefactorToPatternTool extends AbstractTool {
 
     private final InlineSingletonTool inlineSingleton;
     private final ComposeMethodTool composeMethod;
+    private final ReplaceTypeCodeWithClassTool replaceTypeCode;
 
     public RefactorToPatternTool(Supplier<IJdtService> serviceSupplier, RefactoringChangeCache cache) {
         super(serviceSupplier);
         this.inlineSingleton = new InlineSingletonTool(serviceSupplier, cache);
         this.composeMethod = new ComposeMethodTool(serviceSupplier, cache);
+        this.replaceTypeCode = new ReplaceTypeCodeWithClassTool(serviceSupplier, cache);
     }
 
     @Override
@@ -70,8 +72,14 @@ public class RefactorToPatternTool extends AbstractTool {
                                  methodName} statement ranges to extract. Applies atomically
                                  (auto_apply=false not supported). (find_quality_issue
                                  kind=long_method locates candidates.)
-            (further kinds ship across Sprint 19: replace_type_code_with_class,
-             refactor_to_state, refactor_to_command_dispatcher, form_template_method,
+            - replace_type_code_with_class — TOWARD: generate a type-safe enum from a group of
+                                 static-final type-code constants into a new file (same package).
+                                 Needs: line, column on the class + newTypeName (optional prefix
+                                 to pick the constant group). Conservative: introduces the enum +
+                                 reports the mapping; does NOT auto-migrate usages.
+                                 (find_quality_issue kind=type_code locates candidates.)
+            (further kinds ship across Sprint 19: refactor_to_state,
+             refactor_to_command_dispatcher, form_template_method,
              refactor_to_visitor, replace_pattern_with_idiom.)
 
             Applies by default; returns filesModified/diff/undoChangeId/summary. Pass
@@ -102,6 +110,10 @@ public class RefactorToPatternTool extends AbstractTool {
             "items", Map.of("type", "object"),
             "description", "compose_method: >= 2 disjoint {startLine, startColumn, endLine, endColumn, "
                 + "methodName} statement ranges (ZERO-BASED) to extract into named sub-methods."));
+        properties.put("newTypeName", Map.of("type", "string",
+            "description", "replace_type_code_with_class: name for the generated enum type."));
+        properties.put("prefix", Map.of("type", "string",
+            "description", "replace_type_code_with_class: optional constant prefix to convert (e.g. STATUS)."));
 
         schema.put("properties", properties);
         schema.put("required", List.of("kind", "filePath"));
@@ -117,7 +129,8 @@ public class RefactorToPatternTool extends AbstractTool {
         return switch (kind) {
             case "inline_singleton" -> inlineSingleton.executeWithService(service, arguments);
             case "compose_method" -> composeMethod.executeWithService(service, arguments);
-            case "replace_type_code_with_class", "refactor_to_state",
+            case "replace_type_code_with_class" -> replaceTypeCode.executeWithService(service, arguments);
+            case "refactor_to_state",
                  "refactor_to_command_dispatcher", "form_template_method", "refactor_to_visitor",
                  "replace_pattern_with_idiom" -> ToolResponse.error(
                     "NOT_YET_IMPLEMENTED",

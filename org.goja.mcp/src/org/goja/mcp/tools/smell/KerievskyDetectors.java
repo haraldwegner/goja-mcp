@@ -18,6 +18,7 @@ public final class KerievskyDetectors {
     /** Register every net-new Kerievsky detector into {@code catalog} (family {@code kerievsky}). */
     public static DetectorCatalog registerInto(DetectorCatalog catalog) {
         return catalog
-            .register(new SingletonDetector(), "kerievsky");
+            .register(new SingletonDetector(), "kerievsky")
+            .register(new TypeCodeDetector(), "kerievsky");
     }
 }
