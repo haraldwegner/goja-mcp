@@ -22,12 +22,13 @@ import java.util.function.Supplier;
  */
 public class ExtractTool extends AbstractTool {
 
-    private static final List<String> KINDS = List.of("method", "variable", "constant", "interface");
+    private static final List<String> KINDS = List.of("method", "variable", "constant", "interface", "superclass");
 
     private final ExtractMethodTool method;
     private final ExtractVariableTool variable;
     private final ExtractConstantTool constant;
     private final ExtractInterfaceTool interfaceTool;
+    private final ExtractSuperclassTool superclass;
 
     public ExtractTool(Supplier<IJdtService> serviceSupplier, RefactoringChangeCache cache) {
         super(serviceSupplier);
@@ -35,6 +36,7 @@ public class ExtractTool extends AbstractTool {
         this.variable = new ExtractVariableTool(serviceSupplier, cache);
         this.constant = new ExtractConstantTool(serviceSupplier, cache);
         this.interfaceTool = new ExtractInterfaceTool(serviceSupplier, cache);
+        this.superclass = new ExtractSuperclassTool(serviceSupplier, cache);
     }
 
     @Override
@@ -58,6 +60,9 @@ public class ExtractTool extends AbstractTool {
                          Needs: startLine, startColumn, endLine, endColumn, constantName.
             - interface— extract an interface from the type at a caret.
                          Needs: line, column, interfaceName (optional methodNames[] to pull up).
+            - superclass— synthesize a new abstract parent and pull up the methods shared by the
+                         caret class and its same-package siblings.
+                         Needs: line, column, superclassName, siblings[] (optional members[]).
 
             Applies by default; returns filesModified/diff/undoChangeId/summary. Pass
             auto_apply=false to stage without applying.
@@ -91,6 +96,11 @@ public class ExtractTool extends AbstractTool {
         properties.put("interfaceName", Map.of("type", "string", "description", "interface: name for the extracted interface."));
         properties.put("methodNames", Map.of("type", "array", "items", Map.of("type", "string"),
             "description", "interface: optional method names to declare in the new interface."));
+        properties.put("superclassName", Map.of("type", "string", "description", "superclass: name for the generated abstract parent."));
+        properties.put("siblings", Map.of("type", "array", "items", Map.of("type", "string"),
+            "description", "superclass: sibling class simple names in the same package to reparent + pull from."));
+        properties.put("members", Map.of("type", "array", "items", Map.of("type", "string"),
+            "description", "superclass: optional method names to pull up (default: auto-discover the identical ones)."));
 
         schema.put("properties", properties);
         schema.put("required", List.of("kind", "filePath"));
@@ -108,6 +118,7 @@ public class ExtractTool extends AbstractTool {
             case "variable"  -> variable.executeWithService(service, arguments);
             case "constant"  -> constant.executeWithService(service, arguments);
             case "interface" -> interfaceTool.executeWithService(service, arguments);
+            case "superclass" -> superclass.executeWithService(service, arguments);
             default -> ToolResponse.invalidParameter("kind",
                 "Unknown kind '" + kind + "'. Allowed: " + KINDS);
         };
