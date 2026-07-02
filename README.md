@@ -183,16 +183,24 @@ gate to check its own edits before moving on — the post-edit loop a careful de
   dependency_graph / di_registrations)*
 
 **Change**
-- *Refactor* — `rename_symbol`, `extract` *(method / variable / constant / interface)*, `inline`
-  *(method / variable)*, `move` *(class / package)*, `move_in_hierarchy` *(pull-up / push-down)*,
-  `encapsulate_field`, `change_method_signature`, `convert_anonymous_to_lambda`, `generate`
-  *(constructor / getters_setters / equals_hashcode / tostring / test_skeleton / override_methods)*
-  · `refactoring` *(apply / undo / inspect a staged change)*
+- *Refactor* — `rename_symbol`, `extract` *(method / variable / constant / interface / superclass)*,
+  `inline` *(method / variable)*, `move` *(class / package)*, `move_in_hierarchy` *(pull-up /
+  push-down)*, `encapsulate_field`, `change_method_signature`, `convert_anonymous_to_lambda`,
+  `generate` *(constructor / getters_setters / equals_hashcode / tostring / test_skeleton /
+  override_methods / copy_class)* · `refactoring` *(single change: apply / undo / inspect ·
+  multi-step, parity-gated: plan / apply_plan / inspect_plan / undo_plan)*
+- *Multi-step orchestration* — `refactoring(action=plan → apply_plan)` walks a refactoring as
+  atomic, behaviour-preserving steps with a **parity gate** (compile 0/0 + a purity check) after
+  each; a broken build or a smuggled control-flow change rolls the whole plan back atomically.
+  `copy_class` + `extract(kind=superclass)` are the compiler-writes-the-code primitives (copy a
+  class, then lift the shared members into a parent) — reuse instead of re-authoring.
 - *Refactor to patterns (Kerievsky)* — `refactor_to_pattern` *(inline_singleton / compose_method /
   replace_type_code_with_class / refactor_to_state / refactor_to_command_dispatcher /
   form_template_method / refactor_to_visitor / replace_pattern_with_idiom)* — behaviour-preserving,
   reversible, compiling; toward a pattern when complexity warrants and away from one that has
-  outlived its use.
+  outlived its use. OCP cure: `divergent_change` / `shotgun_surgery` point at a runnable
+  `refactoring(action=plan, kind=refactor_to_state | refactor_to_command_dispatcher |
+  form_template_method)`.
 - *Imports & modernise* — `organize_imports`, `optimize_imports_workspace`, `find_modernization`
   *(8 idioms)*, `apply_cleanup` *(add_final / redundant_modifiers)*
 - *Null-safety* — `apply_null_annotations` *(add / migrate)*
