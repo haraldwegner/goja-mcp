@@ -20,7 +20,8 @@ public final class OcpCure {
     /** Appended to the churn detectors' messages: the OCP-cure pointer. */
     public static final String HINT =
         " OCP cure: introduce an abstraction at the modification axis — refactor_to_pattern "
-            + "kind=refactor_to_state / refactor_to_command_dispatcher / form_template_method.";
+            + "kind=refactor_to_state / refactor_to_command_dispatcher / form_template_method "
+            + "(or refactoring(action=plan, kind=<same>) then apply_plan for a parity-gated run).";
 
     /** The {@code refactor_to_pattern} kinds that close the axis a churn trace exposes. */
     public static List<String> recipesFor(String smellKind) {

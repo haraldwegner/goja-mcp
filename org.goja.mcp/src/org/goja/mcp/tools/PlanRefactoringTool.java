@@ -29,11 +29,13 @@ import org.slf4j.LoggerFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -60,8 +62,13 @@ class PlanRefactoringTool extends AbstractTool {
 
     private static final Logger log = LoggerFactory.getLogger(PlanRefactoringTool.class);
 
-    static final List<String> PLAN_KINDS =
-        List.of("compose_method", "replace_type_code_with_class", "inline_singleton");
+    static final List<String> PLAN_KINDS = List.of(
+        "compose_method", "replace_type_code_with_class", "inline_singleton",
+        // OCP-cure recipes (OcpCure.recipesFor) — single-step, parity-gated refactor_to_pattern plans.
+        "refactor_to_state", "refactor_to_command_dispatcher", "form_template_method");
+
+    private static final Set<String> CONTROL_FIELDS =
+        Set.of("action", "kind", "target", "filePath", "planId", "sections", "projectKey", "auto_apply");
 
     private final RefactoringChangeCache changeCache;
     private final PlanStore planStore;
@@ -413,29 +420,29 @@ class PlanRefactoringTool extends AbstractTool {
     // -------------------------------------------------------------- step building
 
     private List<PlanStep> buildSteps(String kind, JsonNode args, String filePath) {
-        return switch (kind) {
-            case "inline_singleton" ->
-                List.of(patternStep(0, "inline_singleton", args, filePath, "singleton inlined"));
-            case "replace_type_code_with_class" -> {
-                if (getStringParam(args, "newTypeName") == null) {
-                    throw new IllegalArgumentException("replace_type_code_with_class needs newTypeName.");
-                }
-                yield List.of(patternStep(0, "replace_type_code_with_class", args, filePath,
-                    "type code replaced with a class"));
-            }
-            case "compose_method" -> composeSteps(args, filePath);
-            default -> List.of();
-        };
+        if ("compose_method".equals(kind)) {
+            return composeSteps(args, filePath);
+        }
+        if ("replace_type_code_with_class".equals(kind) && getStringParam(args, "newTypeName") == null) {
+            throw new IllegalArgumentException("replace_type_code_with_class needs newTypeName.");
+        }
+        // Every other plan kind is a single, parity-gated refactor_to_pattern step (incl. the
+        // OCP-cure recipes) — the kind-specific params pass straight through to the delegate.
+        return List.of(patternStep(0, kind, args, filePath, "applied " + kind));
     }
 
+    /** A single {@code refactor_to_pattern} step carrying the caret + all kind-specific params. */
     private PlanStep patternStep(int index, String patternKind, JsonNode args, String filePath, String expected) {
         ObjectNode a = mapper.createObjectNode();
         a.put("kind", patternKind);
         a.put("filePath", filePath);
-        copyInt(args, a, "line");
-        copyInt(args, a, "column");
-        copyStr(args, a, "newTypeName");
-        copyStr(args, a, "prefix");
+        Iterator<String> names = args.fieldNames();
+        while (names.hasNext()) {
+            String f = names.next();
+            if (!CONTROL_FIELDS.contains(f)) {
+                a.set(f, args.get(f));
+            }
+        }
         return new PlanStep(index, "refactor_to_pattern", a, expected, -1);
     }
 
@@ -564,18 +571,4 @@ class PlanRefactoringTool extends AbstractTool {
         return found[0];
     }
 
-    private static void copyInt(JsonNode from, ObjectNode to, String field) {
-        if (from.has(field) && from.get(field).isNumber()) {
-            to.put(field, from.get(field).asInt());
-        }
-    }
-
-    private static void copyStr(JsonNode from, ObjectNode to, String field) {
-        if (from.has(field) && !from.get(field).isNull()) {
-            String v = from.get(field).asText();
-            if (v != null && !v.isBlank()) {
-                to.put(field, v);
-            }
-        }
-    }
 }

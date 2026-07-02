@@ -9,6 +9,7 @@ import org.goja.mcp.fixtures.TestProjectHelper;
 import org.goja.mcp.models.ToolResponse;
 import org.goja.mcp.refactoring.RefactoringChangeCache;
 import org.goja.mcp.tools.RefactoringTool;
+import org.goja.mcp.tools.smell.OcpCure;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -119,6 +120,26 @@ class RefactorPlanToolTest {
         noFile.put("action", "plan");
         noFile.put("kind", "inline_singleton");
         assertFalse(tool.execute(noFile).isSuccess());
+    }
+
+    @Test
+    @DisplayName("every OCP-cure recipe kind is a runnable single-step plan (detect -> cure -> execute)")
+    void ocpCureKinds_areRunnablePlans() {
+        for (String kind : OcpCure.recipesFor("divergent_change")) {
+            ObjectNode a = plan(kind);
+            a.put("line", 5);
+            a.put("column", 6);
+            a.put("newTypeName", "Extracted"); // harmless pass-through
+            ToolResponse r = tool.execute(a);
+            assertTrue(r.isSuccess(), () -> kind + " should plan cleanly: " + r.getError());
+            List<?> steps = (List<?>) getData(r).get("steps");
+            assertEquals(1, steps.size(), kind + " is a single-step plan");
+            Map<?, ?> s0 = (Map<?, ?>) steps.get(0);
+            assertEquals("refactor_to_pattern", s0.get("tool"));
+            JsonNode stepArgs = (JsonNode) s0.get("args");
+            assertEquals(kind, stepArgs.get("kind").asText());
+            assertEquals("Extracted", stepArgs.get("newTypeName").asText(), "kind-specific params pass through");
+        }
     }
 
     private ObjectNode section(int sl, int sc, int el, int ec, String name) {
