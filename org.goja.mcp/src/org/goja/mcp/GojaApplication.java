@@ -6,6 +6,8 @@ import org.goja.mcp.protocol.McpProtocolHandler;
 import org.goja.core.IJdtService;
 import org.goja.core.workspace.WorkspaceFileWatcher;
 import org.goja.mcp.refactoring.RefactoringChangeCache;
+import org.goja.mcp.knowledge.ExperienceStore;
+import org.goja.mcp.knowledge.H2ExperienceStore;
 import org.goja.mcp.tools.ReplaceDuplicatesTool;
 import org.goja.mcp.tools.HealthCheckTool;
 import org.goja.mcp.tools.LoadProjectTool;
@@ -79,6 +81,9 @@ public class GojaApplication implements IApplication {
     // contract (staged Changes + undo handles, TTL + LRU bounded).
     private final RefactoringChangeCache refactoringChangeCache = new RefactoringChangeCache();
     private ToolRegistry toolRegistry;
+    // Sprint 21 (v2.0): the local experience/knowledge store — workspace-scoped H2,
+    // opened at start()/closed at stop(). Backs the ExperienceAdvisor + store tools.
+    private ExperienceStore experienceStore;
     private McpProtocolHandler protocolHandler;
     private volatile WorkspaceFileWatcher workspaceWatcher;
     private volatile Transport activeTransport;
@@ -118,6 +123,9 @@ public class GojaApplication implements IApplication {
 
         // Initialize tool registry and register tools
         toolRegistry = new ToolRegistry();
+        // Sprint 21 (v2.0): open the workspace-scoped experience store before registering
+        // tools, so store-backed tools + the ExperienceAdvisor can be wired with it.
+        experienceStore = H2ExperienceStore.open(resolveDataDir());
         registerTools();
 
         // Initialize protocol handler
@@ -454,6 +462,11 @@ public class GojaApplication implements IApplication {
         if (watcher != null) {
             watcher.close();
             workspaceWatcher = null;
+        }
+        ExperienceStore store = experienceStore;
+        if (store != null) {
+            store.close();
+            experienceStore = null;
         }
     }
 }

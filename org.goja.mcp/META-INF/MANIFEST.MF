@@ -46,6 +46,8 @@ Import-Package: com.fasterxml.jackson.annotation,
  org.goja.core.project,
  org.goja.core.search,
  org.goja.core.workspace,
+ org.h2,
+ org.h2.jdbcx,
  org.osgi.framework;version="1.10.0",
  org.osgi.service.prefs,
  org.slf4j;version="2.0.0"
