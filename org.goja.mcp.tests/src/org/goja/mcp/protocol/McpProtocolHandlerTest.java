@@ -99,6 +99,25 @@ class McpProtocolHandlerTest {
     }
 
     @Test
+    @DisplayName("initialize should carry the protocol-level GOJA guide (instructions)")
+    void initialize_returnsInstructions() throws Exception {
+        String request = """
+            {"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+            """;
+
+        String response = handler.processMessage(request);
+
+        JsonNode result = objectMapper.readTree(response).get("result");
+        JsonNode instructions = result.get("instructions");
+        assertNotNull(instructions,
+            "Sprint 22: the initialize result carries the MCP instructions guide (use GOJA, not grep)");
+        String text = instructions.asText();
+        assertTrue(text.contains("search_symbols"), "guide names search_symbols");
+        assertTrue(text.contains("rename_symbol"), "guide names a refactoring tool");
+        assertTrue(text.toLowerCase().contains("grep"), "guide frames grep as the fallback");
+    }
+
+    @Test
     @DisplayName("initialize echoes the client's requested protocolVersion when supported")
     void initialize_echoesRequestedProtocolVersion_whenSupported() throws Exception {
         String request = """

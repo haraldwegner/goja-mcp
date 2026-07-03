@@ -155,6 +155,22 @@ public class McpProtocolHandler {
     );
 
     /**
+     * Sprint 22 (MCP injector): the protocol-level GUIDE. Clients that honour the MCP
+     * initialize {@code instructions} field (e.g. Claude Code) inject this into the
+     * agent's context, so "use GOJA, not grep/hand-edit for Java" travels with the
+     * connection itself — not only via a deploy-written rule block, and in every client.
+     * Kept tight (a long instruction is ignored) and pinned to the real tool surface.
+     */
+    static final String SERVER_INSTRUCTIONS = """
+        GOJA is compiler-accurate Java analysis + refactoring. For ANY Java semantic or structural task, use GOJA FIRST — not grep/rg and not a hand-edit:
+        - Find a symbol -> search_symbols; callers/usages -> find_references / get_call_hierarchy.
+        - Understand a type (members, hierarchy) -> analyze / inspect; jump to a definition -> go_to_definition.
+        - Compile / errors -> compile_workspace + get_diagnostics.
+        - Rename (updates ALL references) -> rename_symbol; move / extract / change signature -> move / extract / change_method_signature.
+        - Duplicate a class -> generate(kind=copy_class); any structural change -> refactoring(action=plan) then apply_plan (parity-gated, reversible).
+        grep over .java misses/overmatches symbols and a hand-edit misses references. Use grep only for non-Java / non-semantic text (build files, configs, logs).""";
+
+    /**
      * Handle initialize request - MCP handshake.
      */
     private Object handleInitialize(JsonNode params) {
@@ -201,6 +217,10 @@ public class McpProtocolHandler {
         Map<String, Object> capabilities = new LinkedHashMap<>();
         capabilities.put("tools", Map.of());  // We support tools
         result.put("capabilities", capabilities);
+
+        // Sprint 22 (MCP injector): the protocol-level guide — "use GOJA, not grep".
+        // Clients that honour the initialize `instructions` field inject it into context.
+        result.put("instructions", SERVER_INSTRUCTIONS);
 
         return result;
     }
