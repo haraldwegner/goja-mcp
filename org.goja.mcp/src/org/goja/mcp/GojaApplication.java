@@ -10,6 +10,7 @@ import org.goja.mcp.knowledge.ExperienceStore;
 import org.goja.mcp.knowledge.H2ExperienceStore;
 import org.goja.mcp.tools.ReplaceDuplicatesTool;
 import org.goja.mcp.tools.ExperienceTool;
+import org.goja.mcp.knowledge.ExperienceAdvisor;
 import org.goja.mcp.tools.HealthCheckTool;
 import org.goja.mcp.tools.LoadProjectTool;
 import org.goja.mcp.tools.SearchSymbolsTool;
@@ -412,7 +413,10 @@ public class GojaApplication implements IApplication {
 
         // Sprint 16b/A (v1.1.1): refactoring(action) collapses the staged apply/undo/
         // inspect lifecycle (changes + undo handles in refactoringChangeCache, 1h TTL, LRU).
-        toolRegistry.register(new RefactoringTool(() -> jdtService, refactoringChangeCache));
+        // Sprint 21 (v2.0): inject the store-backed advisor so the plan lifecycle consults +
+        // records against the knowledge store (fills the Sprint-18 seam; was NoOpAdvisor).
+        toolRegistry.register(new RefactoringTool(() -> jdtService, refactoringChangeCache,
+            new ExperienceAdvisor(experienceStore, () -> jdtService)));
         // Sprint 14b: composite closing the find_duplicate_code loop.
         toolRegistry.register(new ReplaceDuplicatesTool(() -> jdtService, refactoringChangeCache));
 

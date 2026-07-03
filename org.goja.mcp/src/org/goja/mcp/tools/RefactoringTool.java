@@ -2,6 +2,7 @@ package org.goja.mcp.tools;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.goja.core.IJdtService;
+import org.goja.mcp.domain.Advisor;
 import org.goja.mcp.domain.NoOpAdvisor;
 import org.goja.mcp.models.ToolResponse;
 import org.goja.mcp.refactoring.PlanStore;
@@ -30,13 +31,24 @@ public class RefactoringTool extends AbstractTool {
     private final InspectRefactoringTool inspect;
     private final PlanRefactoringTool planTool;
 
+    /** Back-compat: no store wired — the advisor is the Sprint-18 {@link NoOpAdvisor}. */
     public RefactoringTool(Supplier<IJdtService> serviceSupplier, RefactoringChangeCache cache) {
+        this(serviceSupplier, cache, new NoOpAdvisor());
+    }
+
+    /**
+     * Sprint 21 Stage 3 — inject the {@link Advisor} (the store-backed
+     * {@code ExperienceAdvisor} in production) so the plan lifecycle consults + records
+     * against the knowledge store.
+     */
+    public RefactoringTool(Supplier<IJdtService> serviceSupplier, RefactoringChangeCache cache,
+                           Advisor advisor) {
         super(serviceSupplier);
         this.apply = new ApplyRefactoringTool(serviceSupplier, cache);
         this.undo = new UndoRefactoringTool(serviceSupplier, cache);
         this.inspect = new InspectRefactoringTool(serviceSupplier, cache);
         // Process-lived plan store so a planId from `plan` survives to apply_plan/inspect_plan/undo_plan.
-        this.planTool = new PlanRefactoringTool(serviceSupplier, cache, new PlanStore(), new NoOpAdvisor());
+        this.planTool = new PlanRefactoringTool(serviceSupplier, cache, new PlanStore(), advisor);
     }
 
     @Override

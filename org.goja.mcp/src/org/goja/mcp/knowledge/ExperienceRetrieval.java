@@ -103,21 +103,31 @@ public final class ExperienceRetrieval {
 
     // --- Phase 2: fit gate (scope-containment) -----------------------------------------
 
-    /** True iff the entry's scope contains at least one present cue. OR over cues. */
+    /**
+     * True iff the entry's scope contains the cue. <b>Subject</b> cues (symbol / package /
+     * symptom / external_system) locate the knowledge — when any is present the entry must
+     * fit on a subject (OR over subjects). <b>operation</b> is a <b>refinement</b>, not an
+     * independent matcher: it narrows a subject fit (an entry declaring a <em>different</em>
+     * operation is dropped) and only stands alone in an operation-only query. This stops a
+     * same-kind failure on an unrelated symbol from leaking through on the operation alone.
+     */
     boolean fits(StoredEntry e, RecallQuery q) {
-        if (q.hasSymbol() && symbolFits(e, q.symbol())) {
-            return true;
+        boolean subjectPresent =
+            q.hasSymbol() || q.hasPackage() || q.hasSymptom() || q.hasExternalSystem();
+        if (!subjectPresent) {
+            // Operation-only (refinement) query: fit iff the entry is that operation.
+            return q.hasOperation() && eqIgnoreCase(e.operation(), q.operation());
         }
-        if (q.hasPackage() && packageFits(e, q.packageName())) {
-            return true;
+        boolean subjectFit = (q.hasSymbol() && symbolFits(e, q.symbol()))
+            || (q.hasPackage() && packageFits(e, q.packageName()))
+            || (q.hasSymptom() && symptomFits(e, q.symptom()))
+            || (q.hasExternalSystem() && eqIgnoreCase(e.externalSystem(), q.externalSystem()));
+        if (!subjectFit) {
+            return false;
         }
-        if (q.hasOperation() && eqIgnoreCase(e.operation(), q.operation())) {
-            return true;
-        }
-        if (q.hasExternalSystem() && eqIgnoreCase(e.externalSystem(), q.externalSystem())) {
-            return true;
-        }
-        return q.hasSymptom() && symptomFits(e, q.symptom());
+        // Refinement: an entry that declares a DIFFERENT operation is not about this one.
+        return !(q.hasOperation() && e.operation() != null && !e.operation().isBlank()
+            && !eqIgnoreCase(e.operation(), q.operation()));
     }
 
     /** Symbol cue fits when the entry is scoped to that symbol (equal/enclosing) or to a
