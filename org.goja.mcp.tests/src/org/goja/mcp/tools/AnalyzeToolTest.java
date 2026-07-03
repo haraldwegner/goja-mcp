@@ -29,10 +29,11 @@ class AnalyzeToolTest {
     private ObjectMapper mapper;
     private String calculatorPath;
     private Map<String, AbstractTool> narrowByKind;
+    private JdtServiceImpl service;
 
     @BeforeEach
     void setUp() throws Exception {
-        JdtServiceImpl service = helper.loadProject("simple-maven");
+        service = helper.loadProject("simple-maven");
         tool = new AnalyzeTool(() -> service);
         mapper = new ObjectMapper();
         calculatorPath = helper.getFixturePath("simple-maven")
@@ -61,9 +62,9 @@ class AnalyzeToolTest {
         Map<String, Object> schema = tool.getInputSchema();
         Map<String, Object> props = (Map<String, Object>) schema.get("properties");
         List<String> kinds = (List<String>) ((Map<String, Object>) props.get("kind")).get("enum");
-        assertEquals(9, kinds.size());
+        assertEquals(10, kinds.size());
         assertTrue(kinds.containsAll(List.of("file", "type", "method", "javadocs", "naming",
-            "nullness", "change_impact", "control_flow", "data_flow")));
+            "nullness", "change_impact", "control_flow", "data_flow", "symbol")));
         assertTrue(props.containsKey("subkind"));
         assertTrue(((List<String>) schema.get("required")).contains("kind"));
     }
@@ -107,5 +108,61 @@ class AnalyzeToolTest {
     void missing_unknown_kind_invalid() {
         assertFalse(tool.execute(args(null)).isSuccess());
         assertFalse(tool.execute(args("typo")).isSuccess());
+    }
+
+    /** kind=symbol at a position; ZERO-BASED coords. */
+    private ObjectNode symbolArgs(int line, int column) {
+        ObjectNode n = mapper.createObjectNode();
+        n.put("kind", "symbol");
+        n.put("filePath", calculatorPath);
+        n.put("line", line);
+        n.put("column", column);
+        return n;
+    }
+
+    @Test
+    @DisplayName("kind=symbol composes definition + symbol info + references (parity with the narrow delegates)")
+    void symbol_composesDefinitionTypeAndReferences() {
+        // `lastResult` field declaration (line 6, col 16) — has in-class references.
+        int line = 6, column = 16;
+        ToolResponse r = tool.execute(symbolArgs(line, column));
+        assertTrue(r.isSuccess(), "analyze kind=symbol should resolve lastResult");
+
+        JsonNode data = mapper.valueToTree(r.getData());
+        assertTrue(data.has("definition"), "composite carries definition");
+        assertTrue(data.has("symbol"), "composite carries symbol");
+        assertTrue(data.has("references"), "composite carries references");
+
+        // Parity: each section equals calling the narrow delegate directly at the same position.
+        ObjectNode pos = mapper.createObjectNode();
+        pos.put("filePath", calculatorPath);
+        pos.put("line", line);
+        pos.put("column", column);
+        ObjectNode posCapped = pos.deepCopy();
+        posCapped.put("maxResults", AnalyzeSymbolTool.REFERENCE_CAP);
+
+        JsonNode def = mapper.valueToTree(new GoToDefinitionTool(() -> service).execute(pos).getData());
+        JsonNode sym = mapper.valueToTree(new GetSymbolInfoTool(() -> service).execute(pos).getData());
+        JsonNode refs = mapper.valueToTree(new FindReferencesTool(() -> service).execute(posCapped).getData());
+
+        assertEquals(def, data.get("definition"), "definition parity");
+        assertEquals(sym, data.get("symbol"), "symbol parity");
+        assertEquals(refs, data.get("references"), "references parity");
+        assertTrue(data.get("references").get("totalReferences").asInt() > 0, "lastResult has usages");
+    }
+
+    @Test
+    @DisplayName("kind=symbol with no references still returns definition + symbol (succeeds)")
+    void symbol_withNoReferences_stillReturnsDefinitionAndType() {
+        // `getLastResult` method (line 45, col 15) — uncalled in this single-file project.
+        ToolResponse r = tool.execute(symbolArgs(45, 15));
+        assertTrue(r.isSuccess(), "kind=symbol succeeds even with zero references");
+
+        JsonNode data = mapper.valueToTree(r.getData());
+        assertTrue(data.has("definition"), "definition present");
+        assertTrue(data.has("symbol"), "symbol present");
+        // references present but empty — not an error.
+        assertTrue(data.has("references"), "references section present");
+        assertEquals(0, data.get("references").get("totalReferences").asInt(), "no usages");
     }
 }

@@ -24,7 +24,7 @@ public class AnalyzeTool extends AbstractTool {
 
     private static final List<String> KINDS = List.of(
         "file", "type", "method", "javadocs", "naming", "nullness",
-        "change_impact", "control_flow", "data_flow");
+        "change_impact", "control_flow", "data_flow", "symbol");
 
     /** Kinds whose delegate reads its own {@code kind} param (aliased to subkind). */
     private static final List<String> SUBKIND_KINDS = List.of("javadocs", "naming", "nullness");
@@ -38,6 +38,7 @@ public class AnalyzeTool extends AbstractTool {
     private final AnalyzeChangeImpactTool changeImpact;
     private final AnalyzeControlFlowTool controlFlow;
     private final AnalyzeDataFlowTool dataFlow;
+    private final AnalyzeSymbolTool symbol;
 
     public AnalyzeTool(Supplier<IJdtService> serviceSupplier) {
         super(serviceSupplier);
@@ -50,6 +51,7 @@ public class AnalyzeTool extends AbstractTool {
         this.changeImpact = new AnalyzeChangeImpactTool(serviceSupplier);
         this.controlFlow = new AnalyzeControlFlowTool(serviceSupplier);
         this.dataFlow = new AnalyzeDataFlowTool(serviceSupplier);
+        this.symbol = new AnalyzeSymbolTool(serviceSupplier);
     }
 
     @Override
@@ -74,6 +76,7 @@ public class AnalyzeTool extends AbstractTool {
             - change_impact — blast radius of editing the symbol. Needs: filePath, line, column.
             - control_flow  — control-flow of the method. Needs: filePath, line, column.
             - data_flow     — data-flow of the method. Needs: filePath, line, column.
+            - symbol        — understand a symbol in one call: definition + type + references. Needs: filePath, line, column.
 
             For javadocs/naming/nullness, pass the analyzer's own variant as `subkind`.
             Requires load_project to be called first.
@@ -121,6 +124,7 @@ public class AnalyzeTool extends AbstractTool {
             case "change_impact" -> changeImpact.executeWithService(service, args);
             case "control_flow"  -> controlFlow.executeWithService(service, args);
             case "data_flow"     -> dataFlow.executeWithService(service, args);
+            case "symbol"        -> symbol.executeWithService(service, args);
             default -> ToolResponse.invalidParameter("kind",
                 "Unknown kind '" + kind + "'. Allowed: " + KINDS);
         };
