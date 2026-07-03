@@ -13,6 +13,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -223,6 +224,100 @@ public final class H2ExperienceStore implements ExperienceStore {
         } catch (Exception e) {
             throw new IllegalStateException("failed to get entry: " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public synchronized List<StoredEntry> query(RecallQuery q) {
+        if (q == null || q.isEmpty()) {
+            return List.of();
+        }
+        List<String> clauses = new ArrayList<>();
+        List<Object> params = new ArrayList<>();
+        if (q.hasSymbol()) {
+            // entry symbol equals/encloses the cue, cue's package holds it, or entry symbol is under the cue
+            clauses.add("(symbol_fqn = ? OR ? LIKE symbol_fqn || '.%' OR ? LIKE package_name || '.%'"
+                + " OR symbol_fqn LIKE ? || '.%')");
+            params.add(q.symbol());
+            params.add(q.symbol());
+            params.add(q.symbol());
+            params.add(q.symbol());
+        }
+        if (q.hasPackage()) {
+            clauses.add("(package_name = ? OR ? LIKE package_name || '.%' OR package_name LIKE ? || '.%'"
+                + " OR symbol_fqn LIKE ? || '.%')");
+            params.add(q.packageName());
+            params.add(q.packageName());
+            params.add(q.packageName());
+            params.add(q.packageName());
+        }
+        if (q.hasOperation()) {
+            clauses.add("operation = ?");
+            params.add(q.operation());
+        }
+        if (q.hasExternalSystem()) {
+            clauses.add("LOWER(external_system) = LOWER(?)");
+            params.add(q.externalSystem());
+        }
+        if (q.hasSymptom()) {
+            String like = "%" + normalize(q.symptom()) + "%";
+            clauses.add("(id IN (SELECT entry_id FROM experience_symptom WHERE symptom LIKE ?)"
+                + " OR LOWER(summary) LIKE ?)");
+            params.add(like);
+            params.add(like);
+        }
+        String sql = "SELECT id,type,symbol_fqn,package_name,operation,status,confidence,"
+            + "external_system,summary,body_json,created_at FROM experience_entry WHERE ("
+            + String.join(" OR ", clauses) + ") AND status <> 'rejected' ORDER BY created_at DESC";
+
+        List<StoredEntry> out = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            for (int i = 0; i < params.size(); i++) {
+                ps.setObject(i + 1, params.get(i));
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String id = rs.getString("id");
+                    Map<String, Object> body;
+                    try {
+                        body = json.readValue(rs.getString("body_json"), LinkedHashMap.class);
+                    } catch (Exception e) {
+                        body = new LinkedHashMap<>();
+                    }
+                    Timestamp ts = rs.getTimestamp("created_at");
+                    out.add(new StoredEntry(
+                        id,
+                        rs.getString("type"),
+                        rs.getString("symbol_fqn"),
+                        rs.getString("package_name"),
+                        rs.getString("operation"),
+                        rs.getString("status"),
+                        rs.getString("confidence"),
+                        rs.getString("external_system"),
+                        rs.getString("summary"),
+                        loadSymptoms(id),
+                        ts == null ? null : ts.toInstant(),
+                        body));
+                }
+            }
+            return out;
+        } catch (SQLException e) {
+            throw new IllegalStateException("failed to query entries: " + e.getMessage(), e);
+        }
+    }
+
+    private List<String> loadSymptoms(String id) throws SQLException {
+        List<String> symptoms = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT symptom FROM experience_symptom WHERE entry_id = ?")) {
+            ps.setString(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    symptoms.add(rs.getString(1));
+                }
+            }
+        }
+        return symptoms;
     }
 
     @Override

@@ -1,5 +1,6 @@
 package org.goja.mcp.knowledge;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -25,6 +26,14 @@ public interface ExperienceStore extends AutoCloseable {
 
     /** Fetch an entry's stored document by id, or empty when absent. */
     Optional<Map<String, Object>> get(String id);
+
+    /**
+     * Phase-1 candidate gather (Sprint 21 Stage 2): keyword/alias-match any present cue over
+     * the indexed scope columns + the symptom child table. Deliberately <em>generous</em> —
+     * the {@link ExperienceRetrieval} fit-gate does the precise scope-containment. Rejected
+     * entries are excluded. An empty query returns an empty list.
+     */
+    List<StoredEntry> query(RecallQuery query);
 
     /** Update an entry's curation status; returns true when a row changed. */
     boolean setStatus(String id, String status);

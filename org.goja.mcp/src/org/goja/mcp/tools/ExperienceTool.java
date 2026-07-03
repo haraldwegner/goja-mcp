@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.goja.core.IJdtService;
 import org.goja.mcp.knowledge.Confidence;
 import org.goja.mcp.knowledge.ExperienceEntry;
+import org.goja.mcp.knowledge.ExperienceRetrieval;
 import org.goja.mcp.knowledge.ExperienceStore;
+import org.goja.mcp.knowledge.RecallQuery;
 import org.goja.mcp.knowledge.SymbolFact;
 import org.goja.mcp.models.ToolResponse;
 
@@ -25,15 +27,16 @@ import java.util.function.Supplier;
  */
 public final class ExperienceTool implements Tool {
 
-    private static final List<String> KINDS = List.of("record");
+    private static final List<String> KINDS = List.of("record", "recall");
 
-    // Held for Stage 2 (recall resolves scope/pointers through JDT).
     private final Supplier<IJdtService> serviceSupplier;
     private final ExperienceStore store;
+    private final ExperienceRetrieval retrieval;
 
     public ExperienceTool(Supplier<IJdtService> serviceSupplier, ExperienceStore store) {
         this.serviceSupplier = serviceSupplier;
         this.store = store;
+        this.retrieval = new ExperienceRetrieval(store, serviceSupplier);
     }
 
     @Override
@@ -44,19 +47,24 @@ public final class ExperienceTool implements Tool {
     @Override
     public String getDescription() {
         return """
-            Local experience/knowledge store — record (and, in a later release, recall)
-            grounded lessons, domain facts, failure modes and hazards for THIS codebase.
+            Local experience/knowledge store — record and recall grounded lessons, domain
+            facts, failure modes and hazards for THIS codebase.
 
-            USAGE: experience(kind="record", type, summary, confidence?, symbol?/packages?/symbols?, ...)
+            USAGE: experience(kind="record", type, summary, ...)
+                   experience(kind="recall", symbol?/package?/operation?/symptom?/external_system?)
 
             Kinds:
             - record — store an observation as a candidate entry. Needs: type, summary.
               Optional: confidence (low|medium|high); anchor with symbol (FQN) OR
               packages[]/symbols[]; details, operation, scope_kind, symptoms[],
               links[{rel,target}], fault_owner, external_system, status, exceptions[].
+            - recall — TERMINAL retrieval for a cue. Give any of symbol / package / operation
+              / symptom / external_system. Returns exactly the fitting node(s) with pointers
+              resolved to current code, OR an authoritative absence — never a similarity pile.
 
             The store is local + workspace-scoped. Record after a surprising failure, a
-            discovered invariant, or a hazard the compiler cannot tell you.
+            discovered invariant, or a hazard the compiler cannot tell you; recall before a
+            refactor or before asserting a root cause.
             """;
     }
 
@@ -69,8 +77,14 @@ public final class ExperienceTool implements Tool {
         Map<String, Object> kind = new LinkedHashMap<>();
         kind.put("type", "string");
         kind.put("enum", KINDS);
-        kind.put("description", "Which store operation. Stage 1: record.");
+        kind.put("description", "Which store operation: record (write) or recall (terminal retrieval).");
         props.put("kind", kind);
+
+        // recall cues (singular; record uses packages[]/symbols[]/symptoms[]).
+        props.put("package", Map.of("type", "string",
+            "description", "recall: a package you are working in (cue)."));
+        props.put("symptom", Map.of("type", "string",
+            "description", "recall: an observed symptom / cue phrase (alias-normalized)."));
 
         props.put("type", Map.of("type", "string",
             "description", "record: entry type (domain_fact / lesson / failure_mode / api_contract / naming_convention / ...)."));
@@ -113,9 +127,20 @@ public final class ExperienceTool implements Tool {
         }
         return switch (kind) {
             case "record" -> record(args);
+            case "recall" -> recall(args);
             default -> ToolResponse.invalidParameter("kind",
                 "Unknown kind '" + kind + "'. Allowed: " + KINDS);
         };
+    }
+
+    private ToolResponse recall(JsonNode args) {
+        RecallQuery q = new RecallQuery(
+            text(args, "symbol"),
+            text(args, "package"),
+            text(args, "operation"),
+            text(args, "symptom"),
+            text(args, "external_system"));
+        return ToolResponse.success(retrieval.recall(q));
     }
 
     private ToolResponse record(JsonNode args) {
