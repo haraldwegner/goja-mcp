@@ -69,20 +69,27 @@ public final class H2ExperienceStore implements ExperienceStore {
         try (Statement s = conn.createStatement()) {
             s.execute("""
                 CREATE TABLE IF NOT EXISTS experience_entry (
-                    id           VARCHAR(64) PRIMARY KEY,
-                    type         VARCHAR(64),
-                    symbol_fqn   VARCHAR(1024),
-                    package_name VARCHAR(512),
-                    status       VARCHAR(32) DEFAULT 'candidate',
-                    confidence   VARCHAR(16),
-                    summary      VARCHAR(4096),
-                    body_json    CLOB,
-                    created_at   TIMESTAMP,
-                    updated_at   TIMESTAMP
+                    id              VARCHAR(64) PRIMARY KEY,
+                    type            VARCHAR(64),
+                    scope_kind      VARCHAR(32),
+                    symbol_fqn      VARCHAR(1024),
+                    package_name    VARCHAR(512),
+                    operation       VARCHAR(128),
+                    status          VARCHAR(32) DEFAULT 'candidate',
+                    confidence      VARCHAR(16),
+                    fault_owner     VARCHAR(16),
+                    external_system VARCHAR(256),
+                    summary         VARCHAR(4096),
+                    body_json       CLOB,
+                    created_at      TIMESTAMP,
+                    updated_at      TIMESTAMP
                 )""");
             s.execute("CREATE INDEX IF NOT EXISTS ix_entry_type ON experience_entry(type)");
             s.execute("CREATE INDEX IF NOT EXISTS ix_entry_symbol ON experience_entry(symbol_fqn)");
             s.execute("CREATE INDEX IF NOT EXISTS ix_entry_status ON experience_entry(status)");
+            s.execute("CREATE INDEX IF NOT EXISTS ix_entry_operation ON experience_entry(operation)");
+            s.execute("CREATE INDEX IF NOT EXISTS ix_entry_scope_kind ON experience_entry(scope_kind)");
+            s.execute("CREATE INDEX IF NOT EXISTS ix_entry_ext_system ON experience_entry(external_system)");
             // Multi-valued children — created now, populated from Stage 1/2.
             s.execute("""
                 CREATE TABLE IF NOT EXISTS experience_symptom (
@@ -102,34 +109,103 @@ public final class H2ExperienceStore implements ExperienceStore {
 
     @Override
     public synchronized String put(SymbolFact fact) {
-        Map<String, Object> map = fact.toMap();
+        return put(ExperienceEntry.candidate(fact));
+    }
+
+    @Override
+    public synchronized String put(ExperienceEntry entry) {
+        Map<String, Object> factMap = entry.fact().toMap();
         String id = UUID.randomUUID().toString();
         String body;
         try {
-            body = json.writeValueAsString(map);
+            body = json.writeValueAsString(entry.toMap());
         } catch (Exception e) {
-            throw new IllegalStateException("failed to serialize fact: " + e.getMessage(), e);
+            throw new IllegalStateException("failed to serialize entry: " + e.getMessage(), e);
         }
-        try (PreparedStatement ps = conn.prepareStatement(
-                "INSERT INTO experience_entry"
-                + "(id,type,symbol_fqn,package_name,status,confidence,summary,body_json,created_at,updated_at) "
-                + "VALUES (?,?,?,?,?,?,?,?,?,?)")) {
-            Timestamp now = Timestamp.from(Instant.now());
-            ps.setString(1, id);
-            ps.setString(2, str(map.get("type")));
-            ps.setString(3, str(map.get("symbol")));
-            ps.setString(4, firstPackage(map));
-            ps.setString(5, "candidate");
-            ps.setString(6, str(map.get("confidence")));
-            ps.setString(7, str(map.get("summary")));
-            ps.setString(8, body);
-            ps.setTimestamp(9, now);
-            ps.setTimestamp(10, now);
-            ps.executeUpdate();
+        try {
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "INSERT INTO experience_entry"
+                    + "(id,type,scope_kind,symbol_fqn,package_name,operation,status,confidence,"
+                    + "fault_owner,external_system,summary,body_json,created_at,updated_at) "
+                    + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+                Timestamp now = Timestamp.from(Instant.now());
+                ps.setString(1, id);
+                ps.setString(2, str(factMap.get("type")));
+                ps.setString(3, entry.scopeKind());
+                ps.setString(4, str(factMap.get("symbol")));
+                ps.setString(5, firstPackage(factMap));
+                ps.setString(6, entry.operation());
+                ps.setString(7, entry.status());
+                ps.setString(8, str(factMap.get("confidence")));
+                ps.setString(9, entry.faultOwner());
+                ps.setString(10, entry.externalSystem());
+                ps.setString(11, str(factMap.get("summary")));
+                ps.setString(12, body);
+                ps.setTimestamp(13, now);
+                ps.setTimestamp(14, now);
+                ps.executeUpdate();
+            }
+            insertSymptoms(id, entry.symptoms());
+            insertLinks(id, entry.links());
             return id;
         } catch (SQLException e) {
             throw new IllegalStateException("failed to put entry: " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public synchronized boolean setStatus(String id, String status) {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "UPDATE experience_entry SET status = ?, updated_at = ? WHERE id = ?")) {
+            ps.setString(1, status);
+            ps.setTimestamp(2, Timestamp.from(Instant.now()));
+            ps.setString(3, id);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            throw new IllegalStateException("failed to set status: " + e.getMessage(), e);
+        }
+    }
+
+    /** Symptoms are alias-normalized (lower/trim/collapse) so paraphrases index together. */
+    private void insertSymptoms(String id, List<String> symptoms) throws SQLException {
+        if (symptoms.isEmpty()) {
+            return;
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "MERGE INTO experience_symptom(entry_id, symptom) VALUES (?, ?)")) {
+            for (String s : symptoms) {
+                String norm = normalize(s);
+                if (norm.isEmpty()) {
+                    continue;
+                }
+                ps.setString(1, id);
+                ps.setString(2, norm);
+                ps.executeUpdate();
+            }
+        }
+    }
+
+    private void insertLinks(String id, List<ExperienceEntry.Link> links) throws SQLException {
+        if (links.isEmpty()) {
+            return;
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "MERGE INTO experience_link(entry_id, rel, target) VALUES (?, ?, ?)")) {
+            for (ExperienceEntry.Link l : links) {
+                if (l.rel() == null || l.target() == null) {
+                    continue;
+                }
+                ps.setString(1, id);
+                ps.setString(2, l.rel());
+                ps.setString(3, l.target());
+                ps.executeUpdate();
+            }
+        }
+    }
+
+    /** Alias normalization: lowercased, trimmed, whitespace-collapsed. */
+    static String normalize(String s) {
+        return s == null ? "" : s.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
     }
 
     @Override

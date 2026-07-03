@@ -9,6 +9,7 @@ import org.goja.mcp.refactoring.RefactoringChangeCache;
 import org.goja.mcp.knowledge.ExperienceStore;
 import org.goja.mcp.knowledge.H2ExperienceStore;
 import org.goja.mcp.tools.ReplaceDuplicatesTool;
+import org.goja.mcp.tools.ExperienceTool;
 import org.goja.mcp.tools.HealthCheckTool;
 import org.goja.mcp.tools.LoadProjectTool;
 import org.goja.mcp.tools.SearchSymbolsTool;
@@ -414,6 +415,11 @@ public class GojaApplication implements IApplication {
         toolRegistry.register(new RefactoringTool(() -> jdtService, refactoringChangeCache));
         // Sprint 14b: composite closing the find_duplicate_code loop.
         toolRegistry.register(new ReplaceDuplicatesTool(() -> jdtService, refactoringChangeCache));
+
+        // Sprint 21 (v2.0): the local experience/knowledge store front door.
+        // experience(kind=record|...) — writes now, recall/load/maintenance land in
+        // later stages. Backed by the store opened in start(), closed in stop().
+        toolRegistry.register(new ExperienceTool(() -> jdtService, experienceStore));
     }
 
     private void runMessageLoop(TransportConfig config) {

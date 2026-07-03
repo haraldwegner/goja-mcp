@@ -20,8 +20,14 @@ public interface ExperienceStore extends AutoCloseable {
     /** Persist a fact as a {@code candidate} entry; returns the generated entry id. */
     String put(SymbolFact fact);
 
+    /** Persist a full entry (with retrieval facets: status/scope/operation/symptoms/links). */
+    String put(ExperienceEntry entry);
+
     /** Fetch an entry's stored document by id, or empty when absent. */
     Optional<Map<String, Object>> get(String id);
+
+    /** Update an entry's curation status; returns true when a row changed. */
+    boolean setStatus(String id, String status);
 
     /** Total entry count — diagnostics + tests. */
     long count();
