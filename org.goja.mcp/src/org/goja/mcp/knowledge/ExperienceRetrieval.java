@@ -174,20 +174,36 @@ public final class ExperienceRetrieval {
 
     static String renderEntryLine(Map<String, Object> e) {
         StringBuilder sb = new StringBuilder();
-        sb.append('[').append(e.get("type")).append("] ").append(e.get("summary"));
+        sb.append('[').append(san(e.get("type"))).append("] ").append(san(e.get("summary")));
         Object status = e.get("status");
         if (status != null) {
-            sb.append(" (").append(status).append(')');
+            sb.append(" (").append(san(status)).append(')');
         }
         Object details = e.get("details");
         if (details != null) {
-            String d = details.toString();
+            String d = san(details);
             if (d.length() > 160) {
                 d = d.substring(0, 157) + "...";
             }
             sb.append(" — ").append(d);
         }
         return sb.toString();
+    }
+
+    /**
+     * Keep a rendered line safe for the push hook's double-encode round-trip + JSON re-emit:
+     * strip quotes / backslashes / control chars (line breaks collapse to spaces), so the
+     * bash envelope-peel and the {@code additionalContext} JSON never break on a stray char.
+     */
+    private static String san(Object o) {
+        if (o == null) {
+            return "";
+        }
+        return o.toString()
+            .replace('\\', '/')
+            .replace('"', '\'')
+            .replaceAll("[\\r\\n\\t]+", " ")
+            .trim();
     }
 
     // --- Phase 2: fit gate (scope-containment) -----------------------------------------
