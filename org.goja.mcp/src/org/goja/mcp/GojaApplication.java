@@ -225,26 +225,61 @@ public class GojaApplication implements IApplication {
     }
 
     /**
-     * Sprint 21a (item B): open the experience store, stamp provenance from
-     * {@code workspace.json}, and degrade instead of dying — a store that refuses to open
-     * (e.g. schema written by a NEWER resident) falls back to in-memory with a loud log,
-     * so the server still starts and recall answers with absence rather than errors.
+     * Sprint 21a (items A+B+H): open the experience store, stamp provenance, recover
+     * orphaned session stores, and degrade instead of dying — a store that refuses to
+     * open (e.g. schema written by a NEWER resident) falls back to in-memory with a loud
+     * log, so the server still starts and recall answers with absence rather than errors.
+     *
+     * <p>Mode ({@code -Dgoja.experience.store}): {@code shared} (DEFAULT — the user-level
+     * store, knowledge spans workspaces) · {@code workspace} (per-workspace file at the
+     * STABLE workspace root — never the launcher's session dir, which is deleted on clean
+     * shutdown) · {@code memory} · any other value = an explicit store directory.</p>
      */
     private ExperienceStore openExperienceStore() {
         Path dataDir = resolveDataDir();
+        Path workspaceRoot = resolveWorkspaceRoot(dataDir);
+        String mode = System.getProperty("goja.experience.store", "shared").trim();
         try {
-            H2ExperienceStore store = H2ExperienceStore.open(dataDir);
-            Path workspaceJson = findWorkspaceJson(dataDir);
+            H2ExperienceStore store = switch (mode) {
+                case "memory" -> H2ExperienceStore.openMemory();
+                case "workspace" -> H2ExperienceStore.open(workspaceRoot);
+                case "", "shared" -> H2ExperienceStore.openShared();
+                default -> H2ExperienceStore.openAt(Path.of(mode));
+            };
+            Path workspaceJson = workspaceRoot != null
+                    && Files.isRegularFile(workspaceRoot.resolve("workspace.json"))
+                ? workspaceRoot.resolve("workspace.json")
+                : findWorkspaceJson(dataDir);
             if (workspaceJson != null) {
                 String[] prov = readProvenance(workspaceJson);
                 store.setProvenance(prov[0], prov[1]);
             }
+            // One-time sweep: pre-21a stores stranded in session-isolation dirs (item A).
+            store.recoverOrphans(workspaceRoot);
             return store;
         } catch (Exception e) {
             log.error("Experience store unavailable ({}); continuing with a NON-PERSISTENT "
                 + "in-memory store", e.getMessage());
-            return H2ExperienceStore.open(null);
+            return H2ExperienceStore.openMemory();
         }
+    }
+
+    /**
+     * The STABLE workspace root: the launcher-published original {@code -data}
+     * ({@code goja.workspace.root}) wins; else walk up from the OSGi data dir to where
+     * {@code workspace.json} lives; else the data dir itself. Never the session subdir
+     * when the launcher is in play.
+     */
+    static Path resolveWorkspaceRoot(Path dataDir) {
+        String prop = System.getProperty("goja.workspace.root");
+        if (prop != null && !prop.isBlank()) {
+            return Path.of(prop);
+        }
+        if (dataDir == null) {
+            return null;
+        }
+        Path workspaceJson = findWorkspaceJson(dataDir);
+        return workspaceJson != null ? workspaceJson.getParent() : dataDir;
     }
 
     /**

@@ -90,6 +90,37 @@ class GojaApplicationAutoLoadTest {
         assertNull(found, "directory should not match isRegularFile probe");
     }
 
+    // --- Sprint 21a (item A): stable workspace root resolution ----------------------------
+
+    @Test
+    @DisplayName("resolveWorkspaceRoot prefers the launcher-published goja.workspace.root property")
+    void resolveWorkspaceRoot_prefersLauncherProperty(@TempDir Path real, @TempDir Path other) {
+        System.setProperty("goja.workspace.root", real.toString());
+        try {
+            assertEquals(real, GojaApplication.resolveWorkspaceRoot(other));
+        } finally {
+            System.clearProperty("goja.workspace.root");
+        }
+    }
+
+    @Test
+    @DisplayName("resolveWorkspaceRoot walks up to the workspace.json dir; falls back to dataDir; null-safe")
+    void resolveWorkspaceRoot_walkUpAndFallback(@TempDir Path root, @TempDir Path bareRoot)
+            throws Exception {
+        Files.writeString(root.resolve("workspace.json"), "{\"name\":\"T\",\"projects\":[],\"version\":1}");
+        Path sessionDir = Files.createDirectory(root.resolve("abc12345"));
+        assertEquals(root.toRealPath(),
+            GojaApplication.resolveWorkspaceRoot(sessionDir).toRealPath(),
+            "session dir resolves to its workspace.json parent");
+
+        // A root with no workspace.json anywhere (own @TempDir — the parent must not have one).
+        Path bare = Files.createDirectory(bareRoot.resolve("bare"));
+        assertEquals(bare, GojaApplication.resolveWorkspaceRoot(bare),
+            "no workspace.json anywhere → the data dir itself");
+
+        assertNull(GojaApplication.resolveWorkspaceRoot(null));
+    }
+
     // --- Sprint 21a (item B): provenance facets from workspace.json -----------------------
 
     @Test

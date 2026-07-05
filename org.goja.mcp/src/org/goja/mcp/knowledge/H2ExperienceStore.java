@@ -5,6 +5,8 @@ import org.h2.jdbcx.JdbcDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -14,6 +16,7 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,14 +36,17 @@ public final class H2ExperienceStore implements ExperienceStore {
 
     private final ObjectMapper json = new ObjectMapper();
     private final Connection conn;
+    /** The backing {@code .mv.db} file (null for in-memory) — self-exclusion in recovery. */
+    private final Path storeFile;
 
     // Sprint 21a (item B): provenance stamped on every write; set once at store-open from
     // workspace.json. Null when unknown (manual launches, tests).
     private volatile String workspaceId;
     private volatile String projectId;
 
-    private H2ExperienceStore(Connection conn, Path storeDir) throws SQLException {
+    private H2ExperienceStore(Connection conn, Path storeDir, Path storeFile) throws SQLException {
         this.conn = conn;
+        this.storeFile = storeFile;
         Map<String, Object> report = SchemaMigrations.migrate(conn, storeDir);
         if (Boolean.TRUE.equals(report.get("migrated"))) {
             log.info("Experience store schema: {}", report);
@@ -48,31 +54,95 @@ public final class H2ExperienceStore implements ExperienceStore {
     }
 
     /**
-     * Open a file-backed store under {@code dir} (the workspace {@code -data} directory,
-     * from {@code GojaApplication.resolveDataDir()}). A {@code null} dir — a manual launch
-     * without {@code -data} — yields an in-memory store: the seam still works, it just does
-     * not persist across restarts.
+     * Open a file-backed store under {@code dir} in the workspace layout
+     * ({@code <dir>/goja-experience/experience.mv.db}). A {@code null} dir — a manual
+     * launch without {@code -data} — yields an in-memory store: the seam still works, it
+     * just does not persist across restarts.
      */
     public static H2ExperienceStore open(Path dir) {
+        if (dir == null) {
+            return openMemory();
+        }
+        return openAt(dir.resolve("goja-experience"));
+    }
+
+    /** In-memory store: unique name per instance so independent stores never share state. */
+    public static H2ExperienceStore openMemory() {
+        String url = "jdbc:h2:mem:goja-exp-" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1";
+        log.info("Experience store is in-memory (non-persistent)");
+        return openUrl(url, null, null);
+    }
+
+    /**
+     * Sprint 21a (items A+H): open the store file directly at
+     * {@code <storeDir>/experience.mv.db} with {@code AUTO_SERVER} — the first resident
+     * becomes the H2 auto-server and further residents (other workspaces sharing the
+     * user-level store, or concurrent sessions of one workspace) attach transparently
+     * through the same URL.
+     */
+    public static H2ExperienceStore openAt(Path storeDir) {
         try {
-            String url;
-            Path storeDir = null;
-            if (dir != null) {
-                storeDir = dir.resolve("goja-experience");
-                Path file = storeDir.resolve("experience");
-                url = "jdbc:h2:file:" + file.toAbsolutePath() + ";DB_CLOSE_ON_EXIT=FALSE";
-            } else {
-                // Unique name per store so independent in-memory stores never share state.
-                url = "jdbc:h2:mem:goja-exp-" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1";
-                log.info("No workspace data dir — experience store is in-memory (non-persistent)");
-            }
+            Files.createDirectories(storeDir);
+        } catch (IOException e) {
+            throw new IllegalStateException("cannot create store dir " + storeDir + ": " + e.getMessage(), e);
+        }
+        Path base = storeDir.resolve("experience");
+        // H2 forbids DB_CLOSE_ON_EXIT together with AUTO_SERVER — the auto-server owns the
+        // database lifecycle (we still close() explicitly at stop()).
+        String url = "jdbc:h2:file:" + base.toAbsolutePath() + ";AUTO_SERVER=TRUE";
+        H2ExperienceStore store = openUrl(url, storeDir, storeDir.resolve("experience.mv.db"));
+        log.info("Experience store opened (file: {})", storeDir);
+        return store;
+    }
+
+    /**
+     * Sprint 21a (item H): the user-level shared store — Harald's decision 2026-07-05:
+     * this is the DEFAULT. Knowledge is the user's, not the workspace's; symbol/package
+     * scope-containment keeps repo-specific recall self-scoped, while methodology/domain
+     * entries deliberately cross workspaces.
+     */
+    public static H2ExperienceStore openShared() {
+        Path dir = sharedStoreDir();
+        log.info("Experience store mode: user-shared ({})", dir);
+        return openAt(dir);
+    }
+
+    /** {@code goja.experience.shared.dir} property › {@code $XDG_DATA_HOME/goja} › {@code ~/.local/share/goja}. */
+    static Path sharedStoreDir() {
+        String override = System.getProperty("goja.experience.shared.dir");
+        if (override != null && !override.isBlank()) {
+            return Path.of(override);
+        }
+        String xdg = System.getenv("XDG_DATA_HOME");
+        Path base = xdg != null && !xdg.isBlank()
+            ? Path.of(xdg)
+            : Path.of(System.getProperty("user.home"), ".local", "share");
+        return base.resolve("goja");
+    }
+
+    private static H2ExperienceStore openUrl(String url, Path storeDir, Path storeFile) {
+        Connection conn = null;
+        try {
             JdbcDataSource ds = new JdbcDataSource();
             ds.setURL(url);
-            H2ExperienceStore store = new H2ExperienceStore(ds.getConnection(), storeDir);
-            log.info("Experience store opened ({})", dir != null ? "file: " + dir : "in-memory");
-            return store;
+            conn = ds.getConnection();
+            return new H2ExperienceStore(conn, storeDir, storeFile);
         } catch (SQLException e) {
+            closeQuietly(conn);
             throw new IllegalStateException("failed to open experience store: " + e.getMessage(), e);
+        } catch (RuntimeException e) {
+            closeQuietly(conn);      // e.g. a refused from-the-future store must not keep the lock
+            throw e;
+        }
+    }
+
+    private static void closeQuietly(Connection c) {
+        if (c != null) {
+            try {
+                c.close();
+            } catch (SQLException ignored) {
+                // best effort
+            }
         }
     }
 
@@ -382,6 +452,171 @@ public final class H2ExperienceStore implements ExperienceStore {
             return rs.next() ? rs.getLong(1) : 0L;
         } catch (SQLException e) {
             throw new IllegalStateException("failed to count entries: " + e.getMessage(), e);
+        }
+    }
+
+    // --- Sprint 21a (item A): one-time recovery of orphaned per-session stores ----------
+
+    /**
+     * Earlier releases opened the store inside the launcher's session-isolation dir —
+     * orphaned on every redeploy and DELETED on clean shutdown. Scan the stable workspace
+     * root's session subdirs (newest first) for {@code goja-experience/experience.mv.db},
+     * import their entries into THIS store (dedup by id; provenance stamped; language
+     * backfilled), and mark each swept source with a {@code .goja-recovered} file so the
+     * sweep is idempotent. Sources are never deleted (never merge blindly — pruning the
+     * files is a human/GC decision, not this sweep's).
+     */
+    public synchronized Map<String, Object> recoverOrphans(Path workspaceRoot) {
+        Map<String, Object> report = new LinkedHashMap<>();
+        List<Map<String, Object>> sources = new ArrayList<>();
+        int imported = 0;
+        int duplicates = 0;
+        report.put("sources", sources);
+        if (workspaceRoot == null || !Files.isDirectory(workspaceRoot)) {
+            report.put("imported", 0);
+            report.put("duplicates", 0);
+            return report;
+        }
+        List<Path> candidates = new ArrayList<>();
+        try (java.util.stream.Stream<Path> subdirs = Files.list(workspaceRoot)) {
+            subdirs.filter(Files::isDirectory)
+                .filter(d -> Files.isRegularFile(d.resolve("goja-experience").resolve("experience.mv.db")))
+                .sorted(Comparator.comparingLong(H2ExperienceStore::lastModified).reversed())
+                .forEach(candidates::add);
+        } catch (IOException e) {
+            log.warn("recovery: cannot list {}: {}", workspaceRoot, e.getMessage());
+        }
+        for (Path sessionDir : candidates) {
+            Path expDir = sessionDir.resolve("goja-experience");
+            Path db = expDir.resolve("experience.mv.db");
+            Path marker = expDir.resolve(".goja-recovered");
+            if (Files.exists(marker)) {
+                continue;
+            }
+            if (storeFile != null
+                    && db.toAbsolutePath().normalize().equals(storeFile.toAbsolutePath().normalize())) {
+                continue;          // never sweep ourselves
+            }
+            String name = sessionDir.getFileName().toString();
+            String url = "jdbc:h2:file:" + expDir.resolve("experience").toAbsolutePath()
+                + ";DB_CLOSE_ON_EXIT=FALSE;ACCESS_MODE_DATA=r";
+            try {
+                JdbcDataSource ds = new JdbcDataSource();
+                ds.setURL(url);
+                try (Connection orphan = ds.getConnection()) {
+                    int version = SchemaMigrations.detectVersion(orphan);
+                    if (version > SchemaMigrations.LATEST) {
+                        log.warn("recovery: {} is schema v{} (> v{}) — skipped, not marked",
+                            db, version, SchemaMigrations.LATEST);
+                        sources.add(Map.of("source", name, "skipped", "newer schema v" + version));
+                        continue;
+                    }
+                    int[] counts = importFrom(orphan, version >= 2);
+                    imported += counts[0];
+                    duplicates += counts[1];
+                    sources.add(Map.of("source", name, "imported", counts[0], "duplicates", counts[1]));
+                }
+                Files.writeString(marker, Instant.now().toString());
+            } catch (Exception e) {
+                log.warn("recovery: cannot import {}: {}", db, e.getMessage());
+                sources.add(Map.of("source", name, "error", String.valueOf(e.getMessage())));
+            }
+        }
+        report.put("imported", imported);
+        report.put("duplicates", duplicates);
+        if (imported > 0 || !sources.isEmpty()) {
+            log.info("Experience store recovery: {}", report);
+        }
+        return report;
+    }
+
+    private static long lastModified(Path p) {
+        try {
+            return Files.getLastModifiedTime(p).toMillis();
+        } catch (IOException e) {
+            return 0L;
+        }
+    }
+
+    /** Copy every entry (+ symptoms + links) from an orphan store; dedup by id. */
+    private int[] importFrom(Connection orphan, boolean hasFacets) throws SQLException {
+        String cols = "id,type,scope_kind,symbol_fqn,package_name,operation,status,confidence,"
+            + "fault_owner,external_system,summary,source_ref,body_json,created_at,updated_at"
+            + (hasFacets ? ",workspace_id,project_id,language" : "");
+        int imported = 0;
+        int duplicates = 0;
+        try (Statement s = orphan.createStatement();
+                ResultSet rs = s.executeQuery("SELECT " + cols + " FROM experience_entry")) {
+            while (rs.next()) {
+                String id = rs.getString("id");
+                if (idExists(id)) {
+                    duplicates++;
+                    continue;
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO experience_entry"
+                        + "(id,type,scope_kind,symbol_fqn,package_name,operation,status,confidence,"
+                        + "fault_owner,external_system,summary,source_ref,body_json,created_at,updated_at,"
+                        + "workspace_id,project_id,language) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+                    for (int i = 1; i <= 13; i++) {
+                        ps.setString(i, rs.getString(i));
+                    }
+                    ps.setTimestamp(14, rs.getTimestamp(14));
+                    ps.setTimestamp(15, rs.getTimestamp(15));
+                    String ws = hasFacets ? rs.getString("workspace_id") : null;
+                    String proj = hasFacets ? rs.getString("project_id") : null;
+                    String lang = hasFacets ? rs.getString("language") : null;
+                    ps.setString(16, ws != null ? ws : workspaceId);
+                    ps.setString(17, proj != null ? proj : projectId);
+                    ps.setString(18, lang != null ? lang : "java");
+                    ps.executeUpdate();
+                }
+                copyChildren(orphan, id);
+                imported++;
+            }
+        }
+        return new int[] {imported, duplicates};
+    }
+
+    private void copyChildren(Connection orphan, String id) throws SQLException {
+        try (PreparedStatement q = orphan.prepareStatement(
+                "SELECT symptom FROM experience_symptom WHERE entry_id = ?")) {
+            q.setString(1, id);
+            try (ResultSet rs = q.executeQuery();
+                    PreparedStatement ins = conn.prepareStatement(
+                        "MERGE INTO experience_symptom(entry_id, symptom) VALUES (?, ?)")) {
+                while (rs.next()) {
+                    ins.setString(1, id);
+                    ins.setString(2, rs.getString(1));
+                    ins.executeUpdate();
+                }
+            }
+        }
+        try (PreparedStatement q = orphan.prepareStatement(
+                "SELECT rel, target FROM experience_link WHERE entry_id = ?")) {
+            q.setString(1, id);
+            try (ResultSet rs = q.executeQuery();
+                    PreparedStatement ins = conn.prepareStatement(
+                        "MERGE INTO experience_link(entry_id, rel, target) VALUES (?, ?, ?)")) {
+                while (rs.next()) {
+                    ins.setString(1, id);
+                    ins.setString(2, rs.getString(1));
+                    ins.setString(3, rs.getString(2));
+                    ins.executeUpdate();
+                }
+            }
+        }
+    }
+
+    private boolean idExists(String id) {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT 1 FROM experience_entry WHERE id = ?")) {
+            ps.setString(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("failed id lookup: " + e.getMessage(), e);
         }
     }
 

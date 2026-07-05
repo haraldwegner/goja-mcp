@@ -39,6 +39,13 @@ public class GojaLauncher {
             if ("-data".equals(args[i]) && i + 1 < args.length) {
                 Path basePath = Path.of(args[i + 1]);
 
+                // Sprint 21a (item A): publish the ORIGINAL -data path. The app needs the
+                // stable workspace root (workspace.json, experience-store recovery) — not
+                // this session-isolated subdir, which is deleted on clean shutdown.
+                if (System.getProperty("goja.workspace.root") == null) {
+                    System.setProperty("goja.workspace.root", basePath.toAbsolutePath().toString());
+                }
+
                 // Create new session directory with unique UUID
                 sessionPath = basePath.resolve(sessionId);
                 Files.createDirectories(sessionPath);
