@@ -1,10 +1,16 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <?pde version="3.8"?>
 <target name="GOJA Target Platform (Eclipse 2024-09)" sequenceNumber="4">
+    <!-- p2.base parameterizes the Eclipse download host (Sprint 21a, 2026-07-05).
+         Default (canonical): https://download.eclipse.org - set in .mvn/maven.config.
+         Outage fallback:     mvn ... -Dp2.base=https://ftp.fau.de/eclipse
+         (official mirror, byte-identical tree). CI preflights the primary and flips the
+         property automatically. p2 itself has NO metadata failover - mirrorsURL covers
+         artifacts only - hence this build-level switch. -->
     <locations>
         <!-- Eclipse 2024-09 Release -->
         <location includeAllPlatforms="false" includeConfigurePhase="true" includeMode="planner" includeSource="true" type="InstallableUnit">
-            <repository location="https://download.eclipse.org/releases/2024-09"/>
+            <repository location="${system_property:p2.base}/releases/2024-09"/>
 
             <!-- JDT Core - the heart of Java analysis -->
             <unit id="org.eclipse.jdt.core" version="0.0.0"/>
@@ -62,7 +68,7 @@
 
         <!-- M2E for Maven project support -->
         <location includeAllPlatforms="false" includeConfigurePhase="true" includeMode="planner" includeSource="true" type="InstallableUnit">
-            <repository location="https://download.eclipse.org/technology/m2e/releases/latest/"/>
+            <repository location="${system_property:p2.base}/technology/m2e/releases/latest/"/>
             <unit id="org.eclipse.m2e.core" version="0.0.0"/>
             <unit id="org.eclipse.m2e.jdt" version="0.0.0"/>
             <unit id="org.eclipse.m2e.maven.runtime" version="0.0.0"/>
@@ -121,7 +127,7 @@
 
         <!-- JUnit 5 from Eclipse releases (proper OSGi bundles) -->
         <location includeAllPlatforms="false" includeConfigurePhase="true" includeMode="planner" includeSource="true" type="InstallableUnit">
-            <repository location="https://download.eclipse.org/releases/2024-09"/>
+            <repository location="${system_property:p2.base}/releases/2024-09"/>
             <unit id="junit-jupiter-api" version="0.0.0"/>
             <unit id="junit-jupiter-engine" version="0.0.0"/>
             <unit id="junit-jupiter-params" version="0.0.0"/>
