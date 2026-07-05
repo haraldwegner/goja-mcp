@@ -32,7 +32,7 @@ public final class ExperienceTool implements Tool {
 
     private static final List<String> KINDS =
         List.of("record", "recall", "primer", "list", "load", "reseed", "refresh",
-            "wipe", "promote", "export", "import");
+            "wipe", "promote", "export", "import", "prune", "dedup", "compact");
 
     private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
         new com.fasterxml.jackson.databind.ObjectMapper();
@@ -118,6 +118,12 @@ public final class ExperienceTool implements Tool {
               write a JSON file (backup/sharing), else entries return inline.
             - import — re-ingest exported entries (dedup by id). Pass entries[] inline or
               path to an export file.
+            - prune — GC the store: delete rejected/superseded entries older than 'days'
+              (default 30; 0 = all of them).
+            - dedup — surface near-duplicate active entries (same summary + scope). Reports
+              groups; pass confirm:true to MERGE (best survives, rest superseded).
+            - compact — reclaim H2 file space after prunes/wipes. Briefly closes the store
+              (concurrently attached residents reconnect); run when quiet.
 
             The store is local + workspace-scoped. Record after a surprising failure, a
             discovered invariant, or a hazard the compiler cannot tell you; recall before a
@@ -150,7 +156,9 @@ public final class ExperienceTool implements Tool {
         props.put("recursive", Map.of("type", "boolean",
             "description", "load/reseed: also walk subdirectories of directory roots (default false)."));
         props.put("confirm", Map.of("type", "boolean",
-            "description", "reseed: REQUIRED true — reseed wipes the whole store first."));
+            "description", "reseed: REQUIRED true (wipes first). dedup: true = merge the groups."));
+        props.put("days", Map.of("type", "integer",
+            "description", "prune: age threshold in days for rejected/superseded (default 30)."));
         props.put("id", Map.of("type", "string", "description", "promote: the entry id to re-status."));
         props.put("limit", Map.of("type", "integer",
             "description", "primer: max domain nodes (default 20); list: max rows (default 50)."));
@@ -215,6 +223,9 @@ public final class ExperienceTool implements Tool {
             case "list" -> list(args);
             case "export" -> exportEntries(args);
             case "import" -> importEntries(args);
+            case "prune" -> prune(args);
+            case "dedup" -> ToolResponse.success(maintenance.dedup(bool(args, "confirm")));
+            case "compact" -> ToolResponse.success(store.compact());
             default -> ToolResponse.invalidParameter("kind",
                 "Unknown kind '" + kind + "'. Allowed: " + KINDS);
         };
@@ -260,6 +271,16 @@ public final class ExperienceTool implements Tool {
 
     private static boolean bool(JsonNode n, String field) {
         return n != null && n.has(field) && n.get(field).asBoolean(false);
+    }
+
+    private ToolResponse prune(JsonNode args) {
+        int days = args != null && args.has("days") && args.get("days").isInt()
+            ? args.get("days").asInt() : 30;
+        int removed = store.pruneAged(days);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("removed", removed);
+        data.put("days", days);
+        return ToolResponse.success(data);
     }
 
     // --- Sprint 21a (item G): curation verbs -------------------------------------------

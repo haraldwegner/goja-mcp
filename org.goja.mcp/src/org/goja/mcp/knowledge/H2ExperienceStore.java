@@ -35,7 +35,9 @@ public final class H2ExperienceStore implements ExperienceStore {
     private static final Logger log = LoggerFactory.getLogger(H2ExperienceStore.class);
 
     private final ObjectMapper json = new ObjectMapper();
-    private final Connection conn;
+    /** Non-final: {@link #compact()} shuts the database down and reopens the connection. */
+    private Connection conn;
+    private final String url;
     /** The backing {@code .mv.db} file (null for in-memory) — self-exclusion in recovery. */
     private final Path storeFile;
 
@@ -44,8 +46,10 @@ public final class H2ExperienceStore implements ExperienceStore {
     private volatile String workspaceId;
     private volatile String projectId;
 
-    private H2ExperienceStore(Connection conn, Path storeDir, Path storeFile) throws SQLException {
+    private H2ExperienceStore(Connection conn, String url, Path storeDir, Path storeFile)
+            throws SQLException {
         this.conn = conn;
+        this.url = url;
         this.storeFile = storeFile;
         Map<String, Object> report = SchemaMigrations.migrate(conn, storeDir);
         if (Boolean.TRUE.equals(report.get("migrated"))) {
@@ -126,7 +130,7 @@ public final class H2ExperienceStore implements ExperienceStore {
             JdbcDataSource ds = new JdbcDataSource();
             ds.setURL(url);
             conn = ds.getConnection();
-            return new H2ExperienceStore(conn, storeDir, storeFile);
+            return new H2ExperienceStore(conn, url, storeDir, storeFile);
         } catch (SQLException e) {
             closeQuietly(conn);
             throw new IllegalStateException("failed to open experience store: " + e.getMessage(), e);
@@ -643,6 +647,66 @@ public final class H2ExperienceStore implements ExperienceStore {
             return out;
         } catch (SQLException e) {
             throw new IllegalStateException("failed to list entries: " + e.getMessage(), e);
+        }
+    }
+
+    // --- Sprint 21a (item G): hygiene — prune / compact ---------------------------------
+
+    @Override
+    public synchronized int pruneAged(int days) {
+        Timestamp cutoff = Timestamp.from(Instant.now().minusSeconds(Math.max(0, days) * 86400L));
+        try {
+            for (String child : new String[] {"experience_symptom", "experience_link"}) {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM " + child + " WHERE entry_id IN (SELECT id FROM experience_entry"
+                        + " WHERE status IN ('rejected','superseded') AND updated_at < ?)")) {
+                    ps.setTimestamp(1, cutoff);
+                    ps.executeUpdate();
+                }
+            }
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "DELETE FROM experience_entry"
+                    + " WHERE status IN ('rejected','superseded') AND updated_at < ?")) {
+                ps.setTimestamp(1, cutoff);
+                return ps.executeUpdate();
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("failed to prune: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public synchronized Map<String, Object> compact() {
+        Map<String, Object> report = new LinkedHashMap<>();
+        if (storeFile == null) {
+            report.put("compacted", false);
+            report.put("reason", "in-memory store");
+            return report;
+        }
+        long before = fileSize(storeFile);
+        try {
+            try (Statement s = conn.createStatement()) {
+                s.execute("SHUTDOWN COMPACT");       // closes the database (and this conn)
+            }
+            closeQuietly(conn);
+            JdbcDataSource ds = new JdbcDataSource();
+            ds.setURL(url);
+            conn = ds.getConnection();               // reopen on the compacted file
+        } catch (SQLException e) {
+            throw new IllegalStateException("failed to compact: " + e.getMessage(), e);
+        }
+        report.put("compacted", true);
+        report.put("bytes_before", before);
+        report.put("bytes_after", fileSize(storeFile));
+        log.info("Experience store compacted: {}", report);
+        return report;
+    }
+
+    private static long fileSize(Path p) {
+        try {
+            return Files.size(p);
+        } catch (IOException e) {
+            return -1L;
         }
     }
 

@@ -79,6 +79,19 @@ public interface ExperienceStore extends AutoCloseable {
     List<StoredEntry> listEntries(String type, String status, String scope, String language, int limit);
 
     /**
+     * GC the store itself: delete {@code rejected}/{@code superseded} entries older than
+     * {@code days} (by {@code updated_at}); children removed too. Returns rows removed.
+     */
+    int pruneAged(int days);
+
+    /**
+     * Reclaim file space after prunes/wipes (H2 {@code SHUTDOWN COMPACT} + reopen).
+     * NOTE: briefly closes the database — concurrently attached residents (AUTO_SERVER)
+     * lose their connection and must reopen. Run when quiet. No-op for in-memory stores.
+     */
+    Map<String, Object> compact();
+
+    /**
      * Sprint 21a (item B): provenance stamped on every subsequent write — the workspace +
      * project this resident serves (from {@code workspace.json} at store-open). Enables the
      * user-level shared store (item H) to keep per-workspace attribution. No-op by default.

@@ -300,6 +300,61 @@ public final class ExperienceMaintenance {
         return report;
     }
 
+    // --- dedup (Sprint 21a, item G) -------------------------------------------------------
+
+    /**
+     * Surface near-duplicate ACTIVE entries — same alias-normalized summary + same
+     * symbol/package scope. Without {@code merge} this only REPORTS the groups; with it,
+     * the best entry survives ({@code accepted} beats {@code candidate}, then newest) and
+     * the rest are flagged {@code superseded} (dropped from recall; {@code prune} removes
+     * them later — nothing is deleted here).
+     */
+    public Map<String, Object> dedup(boolean merge) {
+        Map<String, List<StoredEntry>> groups = new LinkedHashMap<>();
+        for (StoredEntry e : store.all()) {
+            if (ExperienceEntry.REJECTED.equals(e.status())
+                    || ExperienceEntry.SUPERSEDED.equals(e.status())) {
+                continue;
+            }
+            String key = H2ExperienceStore.normalize(e.summary() == null ? "" : e.summary())
+                + "|" + (e.symbolFqn() == null ? "" : e.symbolFqn())
+                + "|" + (e.packageName() == null ? "" : e.packageName());
+            groups.computeIfAbsent(key, k -> new ArrayList<>()).add(e);
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        int merged = 0;
+        for (List<StoredEntry> group : groups.values()) {
+            if (group.size() < 2) {
+                continue;
+            }
+            StoredEntry keep = group.stream()
+                .max(java.util.Comparator
+                    .<StoredEntry>comparingInt(e -> ExperienceEntry.ACCEPTED.equals(e.status()) ? 1 : 0)
+                    .thenComparing(e -> e.createdAt() == null ? java.time.Instant.EPOCH : e.createdAt()))
+                .orElseThrow();
+            List<String> duplicates = new ArrayList<>();
+            for (StoredEntry e : group) {
+                if (!e.id().equals(keep.id())) {
+                    duplicates.add(e.id());
+                    if (merge) {
+                        store.setStatus(e.id(), ExperienceEntry.SUPERSEDED);
+                        merged++;
+                    }
+                }
+            }
+            Map<String, Object> g = new LinkedHashMap<>();
+            g.put("summary", keep.summary());
+            g.put("keep", keep.id());
+            g.put("duplicates", duplicates);
+            out.add(g);
+        }
+        Map<String, Object> report = new LinkedHashMap<>();
+        report.put("groups", out);
+        report.put("group_count", out.size());
+        report.put("merged", merged);
+        return report;
+    }
+
     // --- frontmatter parsing ------------------------------------------------------------
 
     private record MemoryDoc(String name, String description, String type, String symbol,
