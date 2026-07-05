@@ -61,6 +61,9 @@ import org.goja.mcp.transport.TokenGenerator;
 import org.goja.mcp.transport.Transport;
 import org.goja.mcp.transport.TransportConfig;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
@@ -127,7 +130,9 @@ public class GojaApplication implements IApplication {
         toolRegistry = new ToolRegistry();
         // Sprint 21 (v2.0): open the workspace-scoped experience store before registering
         // tools, so store-backed tools + the ExperienceAdvisor can be wired with it.
-        experienceStore = H2ExperienceStore.open(resolveDataDir());
+        // Sprint 21a (item B): a store that cannot open read-write (e.g. written by a NEWER
+        // resident) must not kill the server — degrade to in-memory and say so.
+        experienceStore = openExperienceStore();
         registerTools();
 
         // Initialize protocol handler
@@ -216,6 +221,54 @@ public class GojaApplication implements IApplication {
         } catch (Exception e) {
             log.warn("Failed to resolve Eclipse instance area: {}", e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * Sprint 21a (item B): open the experience store, stamp provenance from
+     * {@code workspace.json}, and degrade instead of dying — a store that refuses to open
+     * (e.g. schema written by a NEWER resident) falls back to in-memory with a loud log,
+     * so the server still starts and recall answers with absence rather than errors.
+     */
+    private ExperienceStore openExperienceStore() {
+        Path dataDir = resolveDataDir();
+        try {
+            H2ExperienceStore store = H2ExperienceStore.open(dataDir);
+            Path workspaceJson = findWorkspaceJson(dataDir);
+            if (workspaceJson != null) {
+                String[] prov = readProvenance(workspaceJson);
+                store.setProvenance(prov[0], prov[1]);
+            }
+            return store;
+        } catch (Exception e) {
+            log.error("Experience store unavailable ({}); continuing with a NON-PERSISTENT "
+                + "in-memory store", e.getMessage());
+            return H2ExperienceStore.open(null);
+        }
+    }
+
+    /**
+     * Parse {@code workspace.json} into provenance facets: {@code [workspaceId, projectId]}
+     * (the manager's workspace {@code name} + first project path; either may be null).
+     * Package-private + static so the tests bundle can exercise it without booting OSGi.
+     */
+    static String[] readProvenance(Path workspaceJson) {
+        try {
+            JsonNode root = new ObjectMapper().readTree(Files.readString(workspaceJson));
+            String name = root.path("name").asText(null);
+            if (name == null || name.isBlank()) {
+                Path parent = workspaceJson.getParent();
+                name = parent == null ? null : parent.getFileName().toString();
+            }
+            String project = null;
+            JsonNode projects = root.path("projects");
+            if (projects.isArray() && projects.size() > 0) {
+                project = projects.get(0).asText(null);
+            }
+            return new String[] {name, project};
+        } catch (Exception e) {
+            log.warn("Cannot read provenance from {}: {}", workspaceJson, e.getMessage());
+            return new String[] {null, null};
         }
     }
 

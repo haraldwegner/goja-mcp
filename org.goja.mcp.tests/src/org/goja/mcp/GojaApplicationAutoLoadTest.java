@@ -89,4 +89,35 @@ class GojaApplicationAutoLoadTest {
 
         assertNull(found, "directory should not match isRegularFile probe");
     }
+
+    // --- Sprint 21a (item B): provenance facets from workspace.json -----------------------
+
+    @Test
+    @DisplayName("readProvenance returns workspace name + first project path")
+    void readProvenance_nameAndFirstProject(@TempDir Path dir) throws Exception {
+        Path json = dir.resolve("workspace.json");
+        Files.writeString(json,
+            "{\"name\":\"goja\",\"projects\":[\"/home/x/CursorProjects/goja-mcp\"],\"version\":1}");
+
+        String[] prov = GojaApplication.readProvenance(json);
+
+        assertEquals("goja", prov[0]);
+        assertEquals("/home/x/CursorProjects/goja-mcp", prov[1]);
+    }
+
+    @Test
+    @DisplayName("readProvenance falls back to the parent dir name when 'name' is missing; nulls never throw")
+    void readProvenance_fallbacks(@TempDir Path root) throws Exception {
+        Path wsDir = Files.createDirectory(root.resolve("my-workspace"));
+        Path json = wsDir.resolve("workspace.json");
+        Files.writeString(json, "{\"projects\":[],\"version\":1}");
+
+        String[] prov = GojaApplication.readProvenance(json);
+        assertEquals("my-workspace", prov[0], "dir name stands in for a missing 'name'");
+        assertNull(prov[1], "no projects → null projectId");
+
+        String[] missing = GojaApplication.readProvenance(root.resolve("no-such.json"));
+        assertNull(missing[0]);
+        assertNull(missing[1]);
+    }
 }

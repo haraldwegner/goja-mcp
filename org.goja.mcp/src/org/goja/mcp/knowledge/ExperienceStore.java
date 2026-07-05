@@ -57,6 +57,14 @@ public interface ExperienceStore extends AutoCloseable {
     /** Total entry count — diagnostics + tests. */
     long count();
 
+    /**
+     * Sprint 21a (item B): provenance stamped on every subsequent write — the workspace +
+     * project this resident serves (from {@code workspace.json} at store-open). Enables the
+     * user-level shared store (item H) to keep per-workspace attribution. No-op by default.
+     */
+    default void setProvenance(String workspaceId, String projectId) {
+    }
+
     @Override
     void close();
 }

@@ -34,9 +34,17 @@ public final class H2ExperienceStore implements ExperienceStore {
     private final ObjectMapper json = new ObjectMapper();
     private final Connection conn;
 
-    private H2ExperienceStore(Connection conn) throws SQLException {
+    // Sprint 21a (item B): provenance stamped on every write; set once at store-open from
+    // workspace.json. Null when unknown (manual launches, tests).
+    private volatile String workspaceId;
+    private volatile String projectId;
+
+    private H2ExperienceStore(Connection conn, Path storeDir) throws SQLException {
         this.conn = conn;
-        initSchema();
+        Map<String, Object> report = SchemaMigrations.migrate(conn, storeDir);
+        if (Boolean.TRUE.equals(report.get("migrated"))) {
+            log.info("Experience store schema: {}", report);
+        }
     }
 
     /**
@@ -48,8 +56,10 @@ public final class H2ExperienceStore implements ExperienceStore {
     public static H2ExperienceStore open(Path dir) {
         try {
             String url;
+            Path storeDir = null;
             if (dir != null) {
-                Path file = dir.resolve("goja-experience").resolve("experience");
+                storeDir = dir.resolve("goja-experience");
+                Path file = storeDir.resolve("experience");
                 url = "jdbc:h2:file:" + file.toAbsolutePath() + ";DB_CLOSE_ON_EXIT=FALSE";
             } else {
                 // Unique name per store so independent in-memory stores never share state.
@@ -58,7 +68,7 @@ public final class H2ExperienceStore implements ExperienceStore {
             }
             JdbcDataSource ds = new JdbcDataSource();
             ds.setURL(url);
-            H2ExperienceStore store = new H2ExperienceStore(ds.getConnection());
+            H2ExperienceStore store = new H2ExperienceStore(ds.getConnection(), storeDir);
             log.info("Experience store opened ({})", dir != null ? "file: " + dir : "in-memory");
             return store;
         } catch (SQLException e) {
@@ -66,49 +76,14 @@ public final class H2ExperienceStore implements ExperienceStore {
         }
     }
 
-    private void initSchema() throws SQLException {
-        try (Statement s = conn.createStatement()) {
-            s.execute("""
-                CREATE TABLE IF NOT EXISTS experience_entry (
-                    id              VARCHAR(64) PRIMARY KEY,
-                    type            VARCHAR(64),
-                    scope_kind      VARCHAR(32),
-                    symbol_fqn      VARCHAR(1024),
-                    package_name    VARCHAR(512),
-                    operation       VARCHAR(128),
-                    status          VARCHAR(32) DEFAULT 'candidate',
-                    confidence      VARCHAR(16),
-                    fault_owner     VARCHAR(16),
-                    external_system VARCHAR(256),
-                    summary         VARCHAR(4096),
-                    source_ref      VARCHAR(512),
-                    body_json       CLOB,
-                    created_at      TIMESTAMP,
-                    updated_at      TIMESTAMP
-                )""");
-            s.execute("CREATE INDEX IF NOT EXISTS ix_entry_source ON experience_entry(source_ref)");
-            s.execute("CREATE INDEX IF NOT EXISTS ix_entry_type ON experience_entry(type)");
-            s.execute("CREATE INDEX IF NOT EXISTS ix_entry_symbol ON experience_entry(symbol_fqn)");
-            s.execute("CREATE INDEX IF NOT EXISTS ix_entry_status ON experience_entry(status)");
-            s.execute("CREATE INDEX IF NOT EXISTS ix_entry_operation ON experience_entry(operation)");
-            s.execute("CREATE INDEX IF NOT EXISTS ix_entry_scope_kind ON experience_entry(scope_kind)");
-            s.execute("CREATE INDEX IF NOT EXISTS ix_entry_ext_system ON experience_entry(external_system)");
-            // Multi-valued children — created now, populated from Stage 1/2.
-            s.execute("""
-                CREATE TABLE IF NOT EXISTS experience_symptom (
-                    entry_id VARCHAR(64),
-                    symptom  VARCHAR(512),
-                    PRIMARY KEY (entry_id, symptom)
-                )""");
-            s.execute("""
-                CREATE TABLE IF NOT EXISTS experience_link (
-                    entry_id VARCHAR(64),
-                    rel      VARCHAR(32),
-                    target   VARCHAR(1024),
-                    PRIMARY KEY (entry_id, rel, target)
-                )""");
-        }
+    @Override
+    public void setProvenance(String workspaceId, String projectId) {
+        this.workspaceId = workspaceId;
+        this.projectId = projectId;
     }
+
+    // Schema DDL lives in SchemaMigrations (Sprint 21a item B) — versioned, additive-first,
+    // backed-up-before-migrate. The v2.0.0 initSchema() became its v1 step.
 
     @Override
     public synchronized String put(SymbolFact fact) {
@@ -137,8 +112,9 @@ public final class H2ExperienceStore implements ExperienceStore {
             try (PreparedStatement ps = conn.prepareStatement(
                     "INSERT INTO experience_entry"
                     + "(id,type,scope_kind,symbol_fqn,package_name,operation,status,confidence,"
-                    + "fault_owner,external_system,summary,source_ref,body_json,created_at,updated_at) "
-                    + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+                    + "fault_owner,external_system,summary,source_ref,body_json,created_at,updated_at,"
+                    + "workspace_id,project_id,language) "
+                    + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
                 Timestamp now = Timestamp.from(Instant.now());
                 ps.setString(1, id);
                 ps.setString(2, str(factMap.get("type")));
@@ -155,6 +131,9 @@ public final class H2ExperienceStore implements ExperienceStore {
                 ps.setString(13, body);
                 ps.setTimestamp(14, now);
                 ps.setTimestamp(15, now);
+                ps.setString(16, workspaceId);
+                ps.setString(17, projectId);
+                ps.setString(18, "java");    // language param lands in Stage 3 (item I)
                 ps.executeUpdate();
             }
             insertSymptoms(id, entry.symptoms());
