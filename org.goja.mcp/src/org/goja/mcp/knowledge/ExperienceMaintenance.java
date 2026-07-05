@@ -86,14 +86,19 @@ public final class ExperienceMaintenance {
                     fb.details(doc.body.strip());
                 }
                 ExperienceEntry.Builder eb = ExperienceEntry.of(fb.build())
-                    .status(ExperienceEntry.ACCEPTED);
+                    .status(ExperienceEntry.ACCEPTED)
+                    .language(doc.language);
                 for (String link : doc.links) {
                     eb.addLink("related", link);
                 }
                 store.putWithSource(eb.build(), sourceRef);
                 loaded++;
 
-                if (doc.symbol != null && Boolean.FALSE.equals(resolver.resolves(doc.symbol))) {
+                // Item I: only Java anchors are judged by the JDT resolver on ingest.
+                boolean javaAnchor = doc.language == null || doc.language.isBlank()
+                    || "java".equalsIgnoreCase(doc.language);
+                if (doc.symbol != null && javaAnchor
+                        && Boolean.FALSE.equals(resolver.resolves(doc.symbol))) {
                     stale.add(Map.of("source", f.getFileName().toString(), "symbol", doc.symbol));
                 }
             } catch (IOException e) {
@@ -112,6 +117,10 @@ public final class ExperienceMaintenance {
      * Re-resolve every symbol pointer through JDT. A pointer that no longer resolves is
      * flagged {@code superseded} (dropped from recall) and reported. When no project is
      * loaded, resolution is skipped (nothing is flagged).
+     *
+     * <p>Sprint 21a (item I): only {@code language=java} anchors are judged — a JDT
+     * resolver can never see a Rust/TS anchor, so non-Java entries are opaque here
+     * (reported as {@code non_java}, never superseded).</p>
      */
     public Map<String, Object> refresh() {
         Map<String, Object> report = new LinkedHashMap<>();
@@ -119,9 +128,14 @@ public final class ExperienceMaintenance {
         int checked = 0;
         int resolved = 0;
         int skipped = 0;
+        int nonJava = 0;
         for (StoredEntry e : store.all()) {
             String fqn = e.symbolFqn();
             if (fqn == null || fqn.isBlank()) {
+                continue;
+            }
+            if (!e.isJavaResolvable()) {
+                nonJava++;                         // opaque anchor — never staled by JDT
                 continue;
             }
             checked++;
@@ -138,6 +152,7 @@ public final class ExperienceMaintenance {
         report.put("checked", checked);
         report.put("resolved", resolved);
         report.put("skipped", skipped);
+        report.put("non_java", nonJava);
         report.put("staled", staled);
         return report;
     }
@@ -154,7 +169,7 @@ public final class ExperienceMaintenance {
     // --- frontmatter parsing ------------------------------------------------------------
 
     private record MemoryDoc(String name, String description, String type, String symbol,
-                             String body, List<String> links) {
+                             String language, String body, List<String> links) {
         /** Summary = description, else the frontmatter name, else "(untitled)". */
         String summary() {
             if (description != null && !description.isBlank()) {
@@ -169,6 +184,7 @@ public final class ExperienceMaintenance {
         String description = null;
         String type = null;
         String symbol = null;
+        String language = null;
         StringBuilder body = new StringBuilder();
 
         String[] lines = content.split("\n", -1);
@@ -192,6 +208,7 @@ public final class ExperienceMaintenance {
                     case "description" -> description = emptyToNull(v);
                     case "type" -> { if (type == null) { type = emptyToNull(v); } }  // top-level or metadata.type
                     case "symbol" -> symbol = emptyToNull(v);
+                    case "language" -> language = emptyToNull(v);
                     default -> { }
                 }
             }
@@ -211,7 +228,7 @@ public final class ExperienceMaintenance {
         if (name == null) {
             name = fileName.endsWith(".md") ? fileName.substring(0, fileName.length() - 3) : fileName;
         }
-        return new MemoryDoc(name, description, type, symbol, body.toString(), links);
+        return new MemoryDoc(name, description, type, symbol, language, body.toString(), links);
     }
 
     private static String emptyToNull(String s) {

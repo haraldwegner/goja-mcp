@@ -288,9 +288,13 @@ public final class ExperienceRetrieval {
         m.put("status", e.status());       // current column status (body_json is frozen at insert)
         m.putAll(e.body());
         m.put("status", e.status());       // ...and win over the frozen body value
-        Map<String, Object> pointer = resolvePointer(e.symbolFqn());
-        if (pointer != null) {
-            m.put("resolved_pointer", pointer);
+        // Item I: only Java anchors are JDT-resolvable; a non-Java pointer stays a plain
+        // FQN in the body rather than being presented with a misleading "stale" flag.
+        if (e.isJavaResolvable()) {
+            Map<String, Object> pointer = resolvePointer(e.symbolFqn());
+            if (pointer != null) {
+                m.put("resolved_pointer", pointer);
+            }
         }
         return m;
     }

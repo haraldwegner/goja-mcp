@@ -203,7 +203,8 @@ public final class H2ExperienceStore implements ExperienceStore {
                 ps.setTimestamp(15, now);
                 ps.setString(16, workspaceId);
                 ps.setString(17, projectId);
-                ps.setString(18, "java");    // language param lands in Stage 3 (item I)
+                String lang = entry.language();
+                ps.setString(18, lang == null || lang.isBlank() ? "java" : lang);
                 ps.executeUpdate();
             }
             insertSymptoms(id, entry.symptoms());
@@ -261,7 +262,7 @@ public final class H2ExperienceStore implements ExperienceStore {
         List<StoredEntry> out = new ArrayList<>();
         try (Statement s = conn.createStatement();
                 ResultSet rs = s.executeQuery(
-                    "SELECT id,type,symbol_fqn,package_name,operation,status,confidence,"
+                    "SELECT id,type,symbol_fqn,package_name,operation,status,confidence,language,"
                     + "external_system,summary,body_json,created_at FROM experience_entry")) {
             while (rs.next()) {
                 out.add(mapRow(rs));
@@ -384,7 +385,7 @@ public final class H2ExperienceStore implements ExperienceStore {
             params.add(like);
             params.add(like);
         }
-        String sql = "SELECT id,type,symbol_fqn,package_name,operation,status,confidence,"
+        String sql = "SELECT id,type,symbol_fqn,package_name,operation,status,confidence,language,"
             + "external_system,summary,body_json,created_at FROM experience_entry WHERE ("
             + String.join(" OR ", clauses)
             + ") AND status NOT IN ('rejected', 'superseded') ORDER BY created_at DESC";
@@ -424,6 +425,7 @@ public final class H2ExperienceStore implements ExperienceStore {
             rs.getString("operation"),
             rs.getString("status"),
             rs.getString("confidence"),
+            rs.getString("language"),
             rs.getString("external_system"),
             rs.getString("summary"),
             loadSymptoms(id),

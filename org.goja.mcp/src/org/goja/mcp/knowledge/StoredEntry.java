@@ -12,9 +12,18 @@ import java.util.Map;
  * document to return.
  */
 public record StoredEntry(String id, String type, String symbolFqn, String packageName,
-                          String operation, String status, String confidence,
+                          String operation, String status, String confidence, String language,
                           String externalSystem, String summary, List<String> symptoms,
                           Instant createdAt, Map<String, Object> body) {
+
+    /**
+     * Sprint 21a (item I): true when this entry's anchor may be judged by the JDT
+     * resolver. Non-Java anchors (rust, ts, …) are OPAQUE to maintenance — never staled
+     * or superseded by a resolver that cannot see them. Null/blank = Java-era rows.
+     */
+    public boolean isJavaResolvable() {
+        return language == null || language.isBlank() || "java".equalsIgnoreCase(language);
+    }
 
     /** Scope-specificity rank for disambiguation — higher = more specific = preferred. */
     public int specificity() {

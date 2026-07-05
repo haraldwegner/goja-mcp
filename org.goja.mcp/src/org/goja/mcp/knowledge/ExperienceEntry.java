@@ -28,6 +28,9 @@ public final class ExperienceEntry {
     private final List<Link> links;
     private final String faultOwner;
     private final String externalSystem;
+    /** Sprint 21a (item I): anchor language; null/blank = java. Non-Java anchors are
+     *  opaque to JDT maintenance (never staled by a resolver that cannot see them). */
+    private final String language;
 
     /** A typed graph edge; {@code rel} ∈ {handled_by, fixed_by, detected_by, supersedes}. */
     public record Link(String rel, String target) {}
@@ -41,6 +44,7 @@ public final class ExperienceEntry {
         this.links = List.copyOf(b.links);
         this.faultOwner = b.faultOwner;
         this.externalSystem = b.externalSystem;
+        this.language = b.language;
     }
 
     public static Builder of(SymbolFact fact) {
@@ -84,6 +88,10 @@ public final class ExperienceEntry {
         return externalSystem;
     }
 
+    public String language() {
+        return language;
+    }
+
     /** Full document = the fact's map merged with the retrieval facets. */
     public Map<String, Object> toMap() {
         Map<String, Object> m = new LinkedHashMap<>(fact.toMap());
@@ -110,6 +118,9 @@ public final class ExperienceEntry {
         if (externalSystem != null && !externalSystem.isBlank()) {
             m.put("external_system", externalSystem);
         }
+        if (language != null && !language.isBlank()) {
+            m.put("language", language);
+        }
         return m;
     }
 
@@ -122,6 +133,7 @@ public final class ExperienceEntry {
         private List<Link> links = new ArrayList<>();
         private String faultOwner;
         private String externalSystem;
+        private String language;
 
         private Builder(SymbolFact fact) {
             if (fact == null) {
@@ -174,6 +186,11 @@ public final class ExperienceEntry {
 
         public Builder externalSystem(String externalSystem) {
             this.externalSystem = externalSystem;
+            return this;
+        }
+
+        public Builder language(String language) {
+            this.language = language;
             return this;
         }
 

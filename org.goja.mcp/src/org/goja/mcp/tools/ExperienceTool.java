@@ -77,8 +77,10 @@ public final class ExperienceTool implements Tool {
             Kinds:
             - record — store an observation as a candidate entry. Needs: type, summary.
               Optional: confidence (low|medium|high); anchor with symbol (FQN) OR
-              packages[]/symbols[]; details, operation, scope_kind, symptoms[],
-              links[{rel,target}], fault_owner, external_system, status, exceptions[].
+              packages[]/symbols[]; language (anchor language, default java — non-Java
+              anchors are never staled by JDT maintenance); details, operation, scope_kind,
+              symptoms[], links[{rel,target}], fault_owner, external_system, status,
+              exceptions[].
             - recall — TERMINAL retrieval for a cue. Give any of symbol / package / operation
               / symptom / external_system. Returns exactly the fitting node(s) with pointers
               resolved to current code, OR an authoritative absence — never a similarity pile.
@@ -131,6 +133,9 @@ public final class ExperienceTool implements Tool {
             "description", "record: default medium."));
         props.put("symbol", Map.of("type", "string",
             "description", "record: anchor FQN (mutually exclusive with packages/symbols)."));
+        props.put("language", Map.of("type", "string",
+            "description", "record: anchor language (default java). Non-Java anchors (rust, ts, ...)"
+                + " are opaque to JDT maintenance — stored + recalled, never staled."));
         props.put("packages", Map.of("type", "array", "items", Map.of("type", "string"),
             "description", "record: scope packages."));
         props.put("symbols", Map.of("type", "array", "items", Map.of("type", "string"),
@@ -257,7 +262,8 @@ public final class ExperienceTool implements Tool {
             .operation(text(args, "operation"))
             .symptoms(strings(args, "symptoms"))
             .faultOwner(text(args, "fault_owner"))
-            .externalSystem(text(args, "external_system"));
+            .externalSystem(text(args, "external_system"))
+            .language(text(args, "language"));
         if (args != null && args.has("links") && args.get("links").isArray()) {
             for (JsonNode l : args.get("links")) {
                 String rel = l.path("rel").asText(null);

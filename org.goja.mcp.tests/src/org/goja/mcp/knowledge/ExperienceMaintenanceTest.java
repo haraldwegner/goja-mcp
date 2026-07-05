@@ -103,6 +103,43 @@ class ExperienceMaintenanceTest {
         assertEquals(0, ((List<?>) report.get("staled")).size());
     }
 
+    // --- Sprint 21a (item I): non-Java anchors are opaque to JDT maintenance --------------
+
+    @Test
+    void refresh_never_supersedes_a_non_java_anchor() {
+        String rustId = store.put(ExperienceEntry.of(
+                SymbolFact.of("lesson", "peel stops at closing quote", Confidence.HIGH)
+                    .symbol("manager_service::build_recall_script").build())
+            .language("rust").status(ExperienceEntry.ACCEPTED).build());
+        String javaId = store.put(ExperienceEntry.of(
+                SymbolFact.of("lesson", "gone type", Confidence.HIGH)
+                    .symbol("com.gone.Removed").build())
+            .status(ExperienceEntry.ACCEPTED).build());
+
+        // A resolver that resolves NOTHING — the destructive case for foreign anchors.
+        Map<String, Object> report = maint(fqn -> Boolean.FALSE).refresh();
+        assertEquals(1, report.get("checked"), "only the Java anchor is judged");
+        assertEquals(1, report.get("non_java"));
+        assertEquals(1, ((List<?>) report.get("staled")).size());
+
+        StoredEntry rust = store.all().stream().filter(e -> e.id().equals(rustId)).findFirst().orElseThrow();
+        assertEquals(ExperienceEntry.ACCEPTED, rust.status(), "Rust anchor survives refresh untouched");
+        assertEquals("rust", rust.language());
+        StoredEntry java = store.all().stream().filter(e -> e.id().equals(javaId)).findFirst().orElseThrow();
+        assertEquals(ExperienceEntry.SUPERSEDED, java.status(), "genuinely stale Java pointer still superseded");
+    }
+
+    @Test
+    void load_does_not_flag_non_java_symbols_stale(@TempDir Path dir) throws IOException {
+        writeMemory(dir, "rust.md",
+            "name: n\ndescription: d\ntype: lesson\nsymbol: gateway::forward\nlanguage: rust", "body");
+        Map<String, Object> report = maint(fqn -> Boolean.FALSE).load(dir);
+        assertEquals(1, report.get("loaded"));
+        assertEquals(0, ((List<?>) report.get("stale")).size(),
+            "a Rust anchor is not judged by the JDT resolver at ingest");
+        assertEquals("rust", store.all().get(0).language(), "frontmatter language persisted");
+    }
+
     @Test
     void wipe_clears_everything() {
         store.put(SymbolFact.of("lesson", "a", Confidence.LOW).symbol("com.a.Foo").build());
