@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <?pde version="3.5"?>
-<product name="GOJA" uid="org.goja.product" application="org.goja.mcp.application" version="2.1.0.qualifier" type="bundles" includeLaunchers="false" autoIncludeRequirements="true" useFeatures="false">
+<product name="GOJA" uid="org.goja.product" application="org.goja.mcp.application" version="2.2.0.qualifier" type="bundles" includeLaunchers="false" autoIncludeRequirements="true" useFeatures="false">
 
    <configIni use="default">
    </configIni>
