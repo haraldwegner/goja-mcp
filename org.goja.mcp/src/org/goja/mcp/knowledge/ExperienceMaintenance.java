@@ -282,9 +282,11 @@ public final class ExperienceMaintenance {
      * symptom derivation, summary rules …) — every stored hash then goes stale by
      * definition and the next load re-ingests the whole corpus once, self-healing
      * retroactively. Within one version, idempotency stays byte-strict.
-     * History: 1 = content-only (v2.2.1) · 2 = name-as-symptom (v2.2.6).
+     * History: 1 = content-only (v2.2.1) · 2 = name-as-symptom (v2.2.6) ·
+     * 3 = HTML comments are not content (derived summaries skipped "&lt;!-- … --&gt;"
+     * managed-section markers in CLAUDE.md files).
      */
-    static final int LOADER_VERSION = 2;
+    static final int LOADER_VERSION = 3;
 
     /** The skip-unchanged key: SHA-256 of the file content + the loader fingerprint. */
     static String sourceHash(String content) {
@@ -478,9 +480,10 @@ public final class ExperienceMaintenance {
         }
         for (String line : body.split("\n")) {
             String s = line.strip().replaceFirst("^[#>*\\-\\s]+", "").strip();
-            if (!s.isEmpty()) {
-                return s.length() > 160 ? s.substring(0, 157) + "…" : s;
+            if (s.isEmpty() || s.startsWith("<!--")) {
+                continue;                 // markup / managed-section markers are not content
             }
+            return s.length() > 160 ? s.substring(0, 157) + "…" : s;
         }
         return null;
     }

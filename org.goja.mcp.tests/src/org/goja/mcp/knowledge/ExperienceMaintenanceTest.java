@@ -258,6 +258,17 @@ class ExperienceMaintenanceTest {
     }
 
     @Test
+    void derived_summary_skips_html_comment_markers(@TempDir Path dir) throws IOException {
+        // Loader v3: CLAUDE.md files often START with managed-section markers — a summary
+        // of "<!-- collaboration-spec:start -->" is a junk row.
+        Files.writeString(dir.resolve("CLAUDE.md"),
+            "<!-- collaboration-spec:start -->\n\n# Collaboration spec\n\nRules body.\n");
+        assertEquals(1, maint(fqn -> null).load(dir, false).get("loaded"));
+        assertEquals("Collaboration spec", store.all().get(0).summary(),
+            "HTML comments are not content");
+    }
+
+    @Test
     void load_ingests_mdc_files_from_directories(@TempDir Path dir) throws IOException {
         // Sprint 21b (item C2): Cursor project rules are .mdc — directory crawls accept them.
         Files.writeString(dir.resolve("rule.mdc"),
