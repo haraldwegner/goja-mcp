@@ -45,6 +45,33 @@ class ExperienceToolPrimerTest {
     }
 
     @Test
+    void primer_includes_standing_conventions_not_just_domain_facts() {
+        // v2.2.3 dogfood find: a real md corpus maps to feedback/user/reference types —
+        // zero domain_fact — and the SessionStart primer injected NOTHING from 97 entries.
+        for (String type : new String[] {"feedback", "user", "naming_convention"}) {
+            ObjectNode a = mapper.createObjectNode();
+            a.put("kind", "record");
+            a.put("type", type);
+            a.put("summary", "standing rule of type " + type);
+            a.put("status", "accepted");
+            assertTrue(tool.execute(a).isSuccess());
+        }
+        ObjectNode reference = mapper.createObjectNode();
+        reference.put("kind", "record");
+        reference.put("type", "reference");
+        reference.put("summary", "a pointer — NOT primer material");
+        reference.put("status", "accepted");
+        assertTrue(tool.execute(reference).isSuccess());
+
+        ObjectNode a = mapper.createObjectNode();
+        a.put("kind", "primer");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> d = (Map<String, Object>) tool.execute(a).getData();
+        assertEquals("primer", d.get("result"));
+        assertEquals(3, d.get("count"), "feedback/user/naming_convention are primer material; reference is not");
+    }
+
+    @Test
     void primer_via_tool_returns_domain_nodes() {
         recordAcceptedDomain();
         ObjectNode a = mapper.createObjectNode();

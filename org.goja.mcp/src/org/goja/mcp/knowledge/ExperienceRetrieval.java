@@ -44,9 +44,13 @@ public final class ExperienceRetrieval {
     public static final String RESULT_ABSENCE = "absence";
     public static final String RESULT_PRIMER = "primer";
 
-    /** Domain-layer entry types + scope kinds — the always-relevant knowledge the primer pushes. */
+    /** Domain-layer entry types + scope kinds — the always-relevant knowledge the primer pushes.
+     *  v2.2.3: widened with the standing how-to-work types a real memory corpus maps to
+     *  (dogfood find: 97 md-loaded entries, zero {@code domain_fact} — the primer injected
+     *  nothing). References/projects/notes stay cue-gated. */
     private static final java.util.Set<String> DOMAIN_TYPES = java.util.Set.of(
-        "domain_fact", "domain_concept", "bounded_context", "invariant", "ubiquitous_language");
+        "domain_fact", "domain_concept", "bounded_context", "invariant", "ubiquitous_language",
+        "user", "feedback", "naming_convention", "api_contract", "convention");
     private static final java.util.Set<String> DOMAIN_SCOPES = java.util.Set.of(
         "bounded_context", "domain_concept");
 
@@ -281,18 +285,22 @@ public final class ExperienceRetrieval {
     }
 
     /** Symptom cue fits when it alias-matches a stored symptom or the summary. */
+    /** v2.2.3: TOKENIZED — every cue token must appear somewhere in the entry's symptoms
+     *  or summary. The old contiguous-substring match missed summaries where the cue words
+     *  are non-adjacent ("blank webview" vs "…webview content area stays blank…"). */
     private boolean symptomFits(StoredEntry e, String symptom) {
         String norm = H2ExperienceStore.normalize(symptom);
         if (norm.isEmpty()) {
             return false;
         }
-        for (String s : e.symptoms()) {
-            if (s.equals(norm) || s.contains(norm) || norm.contains(s)) {
-                return true;
+        String haystack = String.join(" ", e.symptoms()) + " "
+            + H2ExperienceStore.normalize(e.summary() == null ? "" : e.summary());
+        for (String token : norm.split("\\s+")) {
+            if (!haystack.contains(token)) {
+                return false;
             }
         }
-        String summary = e.summary();
-        return summary != null && summary.toLowerCase(Locale.ROOT).contains(norm);
+        return true;
     }
 
     private static boolean eqIgnoreCase(String a, String b) {

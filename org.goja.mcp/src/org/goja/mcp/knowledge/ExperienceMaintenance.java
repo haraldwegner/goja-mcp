@@ -183,6 +183,20 @@ public final class ExperienceMaintenance {
             }
 
             MemoryDoc doc = parse(content, f.getFileName().toString());
+
+            // v2.2.3: MEMORY.md-style indexes and empty files are link hubs, not
+            // knowledge — follow their links, never ingest a junk row.
+            boolean indexFile = "MEMORY.md".equalsIgnoreCase(f.getFileName().toString());
+            if (indexFile || !doc.hasContent()) {
+                for (Path t : resolveLinks(doc, f.getParent(), rootDirs)) {
+                    Path norm = t.toAbsolutePath().normalize();
+                    if (!seen.contains(norm) && item.depth() < maxDepth) {
+                        queue.add(new Item(norm, item.depth() + 1));
+                        linked++;
+                    }
+                }
+                continue;
+            }
             String sourceRef = "memory:" + f;
 
             // Sprint 21b: an unchanged source causes NO write at all (the delete+insert
@@ -421,8 +435,34 @@ public final class ExperienceMaintenance {
             if (description != null && !description.isBlank()) {
                 return description;
             }
+            // v2.2.3: CLAUDE.md-style files have no frontmatter but the body IS the
+            // knowledge — derive the summary from the first content line instead of
+            // ingesting the filename as a junk summary.
+            String derived = firstContentLine(body);
+            if (derived != null) {
+                return derived;
+            }
             return name != null && !name.isBlank() ? name : "(untitled)";
         }
+
+        /** True when there is anything worth ingesting (description or body). */
+        boolean hasContent() {
+            return (description != null && !description.isBlank()) || !body.isBlank();
+        }
+    }
+
+    /** First non-empty body line, stripped of md heading/list markup, capped at 160 chars. */
+    private static String firstContentLine(String body) {
+        if (body == null) {
+            return null;
+        }
+        for (String line : body.split("\n")) {
+            String s = line.strip().replaceFirst("^[#>*\\-\\s]+", "").strip();
+            if (!s.isEmpty()) {
+                return s.length() > 160 ? s.substring(0, 157) + "…" : s;
+            }
+        }
+        return null;
     }
 
     private static MemoryDoc parse(String content, String fileName) {

@@ -71,6 +71,29 @@ class ExperienceRetrievalTest {
     }
 
     @Test
+    void symptom_tokens_match_summary_non_adjacently() {
+        // v2.2.3 dogfood find: md-loaded entries carry no symptom rows, and the old
+        // contiguous-substring match missed summaries where the cue words are not
+        // adjacent — "blank webview" found nothing despite this entry.
+        putSymbol("reference",
+            "WebKitGTK DMABUF compositor fails silently; window chrome renders, "
+                + "webview content area stays blank (GTK background colour)",
+            null);
+        Map<String, Object> r = retrieval.recall(new RecallQuery(null, null, null, "blank webview", null));
+        assertEquals(ExperienceRetrieval.RESULT_MATCH, r.get("result"));
+        assertEquals(1, entries(r).size());
+    }
+
+    @Test
+    void symptom_requires_all_tokens_not_any() {
+        putSymbol("reference", "the webview initializes fine on wayland", null);
+        // Only one of the two cue tokens appears — a loose ANY-match would return this;
+        // the fit gate must not.
+        Map<String, Object> r = retrieval.recall(new RecallQuery(null, null, null, "blank webview", null));
+        assertEquals(ExperienceRetrieval.RESULT_ABSENCE, r.get("result"));
+    }
+
+    @Test
     void scope_mismatch_returns_absence() {
         putSymbol("lesson", "guard the workbench lifecycle", "com.a.Foo");
         // A symbol in a different tree does not fit — terminal absence, not a loose match.

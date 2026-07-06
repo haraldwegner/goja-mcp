@@ -426,11 +426,21 @@ public final class H2ExperienceStore implements ExperienceStore {
             params.add(q.externalSystem());
         }
         if (q.hasSymptom()) {
-            String like = "%" + normalize(q.symptom()) + "%";
-            clauses.add("(id IN (SELECT entry_id FROM experience_symptom WHERE symptom LIKE ?)"
-                + " OR LOWER(summary) LIKE ?)");
-            params.add(like);
-            params.add(like);
+            // v2.2.3: tokenized — each cue token must match a symptom OR the summary;
+            // the old single-substring LIKE missed non-adjacent cue words.
+            List<String> tokenClauses = new ArrayList<>();
+            for (String token : normalize(q.symptom()).split("\\s+")) {
+                if (token.isBlank()) {
+                    continue;
+                }
+                tokenClauses.add("(id IN (SELECT entry_id FROM experience_symptom WHERE symptom LIKE ?)"
+                    + " OR LOWER(summary) LIKE ?)");
+                params.add("%" + token + "%");
+                params.add("%" + token + "%");
+            }
+            if (!tokenClauses.isEmpty()) {
+                clauses.add("(" + String.join(" AND ", tokenClauses) + ")");
+            }
         }
         String sql = "SELECT id,type,symbol_fqn,package_name,operation,status,confidence,language,"
             + "external_system,summary,body_json,created_at FROM experience_entry WHERE ("

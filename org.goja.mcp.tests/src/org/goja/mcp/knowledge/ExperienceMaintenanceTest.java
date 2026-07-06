@@ -134,8 +134,9 @@ class ExperienceMaintenanceTest {
 
         Map<String, Object> report = maint(fqn -> null)
             .loadSources(List.of(dir.resolve("MEMORY.md")), false, 5, 200, 2_000_000L);
-        assertEquals(4, report.get("loaded"), "index + wikilink + mdlink + transitive mdlink");
-        assertEquals(4L, store.count());
+        // v2.2.3: the index itself is a link hub, not knowledge — 3 linked facts, no junk row.
+        assertEquals(3, report.get("loaded"), "wikilink + mdlink + transitive mdlink; index skipped");
+        assertEquals(3L, store.count());
         assertTrue(((List<?>) report.get("skipped")).isEmpty());
     }
 
@@ -190,6 +191,27 @@ class ExperienceMaintenanceTest {
         assertEquals(1, third.get("loaded"), "changed source is re-ingested");
         assertEquals(1, third.get("unchanged"));
         assertEquals(2L, store.count());
+    }
+
+    @Test
+    void load_skips_contentless_index_files_but_follows_their_links(@TempDir Path dir) throws IOException {
+        // v2.2.3 dogfood find: MEMORY.md-style indexes ingested as junk rows ("MEMORY", "''").
+        Files.writeString(dir.resolve("MEMORY.md"), "- [Fact](fact.md) — hook\n");
+        writeMemory(dir, "fact.md", "name: f\ndescription: a real fact\ntype: lesson", "body");
+        Map<String, Object> report = maint(fqn -> null).loadSources(
+            java.util.List.of(dir.resolve("MEMORY.md")), false, 5, 200, 2_000_000L);
+        assertEquals(1, report.get("loaded"), "index skipped, linked fact ingested");
+        assertEquals(1L, store.count());
+    }
+
+    @Test
+    void load_derives_summary_from_first_content_line_when_no_frontmatter(@TempDir Path dir) throws IOException {
+        // CLAUDE.md-style files: no frontmatter, but the body IS the knowledge.
+        Files.writeString(dir.resolve("CLAUDE.md"),
+            "# Collaboration rules\n\nAlways use goja before shell text tools.\n");
+        assertEquals(1, maint(fqn -> null).load(dir, false).get("loaded"));
+        StoredEntry e = store.all().get(0);
+        assertEquals("Collaboration rules", e.summary(), "summary derived from the first heading, not the filename");
     }
 
     @Test
