@@ -89,6 +89,8 @@ public class GojaApplication implements IApplication {
     // Sprint 21 (v2.0): the local experience/knowledge store — workspace-scoped H2,
     // opened at start()/closed at stop(). Backs the ExperienceAdvisor + store tools.
     private ExperienceStore experienceStore;
+    /** Sprint 21b (item D): held for the automatic post-project-load refresh. */
+    private ExperienceTool experienceTool;
     private McpProtocolHandler protocolHandler;
     private volatile WorkspaceFileWatcher workspaceWatcher;
     private volatile Transport activeTransport;
@@ -174,11 +176,25 @@ public class GojaApplication implements IApplication {
             Path workspaceJson = findWorkspaceJson(dataDir);
             if (workspaceJson != null) {
                 loadFromWorkspaceJson(workspaceJson.getParent());
+                refreshExperienceAfterProjectLoad();
                 return;
             }
         }
         // Fall back to single-project env-var path.
         autoLoadProjectFromEnv();
+        refreshExperienceAfterProjectLoad();
+    }
+
+    /**
+     * Sprint 21b (item D): the store-open refresh would be useless — projects load
+     * asynchronously AFTER the store opens, so every pointer would judge as "unknown".
+     * Run the automatic staleness pass here instead, once projects are in. Already on
+     * the async auto-load thread (zero startup cost); autoRefresh never throws.
+     */
+    private void refreshExperienceAfterProjectLoad() {
+        if (experienceTool != null) {
+            log.info("Experience auto-refresh after project load: {}", experienceTool.autoRefresh());
+        }
     }
 
     /**
@@ -596,8 +612,11 @@ public class GojaApplication implements IApplication {
         // Sprint 21 (v2.0): the local experience/knowledge store front door.
         // experience(kind=record|...) — writes now, recall/load/maintenance land in
         // later stages. Backed by the store opened in start(), closed in stop().
-        toolRegistry.register(new ExperienceTool(() -> jdtService, experienceStore,
-            this::defaultMemoryRoots));
+        // Sprint 21b (item D): keep the reference — autoLoadProjects triggers the
+        // automatic staleness refresh once projects are available.
+        experienceTool = new ExperienceTool(() -> jdtService, experienceStore,
+            this::defaultMemoryRoots);
+        toolRegistry.register(experienceTool);
     }
 
     private void runMessageLoop(TransportConfig config) {

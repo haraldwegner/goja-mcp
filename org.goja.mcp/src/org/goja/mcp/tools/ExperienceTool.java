@@ -49,10 +49,38 @@ public final class ExperienceTool implements Tool {
     /** Sprint 21a (item C): {@code defaultRoots} feed no-path {@code load} / {@code reseed}. */
     public ExperienceTool(Supplier<IJdtService> serviceSupplier, ExperienceStore store,
             Supplier<List<java.nio.file.Path>> defaultRoots) {
+        this(serviceSupplier, store, defaultRoots, null);
+    }
+
+    /** Sprint 21b (item D): package-private resolver override so tests can simulate staleness. */
+    ExperienceTool(Supplier<IJdtService> serviceSupplier, ExperienceStore store,
+            Supplier<List<java.nio.file.Path>> defaultRoots,
+            ExperienceMaintenance.PointerResolver resolverOverride) {
         this.serviceSupplier = serviceSupplier;
         this.store = store;
         this.retrieval = new ExperienceRetrieval(store, serviceSupplier);
-        this.maintenance = new ExperienceMaintenance(store, this::resolvesViaJdt, defaultRoots);
+        this.maintenance = new ExperienceMaintenance(store,
+            resolverOverride != null ? resolverOverride : this::resolvesViaJdt, defaultRoots);
+    }
+
+    /**
+     * Sprint 21b (item D): refresh is MAINTENANCE, not a user decision — run it after
+     * project auto-load and after every load/import. Never throws (the startup path must
+     * not die on a store/JDT hiccup); failures come back as an {@code error} report.
+     */
+    public Map<String, Object> autoRefresh() {
+        try {
+            return maintenance.refresh();
+        } catch (Exception e) {
+            return Map.of("error", "auto-refresh failed: " + e.getMessage());
+        }
+    }
+
+    /** Attach the automatic post-ingest refresh report to a load/reseed/import response. */
+    private Map<String, Object> withRefresh(Map<String, Object> data) {
+        Map<String, Object> out = new java.util.LinkedHashMap<>(data);
+        out.put("refresh", autoRefresh());
+        return out;
     }
 
     /** Bridge the JDT service to the maintenance resolver (TRUE=resolves, FALSE=stale, null=no project). */
@@ -244,9 +272,9 @@ public final class ExperienceTool implements Tool {
                 return ToolResponse.invalidParameter("path", "load without 'path' needs configured"
                     + " default memory roots (-Dgoja.memory.roots) — none found");
             }
-            return ToolResponse.success(maintenance.load(null, recursive));
+            return ToolResponse.success(withRefresh(maintenance.load(null, recursive)));
         }
-        return ToolResponse.success(maintenance.load(Path.of(path), recursive));
+        return ToolResponse.success(withRefresh(maintenance.load(Path.of(path), recursive)));
     }
 
     /**
@@ -271,7 +299,7 @@ public final class ExperienceTool implements Tool {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("removed", wiped.get("removed"));
         data.putAll(loaded);
-        return ToolResponse.success(data);
+        return ToolResponse.success(withRefresh(data));
     }
 
     private static boolean bool(JsonNode n, String field) {
@@ -378,7 +406,7 @@ public final class ExperienceTool implements Tool {
                     "cannot read export file: " + e.getMessage());
             }
         }
-        return ToolResponse.success(store.importEntries(entries));
+        return ToolResponse.success(withRefresh(store.importEntries(entries)));
     }
 
     private ToolResponse promote(JsonNode args) {

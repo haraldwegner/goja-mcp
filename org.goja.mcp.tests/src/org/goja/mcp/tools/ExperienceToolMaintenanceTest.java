@@ -96,6 +96,55 @@ class ExperienceToolMaintenanceTest {
         assertFalse(tool.execute(a).isSuccess(), "no path + no configured default roots");
     }
 
+    // --- Sprint 21b (item D): refresh is automatic after load / import --------------------
+
+    @Test
+    void load_auto_refreshes_preexisting_stale_entries(@TempDir Path dir) throws IOException {
+        recordOne(); // symbol com.example.WorkflowCoordinator, currently unresolvable=stale
+        Files.writeString(dir.resolve("m.md"),
+            "---\nname: n\ndescription: unrelated note\ntype: domain_fact\n---\nbody");
+        ExperienceTool staleWorld = new ExperienceTool(() -> null, store,
+            java.util.List::of, fqn -> Boolean.FALSE);
+        ObjectNode a = mapper.createObjectNode();
+        a.put("kind", "load");
+        a.put("path", dir.toString());
+        Map<String, Object> d = data(staleWorld.execute(a));
+        assertEquals(1, d.get("loaded"));
+        Map<?, ?> refresh = (Map<?, ?>) d.get("refresh");
+        assertEquals(1, ((java.util.List<?>) refresh.get("staled")).size(),
+            "pre-existing dead pointer flagged by load itself — no explicit refresh call");
+    }
+
+    @Test
+    void import_auto_refreshes_the_ingested_entries(@TempDir Path dir) throws IOException {
+        recordOne();
+        ObjectNode ex = mapper.createObjectNode();
+        ex.put("kind", "export");
+        Object entries = data(tool.execute(ex)).get("entries");
+        ObjectNode wipe = mapper.createObjectNode();
+        wipe.put("kind", "wipe");
+        data(tool.execute(wipe));
+
+        ExperienceTool staleWorld = new ExperienceTool(() -> null, store,
+            java.util.List::of, fqn -> Boolean.FALSE);
+        ObjectNode im = mapper.createObjectNode();
+        im.put("kind", "import");
+        im.set("entries", mapper.valueToTree(entries));
+        Map<String, Object> d = data(staleWorld.execute(im));
+        Map<?, ?> refresh = (Map<?, ?>) d.get("refresh");
+        assertEquals(1, ((java.util.List<?>) refresh.get("staled")).size(),
+            "imported dead pointer flagged by import itself");
+    }
+
+    @Test
+    void autoRefresh_never_throws_even_on_a_broken_resolver() {
+        recordOne();
+        ExperienceTool broken = new ExperienceTool(() -> null, store,
+            java.util.List::of, fqn -> { throw new IllegalStateException("boom"); });
+        Map<String, Object> r = broken.autoRefresh();
+        assertTrue(r.containsKey("error"), "the startup auto-refresh path must never throw");
+    }
+
     // --- Sprint 21a (items C+G): default roots + the confirm-gated reseed -----------------
 
     @Test
