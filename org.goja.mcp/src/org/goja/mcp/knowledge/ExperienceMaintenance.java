@@ -202,7 +202,7 @@ public final class ExperienceMaintenance {
             // Sprint 21b: an unchanged source causes NO write at all (the delete+insert
             // churn grew the MVStore file on every load). Links are still followed —
             // an unchanged index can point at new files.
-            String hash = sha256(content);
+            String hash = sourceHash(content);
             if (store.sourceUnchanged(sourceRef, hash)) {
                 unchanged++;
                 List<Path> unchangedTargets = resolveLinks(doc, f.getParent(), rootDirs);
@@ -274,6 +274,21 @@ public final class ExperienceMaintenance {
             log.info("load: {} source(s) skipped: {}", skipped.size(), skipped);
         }
         return report;
+    }
+
+    /**
+     * v2.2.6 (find #14): the ingest-semantics version, baked into the skip-unchanged
+     * hash. BUMP THIS whenever what the loader EXTRACTS from a file changes (new facets,
+     * symptom derivation, summary rules …) — every stored hash then goes stale by
+     * definition and the next load re-ingests the whole corpus once, self-healing
+     * retroactively. Within one version, idempotency stays byte-strict.
+     * History: 1 = content-only (v2.2.1) · 2 = name-as-symptom (v2.2.6).
+     */
+    static final int LOADER_VERSION = 2;
+
+    /** The skip-unchanged key: SHA-256 of the file content + the loader fingerprint. */
+    static String sourceHash(String content) {
+        return sha256(content + ";loader=" + LOADER_VERSION);
     }
 
     /** SHA-256 of the raw file content — the skip-unchanged key (Sprint 21b). */

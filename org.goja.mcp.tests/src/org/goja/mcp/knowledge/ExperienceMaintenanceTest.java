@@ -194,6 +194,30 @@ class ExperienceMaintenanceTest {
     }
 
     @Test
+    void loader_version_bump_reingests_unchanged_files_once(@TempDir Path dir) throws IOException {
+        // v2.2.6 (find #14): skip-unchanged blocked retroactive enrichment — an entry
+        // stored under an OLDER loader fingerprint must re-ingest even though the file
+        // bytes are identical; within one version idempotency stays byte-strict.
+        writeMemory(dir, "a.md", "name: a\ndescription: fact a\ntype: lesson", "body");
+        String content = java.nio.file.Files.readString(dir.resolve("a.md"));
+        ExperienceMaintenance m = maint(fqn -> null);
+        assertEquals(1, m.load(dir, true).get("loaded"));
+
+        // Simulate a pre-bump store: rewrite the entry with the OLD (content-only) hash.
+        String sourceRef = "memory:" + dir.resolve("a.md").toAbsolutePath().normalize();
+        store.deleteBySource(sourceRef);
+        store.putWithSource(ExperienceEntry.of(
+                SymbolFact.of("lesson", "fact a", Confidence.MEDIUM).build())
+                .status(ExperienceEntry.ACCEPTED).build(),
+            sourceRef, "0000-old-loader-hash");
+        assertEquals(1, m.load(dir, true).get("loaded"), "stale fingerprint → re-ingested");
+
+        Map<String, Object> again = m.load(dir, true);
+        assertEquals(0, again.get("loaded"), "current fingerprint → byte-strict skip");
+        assertEquals(1, again.get("unchanged"));
+    }
+
+    @Test
     void load_indexes_the_name_as_a_symptom_cue(@TempDir Path dir) throws IOException {
         // v2.2.5 dogfood find #13: the frontmatter NAME is where cue-dense phrasing lives
         // ("Tauri webview renders blank on aarch64") while the description may use other
