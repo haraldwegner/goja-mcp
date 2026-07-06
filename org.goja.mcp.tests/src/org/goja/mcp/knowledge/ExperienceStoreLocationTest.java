@@ -21,6 +21,37 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ExperienceStoreLocationTest {
 
     @Test
+    void open_retries_transient_lock_contention(@TempDir Path dir) {
+        // v2.2.4 live find: a runtime swap restarts residents seconds apart; H2 refuses
+        // the young lock ("Lock file recently modified") and the resident silently fell
+        // back to a NON-PERSISTENT in-memory store (split-brain with the peer).
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        H2ExperienceStore opened = H2ExperienceStore.openWithRetry(() -> {
+            if (calls.incrementAndGet() < 3) {
+                throw new IllegalStateException("failed to open experience store: "
+                    + "Error opening database: \"Lock file recently modified\" [8000-224]");
+            }
+            return H2ExperienceStore.openAt(dir);
+        }, 5, 1);
+        assertEquals(3, calls.get(), "two transient failures retried, third succeeds");
+        opened.close();
+    }
+
+    @Test
+    void open_rethrows_non_transient_failures_immediately() {
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        try {
+            H2ExperienceStore.openWithRetry(() -> {
+                calls.incrementAndGet();
+                throw new IllegalStateException("schema is v99, newer than this resident supports");
+            }, 5, 1);
+            throw new AssertionError("expected IllegalStateException");
+        } catch (IllegalStateException expected) {
+            assertEquals(1, calls.get(), "a real failure is not retried");
+        }
+    }
+
+    @Test
     void peer_connection_self_heals_after_a_compact(@TempDir Path dir) {
         // Sprint 21b: compact = SHUTDOWN COMPACT on the SHARED AUTO_SERVER database —
         // it closes the db for EVERY attached resident. The peer must reconnect, not

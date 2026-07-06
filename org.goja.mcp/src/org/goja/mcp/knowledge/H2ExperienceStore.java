@@ -113,9 +113,51 @@ public final class H2ExperienceStore implements ExperienceStore {
         // H2 forbids DB_CLOSE_ON_EXIT together with AUTO_SERVER — the auto-server owns the
         // database lifecycle (we still close() explicitly at stop()).
         String url = "jdbc:h2:file:" + base.toAbsolutePath() + ";AUTO_SERVER=TRUE";
-        H2ExperienceStore store = openUrl(url, storeDir, storeDir.resolve("experience.mv.db"));
+        // v2.2.4: a runtime swap restarts residents seconds apart — the dying peer's lock
+        // file is "recently modified" and H2 refuses the open. That is TRANSIENT; retry
+        // before the caller degrades to a silent, non-persistent in-memory store.
+        H2ExperienceStore store = openWithRetry(
+            () -> openUrl(url, storeDir, storeDir.resolve("experience.mv.db")), 5, 1500);
         log.info("Experience store opened (file: {})", storeDir);
         return store;
+    }
+
+    /** Retry transient lock contention ({@code attempts} × {@code sleepMs}); rethrow anything else. */
+    static H2ExperienceStore openWithRetry(java.util.function.Supplier<H2ExperienceStore> opener,
+            int attempts, long sleepMs) {
+        IllegalStateException last = null;
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                return opener.get();
+            } catch (IllegalStateException e) {
+                if (!isTransientLock(e)) {
+                    throw e;
+                }
+                last = e;
+                log.info("Experience store lock busy (attempt {}/{}): {}", attempt, attempts, e.getMessage());
+                if (attempt < attempts) {
+                    try {
+                        Thread.sleep(sleepMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw e;
+                    }
+                }
+            }
+        }
+        throw last;
+    }
+
+    /** The two H2 messages a resident restart race produces — gone within seconds. */
+    private static boolean isTransientLock(Exception e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            String m = t.getMessage();
+            if (m != null && (m.contains("Lock file recently modified")
+                    || m.contains("Database may be already in use"))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
