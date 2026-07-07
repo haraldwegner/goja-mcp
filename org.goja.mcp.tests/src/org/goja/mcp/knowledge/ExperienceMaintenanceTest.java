@@ -385,6 +385,20 @@ class ExperienceMaintenanceTest {
     }
 
     @Test
+    void harvest_indexes_quoted_error_strings_as_cues(@TempDir Path dir) throws IOException {
+        // Sprint 21c C4 live-gate finding: "Lock file recently modified" lived only in
+        // prose details — quoted strings are the classic error-message symptom cue.
+        writeMemory(dir, "q.md", "name: q\ndescription: quote fixture\ntype: lesson",
+            "The swap race surfaced as \"Lock file recently modified\" during boot.\n");
+        assertEquals(1, maint(fqn -> null).load(dir, true).get("loaded"));
+
+        ExperienceRetrieval retrieval = new ExperienceRetrieval(store, () -> null);
+        assertEquals(ExperienceRetrieval.RESULT_MATCH,
+            retrieval.recall(new RecallQuery(null, null, null, "lock file recently modified", null)).get("result"),
+            "the quoted error string is a recallable cue");
+    }
+
+    @Test
     void harvest_truncates_oversize_phrases_to_the_column_limit(@TempDir Path dir) throws IOException {
         // experience_symptom.symptom is VARCHAR(512) — an oversize bold phrase must not
         // break the insert.

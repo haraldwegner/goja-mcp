@@ -34,6 +34,9 @@ public final class ExperienceMaintenance {
     private static final Pattern HEADING = Pattern.compile("^#{1,6}\\s+(.+)$");
     private static final Pattern BOLD = Pattern.compile("\\*\\*([^*\\n]+)\\*\\*");
     private static final Pattern CODE_SPAN = Pattern.compile("`([^`\\n]+)`");
+    /** C4 live-gate finding: quoted error strings ("Lock file recently modified") are
+     *  THE classic symptom cue and lived only in prose details — harvest them too. */
+    private static final Pattern QUOTED = Pattern.compile("\"([^\"\\n]{3,80})\"");
     /** Keyword-harvest backstop per entry — hitting it is reported, never silent. */
     static final int MAX_KEYWORDS_PER_ENTRY = 30;
 
@@ -693,7 +696,7 @@ public final class ExperienceMaintenance {
             }
             prose.append(line).append('\n');
         }
-        for (Pattern p : List.of(BOLD, CODE_SPAN, WIKILINK)) {
+        for (Pattern p : List.of(BOLD, CODE_SPAN, WIKILINK, QUOTED)) {
             Matcher m = p.matcher(prose);
             while (m.find()) {
                 addKeyword(out, seen, m.group(1));
