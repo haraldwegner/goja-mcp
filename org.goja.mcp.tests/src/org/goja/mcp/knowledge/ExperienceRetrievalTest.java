@@ -52,6 +52,79 @@ class ExperienceRetrievalTest {
         return (List<Map<String, Object>>) result.get("entries");
     }
 
+    /** Sprint 21c: a file-backed family member (parent or section) sharing a source_ref. */
+    private String putFamily(String sourceRef, String summary, boolean section, String... symptoms) {
+        ExperienceEntry.Builder b = ExperienceEntry.of(
+            SymbolFact.of("lesson", summary, Confidence.MEDIUM).build());
+        if (section) {
+            b.scopeKind("section");
+        }
+        for (String s : symptoms) {
+            b.addSymptom(s);
+        }
+        return store.putWithSource(b.build(), sourceRef, "hash");
+    }
+
+    private static java.util.Set<Object> ids(List<Map<String, Object>> entries) {
+        java.util.Set<Object> ids = new java.util.HashSet<>();
+        for (Map<String, Object> e : entries) {
+            ids.add(e.get("id"));
+        }
+        return ids;
+    }
+
+    @Test
+    void parent_is_dropped_when_its_own_section_fits() {
+        // Sprint 21c (item B): the section IS the fact — recall answers with it, not
+        // the file bundle; injection pays only the fact's tokens.
+        String parent = putFamily("memory:/m/webkit.md", "webkit notes bundle", false,
+            "tauri webview renders blank on aarch64");
+        String section = putFamily("memory:/m/webkit.md", "Tauri blank webview fix", true,
+            "tauri webview renders blank on aarch64");
+
+        Map<String, Object> r = retrieval.recall(new RecallQuery(null, null, null, "blank webview", null));
+        assertEquals(ExperienceRetrieval.RESULT_MATCH, r.get("result"));
+        assertTrue(ids(entries(r)).contains(section), "the fact answers");
+        assertFalse(ids(entries(r)).contains(parent), "the bundle is dropped from the fit set");
+    }
+
+    @Test
+    void parent_still_answers_when_only_it_fits() {
+        String parent = putFamily("memory:/m/f.md", "frontmatter cue lives here", false,
+            "orphan preamble cue");
+        putFamily("memory:/m/f.md", "Some unrelated section", true, "different topic entirely");
+
+        Map<String, Object> r = retrieval.recall(new RecallQuery(null, null, null, "orphan preamble cue", null));
+        assertEquals(ExperienceRetrieval.RESULT_MATCH, r.get("result"));
+        assertTrue(ids(entries(r)).contains(parent), "no fitting section → the parent answers");
+    }
+
+    @Test
+    void sibling_sections_stay_an_ordered_fit_set() {
+        // The hook's ambiguity signal (Sprint 21c item D): 2+ fitting siblings are
+        // returned ordered — single-fact-or-nothing is enforced at the hook boundary.
+        String s1 = putFamily("memory:/m/a.md", "Lock retry on open", true, "lock file recently modified");
+        String s2 = putFamily("memory:/m/b.md", "Lock race at swap", true, "lock file recently modified");
+
+        Map<String, Object> r = retrieval.recall(new RecallQuery(null, null, null, "lock file recently modified", null));
+        assertEquals(ExperienceRetrieval.RESULT_MATCH, r.get("result"));
+        assertEquals(2, entries(r).size(), "both siblings visible — ambiguity stays honest");
+        assertTrue(ids(entries(r)).containsAll(java.util.Set.of(s1, s2)));
+    }
+
+    @Test
+    void recorded_entries_are_never_family_dropped() {
+        ExperienceEntry.Builder rb = ExperienceEntry.of(
+            SymbolFact.of("lesson", "recorded lesson", Confidence.MEDIUM).build());
+        rb.addSymptom("shared cue words");
+        String recorded = store.put(rb.build());
+        String section = putFamily("memory:/m/x.md", "Sectioned fact", true, "shared cue words");
+
+        Map<String, Object> r = retrieval.recall(new RecallQuery(null, null, null, "shared cue words", null));
+        assertEquals(2, entries(r).size(), "a recorded entry has no family — never dropped");
+        assertTrue(ids(entries(r)).containsAll(java.util.Set.of(recorded, section)));
+    }
+
     @Test
     void empty_cue_is_absence() {
         Map<String, Object> r = retrieval.recall(new RecallQuery(null, null, null, null, null));

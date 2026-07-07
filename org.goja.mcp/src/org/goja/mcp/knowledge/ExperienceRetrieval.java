@@ -89,6 +89,23 @@ public final class ExperienceRetrieval {
             return out;
         }
 
+        // Sprint 21c (item B): the section IS the fact — when a section and its
+        // file-parent both fit (same source_ref), drop the PARENT bundle; recall
+        // answers with the fact and injection pays only the fact's tokens. Sibling
+        // sections that both fit REMAIN (the hook's ambiguity signal, item D).
+        if (fitting.size() > 1) {
+            java.util.Set<String> sectionSources = new java.util.HashSet<>();
+            for (StoredEntry e : fitting) {
+                if (e.isSection() && e.sourceRef() != null) {
+                    sectionSources.add(e.sourceRef());
+                }
+            }
+            if (!sectionSources.isEmpty()) {
+                fitting.removeIf(e -> !e.isSection() && e.sourceRef() != null
+                    && sectionSources.contains(e.sourceRef()));
+            }
+        }
+
         // Disambiguate: scope-specificity › confidence › recency (newest first).
         fitting.sort(Comparator
             .comparingInt(StoredEntry::specificity).reversed()
