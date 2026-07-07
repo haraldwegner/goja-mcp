@@ -11,6 +11,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -38,9 +39,15 @@ import java.util.Set;
  */
 public final class DiskSyncGuard {
 
-    /** One scan's outcome. {@code hashedCount} = content hashes computed (cost telemetry). */
+    /**
+     * One scan's outcome. {@code newRoots} = roots seen for the FIRST time this scan —
+     * their files enter the baseline silently, and the caller closes the blind window
+     * between model load and first guard pass with ONE whole-root reconcile.
+     * {@code hashedCount} = content hashes computed (cost telemetry).
+     */
     public record ScanResult(List<Path> changed, List<Path> added, List<Path> deleted,
-                             long durationNanos, int hashedCount) {
+                             List<Path> newRoots, long durationNanos, int hashedCount) {
+        /** True when no FILE changes were detected (new roots are reported separately). */
         public boolean isEmpty() {
             return changed.isEmpty() && added.isEmpty() && deleted.isEmpty();
         }
@@ -62,14 +69,18 @@ public final class DiskSyncGuard {
     private final Map<Path, Sig> known = new HashMap<>();
     /** Content hashes for files inside the granularity window; evicted when they age out. */
     private final Map<Path, String> youngHashes = new HashMap<>();
-    private boolean primed = false;
+    /** Roots whose baseline has been recorded — per ROOT, so a project loaded later
+     *  (the workspace watcher adds projects at runtime) is primed on first sight. */
+    private final Set<Path> primedRoots = new HashSet<>();
     private long lastScanStartMillis = -1;
 
     /**
      * Compare the {@code .java} files under {@code roots} against the last scan.
-     * The FIRST scan primes the baseline and reports nothing (the JDT model was just
-     * loaded from this same disk state). Files under roots no longer passed are
-     * dropped silently — the workspace no longer owns them, they are not edits.
+     * A root seen for the FIRST time is reported in {@code newRoots} and its files
+     * enter the baseline without change reports — the caller reconciles the whole
+     * root once, closing the blind window between model load and first guard pass.
+     * Files under roots no longer passed are dropped silently — the workspace no
+     * longer owns them, they are not edits.
      */
     public synchronized ScanResult scan(Collection<Path> roots) {
         long startNanos = System.nanoTime();
@@ -81,6 +92,14 @@ public final class DiskSyncGuard {
         }
         known.keySet().removeIf(p -> normRoots.stream().noneMatch(p::startsWith));
         youngHashes.keySet().removeIf(p -> normRoots.stream().noneMatch(p::startsWith));
+        primedRoots.retainAll(normRoots);      // a dropped root re-primes if it returns
+
+        List<Path> newRoots = new ArrayList<>();
+        for (Path r : normRoots) {
+            if (!primedRoots.contains(r)) {
+                newRoots.add(r);
+            }
+        }
 
         Map<Path, Sig> current = collect(normRoots);
 
@@ -89,16 +108,19 @@ public final class DiskSyncGuard {
         List<Path> deleted = new ArrayList<>();
         int hashed = 0;
 
-        long youngThreshold = (primed ? lastScanStartMillis : scanStartMillis) - FS_GRANULARITY_MILLIS;
+        long primedThreshold =
+            (lastScanStartMillis < 0 ? scanStartMillis : lastScanStartMillis) - FS_GRANULARITY_MILLIS;
+        long baselineThreshold = scanStartMillis - FS_GRANULARITY_MILLIS;
 
         for (Map.Entry<Path, Sig> e : current.entrySet()) {
             Path file = e.getKey();
             Sig sig = e.getValue();
             Sig prev = known.get(file);
-            boolean young = sig.mtimeMillis() >= youngThreshold;
+            boolean underNewRoot = newRoots.stream().anyMatch(file::startsWith);
+            boolean young = sig.mtimeMillis() >= (underNewRoot ? baselineThreshold : primedThreshold);
 
             if (prev == null) {
-                if (primed) {
+                if (!underNewRoot) {
                     added.add(file);
                 }
                 if (young) {
@@ -119,28 +141,26 @@ public final class DiskSyncGuard {
                 String h = sha256(file);
                 hashed++;
                 String prior = youngHashes.put(file, h);
-                if (primed && prior != null && !prior.equals(h)) {
+                if (prior != null && !prior.equals(h)) {
                     changed.add(file);
                 }
             } else {
                 youngHashes.remove(file);      // aged out — bound the cache
             }
         }
-        if (primed) {
-            for (Path p : known.keySet()) {
-                if (!current.containsKey(p)) {
-                    deleted.add(p);
-                }
+        for (Path p : known.keySet()) {
+            if (!current.containsKey(p)) {
+                deleted.add(p);
             }
         }
 
         known.clear();
         known.putAll(current);
-        primed = true;
+        primedRoots.addAll(normRoots);
         lastScanStartMillis = scanStartMillis;
 
         return new ScanResult(List.copyOf(changed), List.copyOf(added), List.copyOf(deleted),
-            System.nanoTime() - startNanos, hashed);
+            List.copyOf(newRoots), System.nanoTime() - startNanos, hashed);
     }
 
     private static Map<Path, Sig> collect(List<Path> roots) {

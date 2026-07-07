@@ -27,11 +27,15 @@ class DiskSyncGuardTest {
     }
 
     @Test
-    void first_scan_primes_the_baseline_and_reports_nothing(@TempDir Path dir) throws IOException {
+    void first_scan_primes_the_baseline_and_reports_the_new_root(@TempDir Path dir) throws IOException {
         write(dir, "src/com/a/A.java", "class A {}");
         DiskSyncGuard guard = new DiskSyncGuard();
         DiskSyncGuard.ScanResult first = guard.scan(List.of(dir));
         assertTrue(first.isEmpty(), "the first scan is the baseline, not a change set");
+        assertEquals(List.of(dir.toAbsolutePath().normalize()), first.newRoots(),
+            "first sight of a root is reported so the caller reconciles it whole — "
+                + "closing the blind window between model load and first guard pass");
+        assertTrue(guard.scan(List.of(dir)).newRoots().isEmpty(), "a primed root is not new");
     }
 
     @Test

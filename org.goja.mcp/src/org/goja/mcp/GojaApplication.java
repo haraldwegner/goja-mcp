@@ -488,6 +488,11 @@ public class GojaApplication implements IApplication {
     }
 
     private void registerTools() {
+        // Sprint 21d: strict disk sync — every tool call reconciles external edits
+        // before executing; the unchanged-tree fast path is the only skip.
+        toolRegistry.setDiskSync(
+            new org.goja.core.workspace.StrictDiskSync(() -> jdtService));
+
         // Register HealthCheckTool with suppliers for project status, tool
         // count, loading state, and (Sprint 10) the multi-project workspace
         // summary.

@@ -1,6 +1,7 @@
 package org.goja.mcp.tools;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import org.goja.core.workspace.StrictDiskSync;
 import org.goja.mcp.models.ToolResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +36,14 @@ public class ToolRegistry {
         "analyze", "inspect");
 
     private final Map<String, Tool> tools = new LinkedHashMap<>();
+
+    /** Sprint 21d: the strict-disk-sync guard, run once per call before any tool executes. */
+    private StrictDiskSync diskSync;
+
+    /** Install the per-call disk-sync guard (Sprint 21d). Null = no guard (tests). */
+    public void setDiskSync(StrictDiskSync diskSync) {
+        this.diskSync = diskSync;
+    }
 
     /**
      * Register a tool with the registry.
@@ -162,6 +171,25 @@ public class ToolRegistry {
 
         log.info("Executing tool: {}", name);
         long startTime = System.currentTimeMillis();
+
+        // Sprint 21d: strict disk sync — reconcile external edits (agent, git, another
+        // editor) BEFORE the tool computes anything, so every answer reflects the
+        // CURRENT tree. Failure = WARN and proceed (availability over freshness on a
+        // guard crash ONLY — never a switch; correctness is not configurable).
+        if (diskSync != null) {
+            try {
+                StrictDiskSync.SyncReport sync = diskSync.syncBeforeCall();
+                if (sync.reconciled()) {
+                    log.info("Strict disk sync before {}: {} new project(s), {} file(s) reconciled,"
+                            + " {} project(s) built in {}ms",
+                        name, sync.newProjects(), sync.refreshedFiles(), sync.builtProjects(),
+                        sync.totalNanos() / 1_000_000);
+                }
+            } catch (Exception e) {
+                log.warn("Strict disk sync FAILED before {} — answers may be STALE until the"
+                    + " next successful reconcile", name, e);
+            }
+        }
 
         try {
             ToolResponse response = tool.execute(arguments);
