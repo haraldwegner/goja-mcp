@@ -66,6 +66,18 @@ public interface ExperienceStore extends AutoCloseable {
     /** Update an entry's curation status; returns true when a row changed. */
     boolean setStatus(String id, String status);
 
+    /**
+     * Sprint 21e (item A): column-only write of the AUTOMATIC symbol anchor —
+     * {@code symbol_fqn} ONLY ({@code null} clears it). Never touches
+     * {@code package_name} (the author-asserted {@code packages[]} channel),
+     * {@code source_hash} (byte-strict skip must not see anchoring as change) or
+     * {@code status}. The frozen {@code body_json} stays untouched too — its fact-map
+     * {@code symbol} key remains the ASSERTED-provenance marker.
+     */
+    default boolean updateSymbolAnchor(String id, String symbolFqn) {
+        return false;
+    }
+
     /** Total entry count — diagnostics + tests. */
     long count();
 

@@ -4,11 +4,15 @@ import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IType;
+import org.eclipse.jdt.core.search.IJavaSearchConstants;
+import org.eclipse.jdt.core.search.SearchMatch;
 import org.goja.core.search.SearchService;
 
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 
@@ -104,6 +108,46 @@ public interface IJdtService {
      * @return IType or null if not found
      */
     IType findType(String typeName);
+
+    /**
+     * Sprint 21e (item A): resolve a type name (simple or qualified) to the UNIQUE
+     * project-SOURCE type it denotes, or {@code null}. This is the resolution gate that
+     * makes automatic symbol anchoring safe: dead/renamed names don't resolve, binary
+     * (JDK/library) types are excluded, and an ambiguous simple name (2+ source types,
+     * nested types included) is refused — absence beats a wrong pointer.
+     *
+     * @param typeName simple ("SlotManager") or qualified ("pipeline.SlotManager") name
+     * @return the unique source {@link IType}, or {@code null} (unresolvable / binary /
+     *         ambiguous / no search scope yet)
+     */
+    default IType resolveUniqueSourceType(String typeName) {
+        if (typeName == null || typeName.isBlank()) {
+            return null;
+        }
+        try {
+            if (typeName.indexOf('.') >= 0) {
+                IType t = findType(typeName);
+                return t != null && t.exists() && t.getCompilationUnit() != null ? t : null;
+            }
+            SearchService search = getSearchService();
+            if (search == null) {
+                return null;
+            }
+            // Exact-name TYPE declarations over the current all-projects scope; keep only
+            // SOURCE hits, dedup by FQN (the same type loaded twice is not ambiguity).
+            Map<String, IType> sourceByFqn = new LinkedHashMap<>();
+            for (SearchMatch m : search.searchSymbols(typeName, IJavaSearchConstants.TYPE, 50)) {
+                if (m.getElement() instanceof IType t
+                        && typeName.equals(t.getElementName())
+                        && t.getCompilationUnit() != null) {
+                    sourceByFqn.putIfAbsent(t.getFullyQualifiedName('.'), t);
+                }
+            }
+            return sourceByFqn.size() == 1 ? sourceByFqn.values().iterator().next() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
 
     /**
      * Get source line content at a specific position.

@@ -1,5 +1,6 @@
 package org.goja.mcp.knowledge;
 
+import org.goja.core.IJdtService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -68,6 +69,8 @@ public final class ExperienceMaintenance {
     private final ExperienceStore store;
     private final PointerResolver resolver;
     private final Supplier<List<Path>> defaultRoots;
+    /** Sprint 21e (item A): JDT access for ingest-time anchor RESOLUTION; null = no auto-anchoring. */
+    private final Supplier<IJdtService> anchorService;
 
     public ExperienceMaintenance(ExperienceStore store, PointerResolver resolver) {
         this(store, resolver, List::of);
@@ -76,9 +79,16 @@ public final class ExperienceMaintenance {
     /** Sprint 21a (item C): {@code defaultRoots} feed the no-path {@code load}/{@code reseed}. */
     public ExperienceMaintenance(ExperienceStore store, PointerResolver resolver,
             Supplier<List<Path>> defaultRoots) {
+        this(store, resolver, defaultRoots, null);
+    }
+
+    /** Sprint 21e (item A): {@code anchorService} enables ingest-time symbol-anchor resolution. */
+    public ExperienceMaintenance(ExperienceStore store, PointerResolver resolver,
+            Supplier<List<Path>> defaultRoots, Supplier<IJdtService> anchorService) {
         this.store = store;
         this.resolver = resolver == null ? fqn -> null : resolver;
         this.defaultRoots = defaultRoots == null ? List::of : defaultRoots;
+        this.anchorService = anchorService;
     }
 
     /** True when at least one configured default root exists on disk. */
@@ -169,7 +179,12 @@ public final class ExperienceMaintenance {
         int unchanged = 0;
         int linked = 0;
         int keywordCapped = 0;
+        int anchored = 0;
         long bytes = 0;
+        // Sprint 21e (item A): one resolver per load run — its token memo spans the run
+        // but never outlives project loads/removals.
+        SymbolAnchorResolver anchors =
+            anchorService == null ? null : new SymbolAnchorResolver(anchorService);
         while (!queue.isEmpty()) {
             Item item = queue.poll();
             Path f = item.file().toAbsolutePath().normalize();
@@ -259,7 +274,14 @@ public final class ExperienceMaintenance {
             for (String link : doc.links) {
                 eb.addLink("related", link);
             }
-            store.putWithSource(eb.build(), sourceRef, hash);
+            String parentId = store.putWithSource(eb.build(), sourceRef, hash);
+            // Sprint 21e (item A): frontmatter symbol wins UNCHANGED (asserted, in the
+            // fact map); only anchor-less parents get the resolution-gated AUTO anchor —
+            // written COLUMN-ONLY so body_json keeps no `symbol` key (the provenance
+            // marker refresh() distinguishes on).
+            if (doc.symbol == null) {
+                anchored += autoAnchor(anchors, parentId, split ? doc.preamble : doc.body, doc.language);
+            }
             // Sprint 21c (item B): one entry per section — the atomic FACT the fit
             // gate answers with. The whole family shares the file-level source_ref +
             // source_hash, so skip-unchanged and deleteBySource stay untouched.
@@ -279,7 +301,10 @@ public final class ExperienceMaintenance {
                 for (String link : s.links()) {
                     sb.addLink("related", link);
                 }
-                store.putWithSource(sb.build(), sourceRef, hash);
+                String sectionId = store.putWithSource(sb.build(), sourceRef, hash);
+                // Sections cannot carry frontmatter — the auto-anchor from their OWN
+                // text is their only symbol channel (the ORB book-flatten gap).
+                anchored += autoAnchor(anchors, sectionId, s.heading() + "\n" + s.body(), doc.language);
             }
             loaded++;
 
@@ -316,10 +341,32 @@ public final class ExperienceMaintenance {
         if (keywordCapped > 0) {
             report.put("keyword_capped", keywordCapped);
         }
+        if (anchored > 0) {
+            report.put("anchored", anchored);
+        }
         if (!skipped.isEmpty()) {
             log.info("load: {} source(s) skipped: {}", skipped.size(), skipped);
         }
         return report;
+    }
+
+    /**
+     * Sprint 21e (item A): resolution-gated AUTO anchor, written COLUMN-ONLY via
+     * {@link ExperienceStore#updateSymbolAnchor} — never through the fact map, so the
+     * frozen {@code body_json} carries no {@code symbol} key for auto-anchored entries.
+     * Java-language entries only (non-Java anchors are opaque to JDT by contract).
+     */
+    private int autoAnchor(SymbolAnchorResolver anchors, String entryId, String text, String language) {
+        if (anchors == null || entryId == null || text == null || text.isBlank()) {
+            return 0;
+        }
+        boolean java = language == null || language.isBlank() || "java".equalsIgnoreCase(language);
+        if (!java) {
+            return 0;
+        }
+        return anchors.resolve(text)
+            .map(fqn -> store.updateSymbolAnchor(entryId, fqn) ? 1 : 0)
+            .orElse(0);
     }
 
     /**

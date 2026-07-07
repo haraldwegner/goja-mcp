@@ -375,6 +375,20 @@ public final class H2ExperienceStore implements ExperienceStore {
         }
     }
 
+    /** Sprint 21e (item A): {@code symbol_fqn} ONLY — never package_name/source_hash/status. */
+    @Override
+    public synchronized boolean updateSymbolAnchor(String id, String symbolFqn) {
+        try (PreparedStatement ps = live().prepareStatement(
+                "UPDATE experience_entry SET symbol_fqn = ?, updated_at = ? WHERE id = ?")) {
+            ps.setString(1, symbolFqn);
+            ps.setTimestamp(2, Timestamp.from(Instant.now()));
+            ps.setString(3, id);
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            throw new IllegalStateException("failed to update symbol anchor: " + e.getMessage(), e);
+        }
+    }
+
     /** Symptoms are alias-normalized (lower/trim/collapse) so paraphrases index together. */
     private void insertSymptoms(String id, List<String> symptoms) throws SQLException {
         if (symptoms.isEmpty()) {

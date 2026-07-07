@@ -60,7 +60,8 @@ public final class ExperienceTool implements Tool {
         this.store = store;
         this.retrieval = new ExperienceRetrieval(store, serviceSupplier);
         this.maintenance = new ExperienceMaintenance(store,
-            resolverOverride != null ? resolverOverride : this::resolvesViaJdt, defaultRoots);
+            resolverOverride != null ? resolverOverride : this::resolvesViaJdt, defaultRoots,
+            serviceSupplier);
     }
 
     /**
