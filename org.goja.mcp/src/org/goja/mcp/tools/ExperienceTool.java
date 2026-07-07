@@ -444,6 +444,19 @@ public final class ExperienceTool implements Tool {
         return ToolResponse.success(data);
     }
 
+    /**
+     * Sprint 21e (item B): the classify contract (Recall-Gap §5.5) — a recall MATCH
+     * converts the agent's task from GENERATE a cause (fluency wins) to CLASSIFY
+     * against the returned closed set (grounding wins). Carried in {@code meta.steering}
+     * ONLY: the envelope layer fills steering just when absent, so this per-response
+     * line wins over the generic per-tool steering with a single producer; absence
+     * responses keep the generic line. The {@code format=text} tail never renders meta
+     * — the hooks' peel is byte-identical.
+     */
+    static final String CLASSIFY_STEERING =
+        "Match the observation to ONE of these with evidence, or declare it genuinely new"
+        + " — do not generate a novel cause.";
+
     private ToolResponse recall(JsonNode args) {
         RecallQuery q = new RecallQuery(
             text(args, "symbol"),
@@ -451,7 +464,12 @@ public final class ExperienceTool implements Tool {
             text(args, "operation"),
             text(args, "symptom"),
             text(args, "external_system"));
-        return respond(args, retrieval.recall(q));
+        Map<String, Object> result = retrieval.recall(q);
+        ToolResponse response = respond(args, result);
+        if (ExperienceRetrieval.RESULT_MATCH.equals(result.get("result"))) {
+            response.applySteering(CLASSIFY_STEERING);
+        }
+        return response;
     }
 
     private ToolResponse primer(JsonNode args) {
