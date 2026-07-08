@@ -32,6 +32,7 @@ import org.goja.mcp.tools.FindModernizationTool;
 import org.goja.mcp.tools.FindPatternUsagesTool;
 import org.goja.mcp.tools.FindQualityIssueTool;
 import org.goja.mcp.tools.FindRefsTool;
+import org.goja.mcp.tools.FindStringLiteralsTool;
 import org.goja.mcp.tools.FindTestsTool;
 import org.goja.mcp.tools.GetAtPositionTool;
 import org.goja.mcp.tools.GetCallHierarchyTool;
@@ -590,6 +591,8 @@ public class GojaApplication implements IApplication {
         // longer registered as user-facing MCP tools.
         toolRegistry.register(new FindPatternUsagesTool(() -> jdtService));
         toolRegistry.register(new FindQualityIssueTool(() -> jdtService));
+        // Sprint 22a P2-a: literal-content search (net-new front door #2).
+        toolRegistry.register(new FindStringLiteralsTool(() -> jdtService));
         // find_method_references now via find_references(kind=method_references).
 
         // Compound analysis (analyze_file/type/method now via analyze(kind);
