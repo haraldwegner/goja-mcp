@@ -706,7 +706,7 @@ public final class ExperienceMaintenance {
                     continue;
                 }
                 String k = t.substring(0, c).strip();
-                String v = t.substring(c + 1).strip();
+                String v = stripMatchingQuotes(t.substring(c + 1).strip());
                 switch (k) {
                     case "name" -> name = emptyToNull(v);
                     case "description" -> description = emptyToNull(v);
@@ -860,5 +860,24 @@ public final class ExperienceMaintenance {
 
     private static String emptyToNull(String s) {
         return s == null || s.isBlank() ? null : s;
+    }
+
+    /**
+     * Strip a single matched pair of surrounding quotes from a YAML-style
+     * scalar (e.g. {@code symbol: "com.example.Foo#bar"} → {@code
+     * com.example.Foo#bar}) so a quoted frontmatter value ingests identically
+     * to its bare form. Critical for {@code symbol}, whose stored FQN must
+     * resolve through JDT and be recallable by the anchor (Sprint 22a P0-b).
+     * Only a matched leading+trailing pair of the same quote char is removed;
+     * inner quotes and unbalanced quotes are left untouched.
+     */
+    private static String stripMatchingQuotes(String v) {
+        if (v.length() >= 2) {
+            char first = v.charAt(0);
+            if ((first == '"' || first == '\'') && first == v.charAt(v.length() - 1)) {
+                return v.substring(1, v.length() - 1);
+            }
+        }
+        return v;
     }
 }

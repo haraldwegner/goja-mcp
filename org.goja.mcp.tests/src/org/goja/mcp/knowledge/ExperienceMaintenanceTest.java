@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -76,6 +77,24 @@ class ExperienceMaintenanceTest {
             "name: n\ndescription: d\ntype: lesson\nsymbol: com.gone.Removed", "body");
         Map<String, Object> report = maint(fqn -> Boolean.FALSE).load(dir);
         assertEquals(1, ((List<?>) report.get("stale")).size(), "unresolvable pointer flagged at ingest");
+    }
+
+    @Test
+    void load_strips_surrounding_quotes_from_symbol(@TempDir Path dir) throws IOException {
+        // P0-b: a YAML-quoted frontmatter symbol must ingest identically to its
+        // bare form — reach the JDT resolver unquoted and be recallable by the
+        // unquoted FQN. Before the fix the quotes were kept, so recall-by-symbol
+        // (which reads the raw symbol_fqn column) never matched.
+        writeMemory(dir, "q.md",
+            "name: n\ndescription: d\ntype: lesson\nsymbol: \"com.example.HelloWorld#greet\"", "body");
+        AtomicReference<String> seen = new AtomicReference<>();
+        maint(fqn -> { seen.set(fqn); return Boolean.TRUE; }).load(dir);
+
+        assertEquals("com.example.HelloWorld#greet", seen.get(),
+            "the quoted frontmatter symbol must reach the JDT resolver UNQUOTED");
+        assertFalse(
+            store.query(new RecallQuery("com.example.HelloWorld#greet", null, null, null, null)).isEmpty(),
+            "the entry must be recallable by its unquoted FQN anchor");
     }
 
     @Test
