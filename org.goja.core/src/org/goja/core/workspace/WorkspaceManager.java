@@ -1,5 +1,6 @@
 package org.goja.core.workspace;
 
+import org.eclipse.core.resources.ICommand;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IProjectDescription;
 import org.eclipse.core.resources.IWorkspace;
@@ -138,6 +139,15 @@ public class WorkspaceManager {
 
         // Add Java nature
         description.setNatureIds(new String[] { JavaCore.NATURE_ID });
+
+        // Register the JDT Java builder so an explicit FULL_BUILD actually
+        // compiles source and emits PROBLEM markers. Without this the
+        // synthesized description carries an EMPTY buildSpec — project.build(...)
+        // iterates no builders, so compile_workspace / get_diagnostics never see
+        // real compiler errors on goja-imported projects (Sprint 22a P0-a).
+        ICommand javaBuilder = description.newCommand();
+        javaBuilder.setBuilderName(JavaCore.BUILDER_ID);
+        description.setBuildSpec(new ICommand[] { javaBuilder });
 
         // Create and open the project (inside workspace)
         project.create(description, new NullProgressMonitor());

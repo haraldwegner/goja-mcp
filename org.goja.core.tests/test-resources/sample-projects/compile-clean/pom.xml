@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>compile-clean</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>Compile-Clean Fixture</name>
+    <description>
+        Goja-owned fixture that genuinely compiles against the JRE alone (no
+        third-party dependencies, no duplicate types). Unlike simple-maven —
+        an AST-analysis corpus full of deliberately-unresolvable targets
+        (Lombok, JetBrains, duplicate types) — this project is the non-vacuous
+        baseline for compile_workspace / get_diagnostics: a real FULL_BUILD
+        emits ZERO problem markers on it, and a broken file dropped into a
+        source root emits a REAL compiler error (Sprint 22a P0-a).
+    </description>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+</project>
