@@ -129,6 +129,18 @@ public interface ExperienceStore extends AutoCloseable {
     default void setProvenance(String workspaceId, String projectId) {
     }
 
+    /**
+     * v2.5.1: the store's OWN workspace identity (what {@link #setProvenance} installed),
+     * or {@code null} when none is configured. Anchor maintenance is workspace-scoped on
+     * the SHARED store: a resident may judge/backfill ONLY entries stamped with its own
+     * workspace — judging a foreign workspace's anchors against the wrong project set
+     * superseded 304 live entries on 2026-07-08. Null = standalone/test store → today's
+     * judge-everything semantics.
+     */
+    default String provenanceWorkspaceId() {
+        return null;
+    }
+
     @Override
     void close();
 }

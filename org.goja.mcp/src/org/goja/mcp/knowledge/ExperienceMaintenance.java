@@ -445,6 +445,8 @@ public final class ExperienceMaintenance {
         int resolved = 0;
         int skipped = 0;
         int nonJava = 0;
+        int foreign = 0;
+        String ownWorkspace = store.provenanceWorkspaceId();
         for (StoredEntry e : store.all()) {
             String fqn = e.symbolFqn();
             if (fqn == null || fqn.isBlank()) {
@@ -455,6 +457,16 @@ public final class ExperienceMaintenance {
             // automatic after every load, that grew the store file on every click.
             if (!ExperienceEntry.ACCEPTED.equals(e.status())
                     && !ExperienceEntry.CANDIDATE.equals(e.status())) {
+                continue;
+            }
+            // v2.5.1: workspace-scoped judgment on the SHARED store — a resident may
+            // judge ONLY anchors stamped with its own workspace. Judging a foreign
+            // workspace's anchors against the wrong project set superseded 304 live
+            // entries (2026-07-08). Unstamped entries count as foreign too when the
+            // store has an identity; a store WITHOUT identity (tests, standalone)
+            // keeps the judge-everything semantics.
+            if (ownWorkspace != null && !ownWorkspace.equals(e.workspaceId())) {
+                foreign++;
                 continue;
             }
             if (!e.isJavaResolvable()) {
@@ -486,6 +498,9 @@ public final class ExperienceMaintenance {
         report.put("skipped", skipped);
         report.put("non_java", nonJava);
         report.put("staled", staled);
+        if (foreign > 0) {
+            report.put("foreign", foreign);
+        }
         if (!cleared.isEmpty()) {
             report.put("cleared", cleared);
         }
@@ -514,12 +529,19 @@ public final class ExperienceMaintenance {
         int anchored = 0;
         if (anchorService != null && anchorService.get() != null) {
             SymbolAnchorResolver anchors = new SymbolAnchorResolver(anchorService);
+            String ownWorkspace = store.provenanceWorkspaceId();
             for (StoredEntry e : store.all()) {
                 if (e.symbolFqn() != null && !e.symbolFqn().isBlank()) {
                     continue;
                 }
                 if (!ExperienceEntry.ACCEPTED.equals(e.status())
                         && !ExperienceEntry.CANDIDATE.equals(e.status())) {
+                    continue;
+                }
+                // v2.5.1: backfill is workspace-scoped like refresh — anchoring a
+                // foreign workspace's entry against THIS workspace's types could
+                // mis-anchor on common simple names; absence beats a wrong pointer.
+                if (ownWorkspace != null && !ownWorkspace.equals(e.workspaceId())) {
                     continue;
                 }
                 if (!e.isJavaResolvable()) {

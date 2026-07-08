@@ -212,6 +212,11 @@ public final class H2ExperienceStore implements ExperienceStore {
     }
 
     @Override
+    public String provenanceWorkspaceId() {
+        return workspaceId;
+    }
+
+    @Override
     public void setProvenance(String workspaceId, String projectId) {
         this.workspaceId = workspaceId;
         this.projectId = projectId;
@@ -352,7 +357,7 @@ public final class H2ExperienceStore implements ExperienceStore {
         try (Statement s = live().createStatement();
                 ResultSet rs = s.executeQuery(
                     "SELECT id,type,symbol_fqn,package_name,operation,status,confidence,language,source_ref,scope_kind,"
-                    + "external_system,summary,body_json,created_at FROM experience_entry")) {
+                    + "external_system,summary,body_json,workspace_id,created_at FROM experience_entry")) {
             while (rs.next()) {
                 out.add(mapRow(rs));
             }
@@ -505,7 +510,7 @@ public final class H2ExperienceStore implements ExperienceStore {
             }
         }
         String sql = "SELECT id,type,symbol_fqn,package_name,operation,status,confidence,language,source_ref,scope_kind,"
-            + "external_system,summary,body_json,created_at FROM experience_entry WHERE ("
+            + "external_system,summary,body_json,workspace_id,created_at FROM experience_entry WHERE ("
             + String.join(" OR ", clauses)
             + ") AND status NOT IN ('rejected', 'superseded') ORDER BY created_at DESC";
 
@@ -550,6 +555,7 @@ public final class H2ExperienceStore implements ExperienceStore {
             loadSymptoms(id),
             rs.getString("source_ref"),
             rs.getString("scope_kind"),
+            rs.getString("workspace_id"),
             ts == null ? null : ts.toInstant(),
             body);
     }
@@ -748,7 +754,7 @@ public final class H2ExperienceStore implements ExperienceStore {
             params.add(language);
         }
         String sql = "SELECT id,type,symbol_fqn,package_name,operation,status,confidence,language,source_ref,scope_kind,"
-            + "external_system,summary,body_json,created_at FROM experience_entry"
+            + "external_system,summary,body_json,workspace_id,created_at FROM experience_entry"
             + (clauses.isEmpty() ? "" : " WHERE " + String.join(" AND ", clauses))
             + " ORDER BY created_at DESC LIMIT " + Math.max(1, limit);
         List<StoredEntry> out = new ArrayList<>();
