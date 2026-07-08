@@ -22,7 +22,7 @@ tool getting it subtly wrong.
   after every edit.
 - **Reversible** — every mutating tool returns an `undoChangeId`; one call rolls the change back.
 
-**41 MCP tools** cover the whole loop — navigate, analyse, refactor-and-apply, detect code smells
+**43 MCP tools** cover the whole loop — navigate, analyse, refactor-and-apply, detect code smells
 (Fowler / SOLID / Kerievsky), apply pattern-targeted refactorings, modernise, generate, manage
 dependencies (Maven + Gradle), compile the workspace, and detect + remove duplicate code.
 
@@ -267,7 +267,7 @@ gate to check its own edits before moving on — the post-edit loop a careful de
   absence — never a similarity pile); prime the domain layer at session start; seed from memory
   files and keep pointers honest against the compiler.
 
-*41 tools total; front doors (`analyze`, `inspect`, `extract`, `inline`, `move`, `generate`,
+*43 tools total; front doors (`analyze`, `inspect`, `extract`, `inline`, `move`, `generate`,
 `find_quality_issue`, `find_pattern_usages`, `find_modernization`, `refactor_to_pattern`,
 `dependency`, `quick_fix`, `refactoring`, `project`) each dispatch a `kind`/action, so the loaded
 surface stays small while capability grows by registration.*
