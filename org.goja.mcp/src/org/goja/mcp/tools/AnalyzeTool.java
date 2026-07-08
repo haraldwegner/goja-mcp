@@ -24,7 +24,7 @@ public class AnalyzeTool extends AbstractTool {
 
     private static final List<String> KINDS = List.of(
         "file", "type", "method", "javadocs", "naming", "nullness",
-        "change_impact", "control_flow", "data_flow", "symbol");
+        "change_impact", "control_flow", "data_flow", "symbol", "encapsulation");
 
     /** Kinds whose delegate reads its own {@code kind} param (aliased to subkind). */
     private static final List<String> SUBKIND_KINDS = List.of("javadocs", "naming", "nullness");
@@ -39,6 +39,7 @@ public class AnalyzeTool extends AbstractTool {
     private final AnalyzeControlFlowTool controlFlow;
     private final AnalyzeDataFlowTool dataFlow;
     private final AnalyzeSymbolTool symbol;
+    private final AnalyzeEncapsulationTool encapsulation;
 
     public AnalyzeTool(Supplier<IJdtService> serviceSupplier) {
         super(serviceSupplier);
@@ -52,6 +53,7 @@ public class AnalyzeTool extends AbstractTool {
         this.controlFlow = new AnalyzeControlFlowTool(serviceSupplier);
         this.dataFlow = new AnalyzeDataFlowTool(serviceSupplier);
         this.symbol = new AnalyzeSymbolTool(serviceSupplier);
+        this.encapsulation = new AnalyzeEncapsulationTool(serviceSupplier);
     }
 
     @Override
@@ -77,6 +79,7 @@ public class AnalyzeTool extends AbstractTool {
             - control_flow  — control-flow of the method. Needs: filePath, line, column.
             - data_flow     — data-flow of the method. Needs: filePath, line, column.
             - symbol        — understand a symbol in one call: definition + type + references. Needs: filePath, line, column.
+            - encapsulation — composed encapsulation audit: per-field external mutator (poke) set. Needs: typeName.
 
             For javadocs/naming/nullness, pass the analyzer's own variant as `subkind`.
             Requires load_project to be called first.
@@ -125,6 +128,7 @@ public class AnalyzeTool extends AbstractTool {
             case "control_flow"  -> controlFlow.executeWithService(service, args);
             case "data_flow"     -> dataFlow.executeWithService(service, args);
             case "symbol"        -> symbol.executeWithService(service, args);
+            case "encapsulation" -> encapsulation.executeWithService(service, args);
             default -> ToolResponse.invalidParameter("kind",
                 "Unknown kind '" + kind + "'. Allowed: " + KINDS);
         };
