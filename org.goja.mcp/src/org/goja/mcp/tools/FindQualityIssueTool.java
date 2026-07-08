@@ -7,6 +7,7 @@ import org.goja.mcp.domain.GojaService;
 import org.goja.mcp.domain.IGojaService;
 import org.goja.mcp.models.ResponseMeta;
 import org.goja.mcp.models.ToolResponse;
+import org.goja.mcp.tools.smell.DependencyDetectors;
 import org.goja.mcp.tools.smell.FowlerDetectors;
 import org.goja.mcp.tools.smell.KerievskyDetectors;
 import org.goja.mcp.tools.smell.SolidDetectors;
@@ -41,9 +42,10 @@ public class FindQualityIssueTool extends AbstractTool {
      */
     public FindQualityIssueTool(Supplier<IJdtService> serviceSupplier) {
         this(new GojaService(serviceSupplier,
-            KerievskyDetectors.registerInto(
-                SolidDetectors.registerInto(
-                    FowlerDetectors.registerInto(QualityDetectors.builtins(serviceSupplier))))));
+            DependencyDetectors.registerInto(
+                KerievskyDetectors.registerInto(
+                    SolidDetectors.registerInto(
+                        FowlerDetectors.registerInto(QualityDetectors.builtins(serviceSupplier)))))));
     }
 
     /** The seam: project from the supplied service's detector catalog. */
@@ -167,6 +169,11 @@ public class FindQualityIssueTool extends AbstractTool {
                 + "Default false: test code legitimately has long methods and subject-under-test "
                 + "access, so it is excluded to keep findings actionable.");
         properties.put("includeTests", includeTests);
+
+        properties.put("from", Map.of("type", "string",
+            "description", "forbidden_edge: the source package prefix (the layer that must not depend outward)."));
+        properties.put("forbidden", Map.of("type", "string",
+            "description", "forbidden_edge: the package prefix the `from` layer must not depend on."));
 
         schema.put("properties", properties);
         // kind OR family — validated in executeWithService (a static `required` can't express "one of").
