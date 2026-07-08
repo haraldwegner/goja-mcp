@@ -18,6 +18,7 @@ import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.IMethodBinding;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.MethodInvocation;
+import org.eclipse.jdt.core.dom.Modifier;
 import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
 import org.eclipse.jdt.core.dom.SuperConstructorInvocation;
 import org.eclipse.jdt.core.search.IJavaSearchConstants;
@@ -60,6 +61,8 @@ public class ChangeMethodSignatureTool extends AbstractApplyingRefactoringTool {
         "super", "switch", "synchronized", "this", "throw", "throws", "transient",
         "try", "void", "volatile", "while", "true", "false", "null"
     );
+
+    private static final Set<String> VISIBILITIES = Set.of("public", "protected", "package", "private");
 
     public ChangeMethodSignatureTool(Supplier<IJdtService> serviceSupplier,
                                      RefactoringChangeCache changeCache) {
@@ -134,6 +137,12 @@ public class ChangeMethodSignatureTool extends AbstractApplyingRefactoringTool {
                 )
             )
         ));
+        properties.put("visibility", Map.of(
+            "type", "string",
+            "enum", List.of("public", "protected", "package", "private"),
+            "description", "New visibility (optional). 'package' removes the access modifier; "
+                + "the response reports the reference-impact list of affected call sites."
+        ));
 
         schema.put("properties", properties);
         schema.put("required", List.of("filePath", "line", "column"));
@@ -156,6 +165,11 @@ public class ChangeMethodSignatureTool extends AbstractApplyingRefactoringTool {
 
         String newName = getStringParam(arguments, "newName");
         String newReturnType = getStringParam(arguments, "newReturnType");
+        String visibility = getStringParam(arguments, "visibility");
+        if (visibility != null && !VISIBILITIES.contains(visibility)) {
+            return Preparation.fail(ToolResponse.invalidParameter("visibility",
+                "must be one of: public, protected, package, private"));
+        }
 
         // Parse new parameters
         List<ParameterInfo> newParameters = null;
@@ -175,9 +189,9 @@ public class ChangeMethodSignatureTool extends AbstractApplyingRefactoringTool {
         }
 
         // Validate at least one change is specified
-        if (newName == null && newReturnType == null && newParameters == null) {
+        if (newName == null && newReturnType == null && newParameters == null && visibility == null) {
             return Preparation.fail(ToolResponse.invalidParameter("changes",
-                "At least one of newName, newReturnType, or newParameters must be specified"));
+                "At least one of newName, newReturnType, newParameters, or visibility must be specified"));
         }
 
         if (newName != null && !isValidJavaIdentifier(newName)) {
@@ -259,11 +273,44 @@ public class ChangeMethodSignatureTool extends AbstractApplyingRefactoringTool {
             }
 
             // Build new method signature
-            String newSignature = buildMethodSignature(newName, newReturnType, newParameters);
+            String baseSignature = buildMethodSignature(newName, newReturnType, newParameters);
             int sigStart = getSignatureStart(methodDecl, ast);
             int sigEnd = getSignatureEnd(methodDecl);
-
             IFile methodFile = (IFile) methodCu.getResource();
+
+            // Sprint 22a P1-a.2: visibility mode. Reducing/replacing visibility is
+            // a modifier edit strictly before the signature; increasing from
+            // package-private folds the keyword into the signature edit so no
+            // insert straddles the signature boundary (JDT rejects that as an
+            // overlapping edit). Other modifiers (static/final) + annotations are
+            // preserved because we only touch the visibility keyword itself.
+            String signaturePrefix = "";
+            Map<String, Object> visibilityImpact = null;
+            if (visibility != null) {
+                Modifier currentMod = findVisibilityModifier(methodDecl);
+                String currentVis = currentMod == null ? "package" : currentMod.getKeyword().toString();
+                if (!visibility.equals(currentVis)) {
+                    if (currentMod != null && "package".equals(visibility)) {
+                        int s = currentMod.getStartPosition();
+                        int e = s + currentMod.getLength();
+                        String src = methodCu.getSource();
+                        if (src != null && e < src.length() && src.charAt(e) == ' ') {
+                            e++;   // also drop the single space after the removed keyword
+                        }
+                        editsByFile.computeIfAbsent(methodFile, k -> new ArrayList<>())
+                            .add(new ReplaceEdit(s, e - s, ""));
+                    } else if (currentMod != null) {
+                        editsByFile.computeIfAbsent(methodFile, k -> new ArrayList<>())
+                            .add(new ReplaceEdit(currentMod.getStartPosition(),
+                                currentMod.getLength(), visibility));
+                    } else {
+                        signaturePrefix = visibility + " ";
+                    }
+                }
+                visibilityImpact = referenceImpact(service, references);
+            }
+
+            String newSignature = signaturePrefix + baseSignature;
             editsByFile.computeIfAbsent(methodFile, k -> new ArrayList<>())
                 .add(new ReplaceEdit(sigStart, sigEnd - sigStart, newSignature));
 
@@ -297,6 +344,10 @@ public class ChangeMethodSignatureTool extends AbstractApplyingRefactoringTool {
                 .toList());
             extras.put("totalEdits", totalEdits);
             extras.put("filesAffected", editsByFile.size());
+            if (visibility != null) {
+                extras.put("visibility", visibility);
+                extras.put("referenceImpact", visibilityImpact);
+            }
 
             String summary = "change signature of " + oldName + " -> " + newSignature
                 + " (" + totalEdits + " edits in " + editsByFile.size() + " files)";
@@ -401,6 +452,40 @@ public class ChangeMethodSignatureTool extends AbstractApplyingRefactoringTool {
             log.debug("Error getting signature: {}", e.getMessage());
         }
         return "";
+    }
+
+    /** The method's visibility {@link Modifier}, or {@code null} when package-private. */
+    private static Modifier findVisibilityModifier(MethodDeclaration decl) {
+        for (Object o : decl.modifiers()) {
+            if (o instanceof Modifier m) {
+                Modifier.ModifierKeyword kw = m.getKeyword();
+                if (kw == Modifier.ModifierKeyword.PUBLIC_KEYWORD
+                    || kw == Modifier.ModifierKeyword.PROTECTED_KEYWORD
+                    || kw == Modifier.ModifierKeyword.PRIVATE_KEYWORD) {
+                    return m;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** {@code {count, locations:[{filePath, offset}]}} of the method's references. */
+    private Map<String, Object> referenceImpact(IJdtService service, List<SearchMatch> references) {
+        List<Map<String, Object>> refLocs = new ArrayList<>();
+        for (SearchMatch m : references) {
+            org.eclipse.core.resources.IResource res = m.getResource();
+            String rp = (res != null && res.getLocation() != null)
+                ? service.getPathUtils().formatPath(res.getLocation().toOSString())
+                : String.valueOf(m.getElement());
+            Map<String, Object> loc = new LinkedHashMap<>();
+            loc.put("filePath", rp);
+            loc.put("offset", m.getOffset());
+            refLocs.add(loc);
+        }
+        Map<String, Object> impact = new LinkedHashMap<>();
+        impact.put("count", references.size());
+        impact.put("locations", refLocs);
+        return impact;
     }
 
     @SuppressWarnings("unchecked")

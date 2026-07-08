@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>visibility</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>Visibility Fixture</name>
+    <description>
+        Goja-owned fixture for Sprint 22a P1-a.2 (change_visibility): a Widget
+        with a public called method (reduce to package), a package-private
+        called method (widen to public), and an uncalled public method (reduce
+        to private), plus a same-package User call site. JRE-only, compiles
+        clean before and after each in-package visibility change.
+    </description>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+</project>
