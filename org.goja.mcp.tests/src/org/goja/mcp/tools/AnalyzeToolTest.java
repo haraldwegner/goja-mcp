@@ -56,15 +56,15 @@ class AnalyzeToolTest {
     }
 
     @Test
-    @DisplayName("schema lists all nine kinds + subkind alias; requires kind")
+    @DisplayName("schema lists all eleven kinds + subkind alias; requires kind")
     @SuppressWarnings("unchecked")
     void schema_lists_kinds() {
         Map<String, Object> schema = tool.getInputSchema();
         Map<String, Object> props = (Map<String, Object>) schema.get("properties");
         List<String> kinds = (List<String>) ((Map<String, Object>) props.get("kind")).get("enum");
-        assertEquals(10, kinds.size());
+        assertEquals(11, kinds.size());
         assertTrue(kinds.containsAll(List.of("file", "type", "method", "javadocs", "naming",
-            "nullness", "change_impact", "control_flow", "data_flow", "symbol")));
+            "nullness", "change_impact", "control_flow", "data_flow", "symbol", "encapsulation")));
         assertTrue(props.containsKey("subkind"));
         assertTrue(((List<String>) schema.get("required")).contains("kind"));
     }

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>compose-clean</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>Compose-Clean Fixture</name>
+    <description>
+        Goja-owned, compile-clean fixture (JRE-only) for the parity-GATED plan
+        lifecycle tests (Sprint 18: refactoring apply_plan / inspect_plan / undo_plan).
+        Holds ONLY the compilable ComposeMethodTargets — so apply_plan's parity gate
+        reaches a real 0/0 baseline. simple-maven can no longer serve this: post
+        Sprint 22a P0-a the JavaBuilder fires and surfaces its deliberately-unresolvable
+        imports (Lombok/JetBrains/JUnit) as real errors, which the absolute-0/0 gate
+        (correctly) refuses.
+    </description>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+</project>

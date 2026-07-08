@@ -34,11 +34,13 @@ class RefactorPlanInspectUndoToolTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        JdtServiceImpl service = helper.loadProjectCopy("simple-maven");
+        // compile-clean fixture (see RefactorPlanApplyToolTest): apply_plan needs a real
+        // 0/0 parity baseline, which simple-maven lost post Sprint 22a P0-a.
+        JdtServiceImpl service = helper.loadProjectCopy("compose-clean");
         tool = new RefactoringTool(() -> service, new RefactoringChangeCache());
         mapper = new ObjectMapper();
         targetFile = helper.getTempDirectory()
-            .resolve("simple-maven/src/main/java/com/example/ComposeMethodTargets.java");
+            .resolve("compose-clean/src/main/java/com/example/ComposeMethodTargets.java");
     }
 
     @SuppressWarnings("unchecked")

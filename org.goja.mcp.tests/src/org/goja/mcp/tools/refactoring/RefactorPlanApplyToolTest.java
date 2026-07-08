@@ -41,13 +41,17 @@ class RefactorPlanApplyToolTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        JdtServiceImpl service = helper.loadProjectCopy("simple-maven");
+        // compile-clean fixture: apply_plan parity-gates on absolute 0/0, and post
+        // Sprint 22a P0-a simple-maven no longer compiles clean (the now-firing builder
+        // surfaces its deliberately-unresolvable imports). compose-clean holds only the
+        // compilable ComposeMethodTargets, verbatim — so the coordinates carry over.
+        JdtServiceImpl service = helper.loadProjectCopy("compose-clean");
         RefactoringChangeCache cache = new RefactoringChangeCache();
         tool = new RefactoringTool(() -> service, cache);
         undoTool = new UndoRefactoringTool(() -> service, cache);
         mapper = new ObjectMapper();
         targetFile = helper.getTempDirectory()
-            .resolve("simple-maven/src/main/java/com/example/ComposeMethodTargets.java");
+            .resolve("compose-clean/src/main/java/com/example/ComposeMethodTargets.java");
     }
 
     @SuppressWarnings("unchecked")
