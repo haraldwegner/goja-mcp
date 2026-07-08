@@ -237,8 +237,63 @@ public class FindQualityIssueTool extends AbstractTool {
         out.put("kinds", kinds);
         out.put("count", merged.size());
         out.put("findings", merged);
+        out.put("conflicts", conflicts(merged));
         return ToolResponse.success(out, ResponseMeta.builder()
             .totalCount(merged.size()).returnedCount(merged.size()).build());
+    }
+
+    /**
+     * Sprint 22a R.1 — the multi-catalog conflict seam. Where &ge;2 distinct detectors
+     * flag ONE location ({@code filePath|line}), surface the arbitration INPUTS — the
+     * detector kinds, their families, and a neutral prevalence signal — and decide
+     * NOTHING. Which cure wins is design intent (the caller's), not a code property goja
+     * can read; goja only makes the collision legible.
+     */
+    private List<Map<String, Object>> conflicts(List<Object> merged) {
+        Map<String, java.util.LinkedHashSet<String>> kindsAt = new LinkedHashMap<>();
+        Map<String, Object[]> locOf = new LinkedHashMap<>();
+        Map<String, Integer> prevalence = new LinkedHashMap<>();
+        for (Object o : merged) {
+            if (!(o instanceof Map<?, ?> f)) {
+                continue;
+            }
+            Object kind = f.get("kind");
+            Object file = f.get("filePath");
+            Object line = f.get("line");
+            if (kind == null || file == null || line == null) {
+                continue;
+            }
+            prevalence.merge(String.valueOf(kind), 1, Integer::sum);
+            String loc = file + "|" + line;
+            kindsAt.computeIfAbsent(loc, k -> new java.util.LinkedHashSet<>()).add(String.valueOf(kind));
+            locOf.putIfAbsent(loc, new Object[]{file, line});
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map.Entry<String, java.util.LinkedHashSet<String>> e : kindsAt.entrySet()) {
+            if (e.getValue().size() < 2) {
+                continue; // a conflict needs >=2 distinct detectors at one location
+            }
+            List<String> detectors = new ArrayList<>(e.getValue());
+            java.util.LinkedHashSet<String> families = new java.util.LinkedHashSet<>();
+            Map<String, Integer> byPrevalence = new LinkedHashMap<>();
+            for (String k : detectors) {
+                families.addAll(catalog.familiesOf(k));
+                byPrevalence.put(k, prevalence.getOrDefault(k, 0));
+            }
+            Map<String, Object> conflict = new LinkedHashMap<>();
+            conflict.put("filePath", locOf.get(e.getKey())[0]);
+            conflict.put("line", locOf.get(e.getKey())[1]);
+            conflict.put("detectors", detectors);
+            conflict.put("families", new ArrayList<>(families));
+            Map<String, Object> signal = new LinkedHashMap<>();
+            signal.put("prevalence", byPrevalence);
+            signal.put("note", "project-wide prevalence of each conflicting kind — a weak INPUT, "
+                + "not a decision; goja arbitrates nothing");
+            conflict.put("conventionSignal", signal);
+            conflict.put("decision", null);
+            out.add(conflict);
+        }
+        return out;
     }
 
     /**

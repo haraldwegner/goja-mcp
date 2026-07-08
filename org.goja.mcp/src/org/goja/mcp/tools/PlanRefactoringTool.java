@@ -23,6 +23,7 @@ import org.goja.mcp.refactoring.PlanStore;
 import org.goja.mcp.refactoring.PurityCheck;
 import org.goja.mcp.refactoring.PurityCheck.PurityFinding;
 import org.goja.mcp.refactoring.RefactoringChangeCache;
+import org.goja.mcp.tools.smell.RecipeCatalog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -76,6 +77,19 @@ class PlanRefactoringTool extends AbstractTool {
     private final ObjectMapper mapper = new ObjectMapper();
     private final ExtractTool extractTool;
     private final RefactorToPatternTool patternTool;
+    /**
+     * Sprint 22a R.1 — the step-tool dispatch, an OPEN registry (was a closed
+     * extract/refactor_to_pattern switch in {@code invokeStep}). A new recipe
+     * primitive registers one entry here; the recipe engine picks it up with no
+     * further edit.
+     */
+    private final Map<String, StepInvoker> stepTools = new LinkedHashMap<>();
+
+    /** Runs one recipe step's primitive against the current workspace. */
+    @FunctionalInterface
+    private interface StepInvoker {
+        ToolResponse invoke(IJdtService service, JsonNode args);
+    }
 
     PlanRefactoringTool(Supplier<IJdtService> serviceSupplier, RefactoringChangeCache changeCache,
                         PlanStore planStore, Advisor advisor) {
@@ -85,6 +99,8 @@ class PlanRefactoringTool extends AbstractTool {
         this.advisor = advisor;
         this.extractTool = new ExtractTool(serviceSupplier, changeCache);
         this.patternTool = new RefactorToPatternTool(serviceSupplier, changeCache);
+        this.stepTools.put("extract", extractTool::executeWithService);
+        this.stepTools.put("refactor_to_pattern", patternTool::executeWithService);
     }
 
     @Override
@@ -119,8 +135,23 @@ class PlanRefactoringTool extends AbstractTool {
 
     private ToolResponse doPlan(JsonNode args) {
         String kind = getStringParam(args, "kind");
-        if (kind == null || !PLAN_KINDS.contains(kind)) {
-            return ToolResponse.invalidParameter("kind", "plan kind must be one of " + PLAN_KINDS + ".");
+        if (kind == null || kind.isBlank()) {
+            return ToolResponse.invalidParameter("kind",
+                "plan kind must be one of " + PLAN_KINDS + ", or a smell kind with a known recipe.");
+        }
+        // Recipe bridge (Sprint 22a R.1): a smell kind that is not itself a plan kind
+        // resolves to its cure recipe — the first applicable plan kind — so a
+        // find_quality_issue finding hands straight to a runnable, parity-gated plan.
+        String sourceSmell = null;
+        if (!PLAN_KINDS.contains(kind)) {
+            List<String> recipes = RecipeCatalog.recipesFor(kind);
+            if (recipes.isEmpty()) {
+                return ToolResponse.invalidParameter("kind",
+                    "plan kind must be one of " + PLAN_KINDS + ", or a smell kind with a known recipe; "
+                        + "'" + kind + "' has neither.");
+            }
+            sourceSmell = kind;
+            kind = recipes.get(0);
         }
         String filePath = getStringParam(args, "filePath");
         if (filePath == null || filePath.isBlank()) {
@@ -146,6 +177,10 @@ class PlanRefactoringTool extends AbstractTool {
         data.put("action", "plan");
         data.put("planId", plan.planId());
         data.put("kind", kind);
+        if (sourceSmell != null) {
+            data.put("sourceSmell", sourceSmell);
+            data.put("recipe", kind);
+        }
         data.put("target", target);
         data.put("stepCount", steps.size());
         data.put("steps", stepViews(steps));
@@ -282,11 +317,8 @@ class PlanRefactoringTool extends AbstractTool {
     }
 
     private ToolResponse invokeStep(IJdtService service, PlanStep step) {
-        return switch (step.tool()) {
-            case "extract" -> extractTool.executeWithService(service, step.args());
-            case "refactor_to_pattern" -> patternTool.executeWithService(service, step.args());
-            default -> null;
-        };
+        StepInvoker invoker = stepTools.get(step.tool());
+        return invoker == null ? null : invoker.invoke(service, step.args());
     }
 
     private void rollback(List<Change> undoStack, IJdtService service) {

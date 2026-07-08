@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>conflict</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>Multi-Catalog Conflict Fixture</name>
+    <description>
+        Goja-owned fixture for Sprint 22a R.1 (Stage 14) — the multi-catalog conflict
+        seam. Tangled.knot is a single method that, under a family=fowler sweep with
+        threshold=3, is flagged by TWO detectors at ONE location: long_method (body
+        over the LOC cutoff) and long_parameter_list (over the parameter cutoff). The
+        conflict seam must surface both detectors + their families as arbitration
+        INPUTS and decide nothing.
+    </description>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+</project>
