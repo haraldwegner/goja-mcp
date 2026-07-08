@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: GOJA Core
 Bundle-SymbolicName: org.goja.core
-Bundle-Version: 2.5.1.qualifier
+Bundle-Version: 2.6.0.qualifier
 Bundle-Vendor: GOJA
 Bundle-RequiredExecutionEnvironment: JavaSE-21
 Bundle-ActivationPolicy: lazy

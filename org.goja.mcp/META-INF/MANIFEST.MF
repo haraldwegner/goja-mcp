@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: GOJA MCP
 Bundle-SymbolicName: org.goja.mcp;singleton:=true
-Bundle-Version: 2.5.1.qualifier
+Bundle-Version: 2.6.0.qualifier
 Bundle-Vendor: GOJA
 Bundle-RequiredExecutionEnvironment: JavaSE-21
 Bundle-ActivationPolicy: lazy
