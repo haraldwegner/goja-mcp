@@ -88,6 +88,22 @@ public class ProjectImporter {
         "node_modules", "target", "build", "bin", "out", "dist"
     );
 
+    /**
+     * Exclusion patterns applied to every linked source entry (Sprint 22a
+     * P0-c). Editor / agent scratch copies land INSIDE a source root — e.g.
+     * {@code src/.claude/.edit-baks/**} or {@code *.edit-bak} backups — and,
+     * because they carry their original {@code package} declaration, JDT
+     * indexes them as DUPLICATE types that pollute search + call-hierarchy
+     * with phantom results. IGNORED_DIRS skips them during source-ROOT
+     * scanning, but the entry that links a root still sees everything beneath
+     * it; these patterns exclude the scratch copies from the entry itself.
+     * {@code **}/ matches at any depth including the root.
+     */
+    private static final IPath[] SOURCE_EXCLUSIONS = {
+        new Path("**/.claude/**"),
+        new Path("**/*.edit-bak")
+    };
+
     // Pattern to extract module names from pom.xml
     private static final Pattern MODULE_PATTERN = Pattern.compile("<module>([^<]+)</module>");
 
@@ -338,7 +354,8 @@ public class ProjectImporter {
             try {
                 workspaceManager.createLinkedFolder(project, linkedName, srcPath);
                 IPath sourceEntryPath = project.getFolder(linkedName).getFullPath();
-                entries.add(JavaCore.newSourceEntry(sourceEntryPath));
+                entries.add(JavaCore.newSourceEntry(sourceEntryPath,
+                    new IPath[0], SOURCE_EXCLUSIONS, null));
                 log.debug("Added linked source folder: {} -> {}", linkedName, srcPath);
             } catch (Exception e) {
                 log.warn("Failed to create linked folder for {}: {}", srcPath, e.getMessage());
