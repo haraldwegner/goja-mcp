@@ -85,37 +85,56 @@ public class GetCallHierarchyIncomingTool extends AbstractTool {
 
     @Override
     protected ToolResponse executeWithService(IJdtService service, JsonNode arguments) {
-        String filePath = getStringParam(arguments, "filePath");
-        if (filePath == null || filePath.isBlank()) {
-            return ToolResponse.invalidParameter("filePath", "Required parameter missing");
-        }
-
-        int line = getIntParam(arguments, "line", -1);
-        int column = getIntParam(arguments, "column", -1);
-        int maxResults = getIntParam(arguments, "maxResults", 50);
-
-        if (line < 0) {
-            return ToolResponse.invalidParameter("line", "Must be >= 0 (zero-based)");
-        }
-        if (column < 0) {
-            return ToolResponse.invalidParameter("column", "Must be >= 0 (zero-based)");
-        }
-
-        maxResults = Math.min(Math.max(maxResults, 1), 500);
+        int maxResults = Math.min(Math.max(getIntParam(arguments, "maxResults", 50), 1), 500);
 
         try {
-            Path path = Path.of(filePath);
-
-            // Get element at position
-            IJavaElement element = service.getElementAtPosition(path, line, column);
-
-            if (element == null) {
-                return ToolResponse.symbolNotFound("No symbol found at position");
-            }
-
-            // Must be a method
-            if (!(element instanceof IMethod method)) {
-                return ToolResponse.invalidParameter("position", "Symbol at position is not a method");
+            // Sprint 22a P2-b: FQN member form wins when `symbol` is provided
+            // (mirrors find_references); otherwise the position-based form.
+            IMethod method;
+            String symbol = getStringParam(arguments, "symbol");
+            if (symbol != null && !symbol.isBlank()) {
+                String scopeRaw = getStringParam(arguments, "scope", "workspace");
+                org.goja.mcp.tools.fqn.FqnResolver.Scope scope;
+                try {
+                    scope = org.goja.mcp.tools.fqn.FqnResolver.Scope.valueOf(scopeRaw.toUpperCase());
+                } catch (IllegalArgumentException e) {
+                    return ToolResponse.invalidParameter("scope",
+                        "Must be 'workspace' or 'project'; got '" + scopeRaw + "'");
+                }
+                String projectKey = getStringParam(arguments, "projectKey");
+                java.util.Optional<IJavaElement> resolved =
+                    org.goja.mcp.tools.fqn.FqnResolver.resolve(symbol, service, scope, projectKey);
+                if (resolved.isEmpty()) {
+                    return ToolResponse.symbolNotFound(
+                        "FQN '" + symbol + "' not found in " + scopeRaw + " scope");
+                }
+                if (!(resolved.get() instanceof IMethod m)) {
+                    return ToolResponse.invalidParameter("symbol",
+                        "FQN '" + symbol + "' does not resolve to a method");
+                }
+                method = m;
+            } else {
+                String filePath = getStringParam(arguments, "filePath");
+                if (filePath == null || filePath.isBlank()) {
+                    return ToolResponse.invalidParameter("filePath",
+                        "Required parameter missing — pass either (filePath, line, column) or symbol");
+                }
+                int line = getIntParam(arguments, "line", -1);
+                int column = getIntParam(arguments, "column", -1);
+                if (line < 0) {
+                    return ToolResponse.invalidParameter("line", "Must be >= 0 (zero-based)");
+                }
+                if (column < 0) {
+                    return ToolResponse.invalidParameter("column", "Must be >= 0 (zero-based)");
+                }
+                IJavaElement element = service.getElementAtPosition(Path.of(filePath), line, column);
+                if (element == null) {
+                    return ToolResponse.symbolNotFound("No symbol found at position");
+                }
+                if (!(element instanceof IMethod m)) {
+                    return ToolResponse.invalidParameter("position", "Symbol at position is not a method");
+                }
+                method = m;
             }
 
             // Get method metadata

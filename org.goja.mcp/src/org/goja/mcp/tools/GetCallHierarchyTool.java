@@ -47,6 +47,9 @@ public class GetCallHierarchyTool extends AbstractTool {
             - incoming — who CALLS this method (callers).
             - outgoing — what this method CALLS (callees).
 
+            The `incoming` direction also accepts an FQN member `symbol`
+            (pkg.Type#method) instead of filePath/line/column.
+
             IMPORTANT: Uses ZERO-BASED coordinates.
 
             Requires load_project to be called first.
@@ -78,9 +81,17 @@ public class GetCallHierarchyTool extends AbstractTool {
         properties.put("maxResults", Map.of(
             "type", "integer",
             "description", "Max results to return (default 50)"));
+        properties.put("symbol", Map.of(
+            "type", "string",
+            "description", "FQN member form (incoming only): pkg.Type#method — resolves the "
+                + "method directly, no filePath/line/column needed."));
+        properties.put("scope", Map.of(
+            "type", "string",
+            "description", "symbol form: 'workspace' (default) or 'project'."));
 
         schema.put("properties", properties);
-        schema.put("required", List.of("direction", "filePath", "line", "column"));
+        // filePath/line/column are validated per-delegate (a `symbol` replaces them for incoming).
+        schema.put("required", List.of("direction"));
         return withProjectKey(schema);
     }
 
