@@ -143,6 +143,13 @@ public class ChangeMethodSignatureTool extends AbstractApplyingRefactoringTool {
             "description", "New visibility (optional). 'package' removes the access modifier; "
                 + "the response reports the reference-impact list of affected call sites."
         ));
+        properties.put("retargetCallsTo", Map.of(
+            "type", "string",
+            "description", "Rewrite every call site to invoke this (already-existing) method name "
+                + "instead, leaving the declaration unchanged — e.g. redirect callers of a "
+                + "deprecated method to its replacement. Exclusive with the signature/visibility "
+                + "changes; verify the result with compile_workspace."
+        ));
 
         schema.put("properties", properties);
         schema.put("required", List.of("filePath", "line", "column"));
@@ -171,6 +178,23 @@ public class ChangeMethodSignatureTool extends AbstractApplyingRefactoringTool {
                 "must be one of: public, protected, package, private"));
         }
 
+        String retargetCallsTo = getStringParam(arguments, "retargetCallsTo");
+        boolean retarget = retargetCallsTo != null && !retargetCallsTo.isBlank();
+        if (retarget) {
+            if (!isValidJavaIdentifier(retargetCallsTo)) {
+                return Preparation.fail(ToolResponse.invalidParameter("retargetCallsTo",
+                    "not a valid Java identifier"));
+            }
+            if (getStringParam(arguments, "newName") != null
+                    || getStringParam(arguments, "newReturnType") != null
+                    || arguments.has("newParameters")
+                    || visibility != null) {
+                return Preparation.fail(ToolResponse.invalidParameter("retargetCallsTo",
+                    "retargetCallsTo rewrites call sites only and cannot be combined with "
+                        + "newName / newReturnType / newParameters / visibility"));
+            }
+        }
+
         // Parse new parameters
         List<ParameterInfo> newParameters = null;
         if (arguments.has("newParameters") && arguments.get("newParameters").isArray()) {
@@ -189,9 +213,11 @@ public class ChangeMethodSignatureTool extends AbstractApplyingRefactoringTool {
         }
 
         // Validate at least one change is specified
-        if (newName == null && newReturnType == null && newParameters == null && visibility == null) {
+        if (newName == null && newReturnType == null && newParameters == null
+                && visibility == null && !retarget) {
             return Preparation.fail(ToolResponse.invalidParameter("changes",
-                "At least one of newName, newReturnType, newParameters, or visibility must be specified"));
+                "At least one of newName, newReturnType, newParameters, visibility, or "
+                    + "retargetCallsTo must be specified"));
         }
 
         if (newName != null && !isValidJavaIdentifier(newName)) {
@@ -311,13 +337,17 @@ public class ChangeMethodSignatureTool extends AbstractApplyingRefactoringTool {
             }
 
             String newSignature = signaturePrefix + baseSignature;
-            editsByFile.computeIfAbsent(methodFile, k -> new ArrayList<>())
-                .add(new ReplaceEdit(sigStart, sigEnd - sigStart, newSignature));
+            if (!retarget) {
+                // Edit 1: update the declaration (skipped for a calls-only retarget).
+                editsByFile.computeIfAbsent(methodFile, k -> new ArrayList<>())
+                    .add(new ReplaceEdit(sigStart, sigEnd - sigStart, newSignature));
+            }
 
-            // Edit 2: Update all call sites
+            // Edit 2: update all call sites (retarget rewrites them to the new target name).
+            String callTargetName = retarget ? retargetCallsTo : newName;
             for (SearchMatch match : references) {
                 try {
-                    updateCallSite(match, oldName, newName, newParameters,
+                    updateCallSite(match, oldName, callTargetName, newParameters,
                         paramMapping, isConstructor, editsByFile);
                 } catch (Exception e) {
                     log.debug("Error updating call site: {}", e.getMessage());
@@ -348,9 +378,15 @@ public class ChangeMethodSignatureTool extends AbstractApplyingRefactoringTool {
                 extras.put("visibility", visibility);
                 extras.put("referenceImpact", visibilityImpact);
             }
+            if (retarget) {
+                extras.put("retargetedTo", retargetCallsTo);
+            }
 
-            String summary = "change signature of " + oldName + " -> " + newSignature
-                + " (" + totalEdits + " edits in " + editsByFile.size() + " files)";
+            String summary = retarget
+                ? "retarget calls of " + oldName + " -> " + retargetCallsTo
+                    + " (" + totalEdits + " edits in " + editsByFile.size() + " files)"
+                : "change signature of " + oldName + " -> " + newSignature
+                    + " (" + totalEdits + " edits in " + editsByFile.size() + " files)";
             return Preparation.of(change, summary, extras);
         }
     }
