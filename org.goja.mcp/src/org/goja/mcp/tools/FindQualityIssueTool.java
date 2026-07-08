@@ -174,6 +174,10 @@ public class FindQualityIssueTool extends AbstractTool {
             "description", "forbidden_edge: the source package prefix (the layer that must not depend outward)."));
         properties.put("forbidden", Map.of("type", "string",
             "description", "forbidden_edge: the package prefix the `from` layer must not depend on."));
+        properties.put("baseline", Map.of("type", "string",
+            "enum", List.of("save", "diff"),
+            "description", "family sweeps only: 'save' snapshots the current findings; 'diff' "
+                + "returns {new, fixed, unchanged} vs the saved snapshot (trend over time)."));
 
         schema.put("properties", properties);
         // kind OR family — validated in executeWithService (a static `required` can't express "one of").
@@ -191,7 +195,12 @@ public class FindQualityIssueTool extends AbstractTool {
 
         // family without kind: run every detector in the family and merge findings.
         if (!hasKind && hasFamily) {
-            return runFamily(service, family, arguments);
+            ToolResponse r = runFamily(service, family, arguments);
+            String baseline = getStringParam(arguments, "baseline");
+            if (r.isSuccess() && baseline != null && !baseline.isBlank()) {
+                return applyBaseline(service, family, baseline, r);
+            }
+            return r;
         }
         if (!hasKind) {
             return ToolResponse.invalidParameter("kind",
@@ -230,5 +239,77 @@ public class FindQualityIssueTool extends AbstractTool {
         out.put("findings", merged);
         return ToolResponse.success(out, ResponseMeta.builder()
             .totalCount(merged.size()).returnedCount(merged.size()).build());
+    }
+
+    /**
+     * Sprint 22a P2-c — baseline / trend diffing. Each finding is keyed by
+     * {@code kind|filePath|line}. {@code baseline=save} writes the current keys
+     * to {@code <root>/.goja/quality-baseline-<family>.json}; {@code baseline=diff}
+     * returns {@code {new, fixed, unchanged}} vs the saved snapshot.
+     */
+    @SuppressWarnings("unchecked")
+    private ToolResponse applyBaseline(IJdtService service, String family, String action,
+                                       ToolResponse familyResponse) {
+        Map<String, Object> data = (Map<String, Object>) familyResponse.getData();
+        List<Map<String, Object>> findings = (List<Map<String, Object>>) data.get("findings");
+        java.util.LinkedHashSet<String> current = new java.util.LinkedHashSet<>();
+        for (Map<String, Object> f : findings) {
+            current.add(f.get("kind") + "|" + f.get("filePath") + "|" + f.get("line"));
+        }
+        java.nio.file.Path snapshot = service.getProjectRoot()
+            .resolve(".goja").resolve("quality-baseline-" + family + ".json");
+
+        if ("save".equals(action)) {
+            try {
+                java.nio.file.Files.createDirectories(snapshot.getParent());
+                java.nio.file.Files.write(snapshot,
+                    (String.join("\n", current) + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            } catch (Exception e) {
+                return ToolResponse.internalError(e);
+            }
+            Map<String, Object> out = new LinkedHashMap<>(data);
+            out.put("baseline", "saved");
+            out.put("baselineSize", current.size());
+            return ToolResponse.success(out);
+        }
+
+        // diff against the saved snapshot (empty when absent → everything is new).
+        java.util.LinkedHashSet<String> previous = new java.util.LinkedHashSet<>();
+        try {
+            if (java.nio.file.Files.exists(snapshot)) {
+                for (String line : java.nio.file.Files.readAllLines(snapshot,
+                        java.nio.charset.StandardCharsets.UTF_8)) {
+                    if (!line.isBlank()) {
+                        previous.add(line.strip());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            return ToolResponse.internalError(e);
+        }
+        List<String> added = new ArrayList<>();
+        int unchanged = 0;
+        for (String k : current) {
+            if (previous.contains(k)) {
+                unchanged++;
+            } else {
+                added.add(k);
+            }
+        }
+        List<String> fixed = new ArrayList<>();
+        for (String k : previous) {
+            if (!current.contains(k)) {
+                fixed.add(k);
+            }
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("family", family);
+        out.put("baseline", "diff");
+        out.put("newCount", added.size());
+        out.put("fixedCount", fixed.size());
+        out.put("unchangedCount", unchanged);
+        out.put("new", added);
+        out.put("fixed", fixed);
+        return ToolResponse.success(out);
     }
 }
