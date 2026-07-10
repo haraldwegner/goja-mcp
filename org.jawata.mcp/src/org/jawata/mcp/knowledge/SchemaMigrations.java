@@ -28,14 +28,19 @@ import java.util.Map;
  * provenance + language facets ({@code workspace_id}, {@code project_id},
  * {@code language} — backfilled {@code 'java'}, see item I); v3 = the Sprint-21b
  * {@code source_hash} (skip-unchanged loads — an unmodified memory file causes no
- * write, so repeated loads stop growing the MVStore file).</p>
+ * write, so repeated loads stop growing the MVStore file); v4 = the Sprint-22b jawata
+ * rebrand — code anchors REWRITTEN ({@code org.goja.*} → {@code org.jawata.*} package
+ * prefix AND {@code Goja*}/{@code IGoja*} → {@code Jawata*}/{@code IJawata*} class
+ * segments) across {@code symbol_fqn}, {@code package_name} and FQN link targets, for
+ * ALL entries — record-sourced ones exist in no file, so nothing else would ever
+ * re-anchor them; superseding instead of rewriting would kill their findability.</p>
  */
 final class SchemaMigrations {
 
     private static final Logger log = LoggerFactory.getLogger(SchemaMigrations.class);
 
     /** Current schema version — bump together with a new {@code migrateToVn} step. */
-    static final int LATEST = 3;
+    static final int LATEST = 4;
 
     private SchemaMigrations() {
     }
@@ -77,6 +82,9 @@ final class SchemaMigrations {
         }
         if (from < 3) {
             migrateToV3(conn);
+        }
+        if (from < 4) {
+            migrateToV4(conn);
         }
         writeVersion(conn, LATEST);
         report.put("migrated", true);
@@ -173,6 +181,32 @@ final class SchemaMigrations {
     private static void migrateToV3(Connection conn) throws SQLException {
         try (Statement s = conn.createStatement()) {
             s.execute("ALTER TABLE experience_entry ADD COLUMN IF NOT EXISTS source_hash VARCHAR(64)");
+        }
+    }
+
+    /**
+     * v4 (Sprint 22b, the jawata rebrand): REWRITE the old product's code anchors to the
+     * renamed coordinates — never supersede-without-replacement (that preserves content
+     * but kills findability, and record-sourced entries have no file to re-anchor from).
+     * Both halves per anchor: the package prefix {@code org.goja.} → {@code org.jawata.}
+     * and the class segments {@code .IGoja} → {@code .IJawata} / {@code .Goja} →
+     * {@code .Jawata}. Applies to {@code symbol_fqn}, {@code package_name} and
+     * old-package {@code experience_link.target} FQNs. Foreign anchors (any other
+     * codebase) never match the {@code org.goja.} guards and are untouched.
+     * The migration itself must contain the OLD names — it is the code that rewrites
+     * them (grep-contract exception class 3).
+     */
+    private static void migrateToV4(Connection conn) throws SQLException {
+        String rewrite = "REPLACE(REPLACE(REPLACE(%s, 'org.goja.', 'org.jawata.'),"
+            + " '.IGoja', '.IJawata'), '.Goja', '.Jawata')";
+        try (Statement s = conn.createStatement()) {
+            s.execute("UPDATE experience_entry SET symbol_fqn = " + rewrite.formatted("symbol_fqn")
+                + " WHERE symbol_fqn LIKE 'org.goja.%'");
+            s.execute("UPDATE experience_entry SET package_name = "
+                + "REPLACE(package_name, 'org.goja', 'org.jawata')"
+                + " WHERE package_name = 'org.goja' OR package_name LIKE 'org.goja.%'");
+            s.execute("UPDATE experience_link SET target = " + rewrite.formatted("target")
+                + " WHERE target LIKE 'org.goja.%'");
         }
     }
 

@@ -166,6 +166,68 @@ class SchemaMigrationsTest {
             scalar(dir, "SELECT project_id FROM experience_entry WHERE id = '" + id + "'"));
     }
 
+    /**
+     * Sprint 22b Stage 2 — the jawata-rebrand anchor migration (v4). A store carrying
+     * entries anchored to the OLD product packages/classes ({@code org.goja.*},
+     * {@code Goja*}/{@code IGoja*}) must have those anchors REWRITTEN — both halves,
+     * package prefix AND class segment — for ALL entries, record-sourced included
+     * (they exist in no file, so nothing else would ever re-anchor them). The proof is
+     * FINDABILITY: recall by the NEW symbol name returns the entry. Foreign anchors
+     * (other people's code) are untouched. Link targets that are old-package FQNs
+     * rewrite too.
+     */
+    @Test
+    void goja_anchors_are_rewritten_to_jawata_and_recallable_by_new_name(@TempDir Path dir) throws Exception {
+        createV1Fixture(dir, "legacy-3");
+        try (Connection c = connect(dir); Statement s = c.createStatement()) {
+            // (a) a record-sourced entry (no source_ref — exists in NO file): the case the
+            // migration exists to protect. Anchored to an old-package class + member.
+            s.execute("INSERT INTO experience_entry (id, type, symbol_fqn, package_name, status,"
+                + " summary, body_json, created_at, updated_at) VALUES ('rec-goja', 'lesson',"
+                + " 'org.goja.mcp.GojaApplication#registerTools', 'org.goja.mcp', 'accepted',"
+                + " 'a Cursor-recorded note', '{\"type\":\"lesson\",\"summary\":\"a Cursor-recorded note\"}',"
+                + " CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+            // (b) an interface anchor (the .IGoja half of the class-segment rule).
+            s.execute("INSERT INTO experience_entry (id, type, symbol_fqn, status, summary,"
+                + " body_json, created_at, updated_at) VALUES ('rec-iface', 'api_contract',"
+                + " 'org.goja.mcp.domain.IGojaService', 'accepted', 'iface note',"
+                + " '{\"type\":\"api_contract\",\"summary\":\"iface note\"}',"
+                + " CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+            // (c) a FOREIGN anchor — someone else's code: must be untouched.
+            s.execute("INSERT INTO experience_entry (id, type, symbol_fqn, package_name, status,"
+                + " summary, body_json, created_at, updated_at) VALUES ('orb-1', 'lesson',"
+                + " 'com.jats2.pipeline.SlotManager#freeSlot', 'com.jats2.pipeline', 'accepted',"
+                + " 'foreign lesson', '{\"type\":\"lesson\",\"summary\":\"foreign lesson\"}',"
+                + " CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+            // (d) a link whose target is an old-package FQN.
+            s.execute("INSERT INTO experience_link (entry_id, rel, target) VALUES"
+                + " ('rec-goja', 'fixed_by', 'org.goja.mcp.knowledge.SchemaMigrations')");
+        }
+
+        try (H2ExperienceStore store = H2ExperienceStore.open(dir)) {
+            // THE proof — findability by the NEW name through the recall API:
+            var hits = store.query(new RecallQuery(
+                "org.jawata.mcp.JawataApplication#registerTools", null, null, null, null));
+            assertTrue(hits.stream().anyMatch(e -> e.id().equals("rec-goja")),
+                "record-sourced note is recalled by its NEW symbol name after migration");
+        }
+        assertEquals("org.jawata.mcp.JawataApplication#registerTools",
+            scalar(dir, "SELECT symbol_fqn FROM experience_entry WHERE id = 'rec-goja'"),
+            "package prefix AND class segment rewritten");
+        assertEquals("org.jawata.mcp",
+            scalar(dir, "SELECT package_name FROM experience_entry WHERE id = 'rec-goja'"),
+            "package anchor rewritten");
+        assertEquals("org.jawata.mcp.domain.IJawataService",
+            scalar(dir, "SELECT symbol_fqn FROM experience_entry WHERE id = 'rec-iface'"),
+            "IGoja interface segment rewritten to IJawata");
+        assertEquals("com.jats2.pipeline.SlotManager#freeSlot",
+            scalar(dir, "SELECT symbol_fqn FROM experience_entry WHERE id = 'orb-1'"),
+            "foreign anchors untouched");
+        assertEquals("org.jawata.mcp.knowledge.SchemaMigrations",
+            scalar(dir, "SELECT target FROM experience_link WHERE entry_id = 'rec-goja' AND rel = 'fixed_by'"),
+            "old-package link target rewritten");
+    }
+
     @Test
     void in_memory_store_migrates_without_backup(@TempDir Path dir) throws Exception {
         // dir==null → in-memory: fresh v0 → LATEST, no file, no backup, still functional.
