@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>jawata — compiler-accurate Java analysis &amp; refactoring for AI agents</title>
+  <meta name="description" content="jawata is a JDT-backed MCP server: IDE-grade Java code intelligence for AI coding agents — compiler-accurate analysis, parity-gated reversible refactoring, whole-workspace scope, a grounded memory store, and enforcement that keeps agents on the compiler instead of grep. No Eclipse required. Open source, AGPL.">
+  <link rel="canonical" href="https://jawata.org/">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <!-- Open Graph / Twitter -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jawata.org/">
+  <meta property="og:title" content="jawata — compiler-accurate Java analysis &amp; refactoring for AI agents">
+  <meta property="og:description" content="IDE-grade Java code intelligence for AI coding agents: full parity-gated refactoring, whole-workspace scope, grounded memory, enforcement. No Eclipse required. Open source, AGPL.">
+  <meta property="og:image" content="https://jawata.org/favicon.svg">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="jawata — compiler-accurate Java analysis &amp; refactoring for AI agents">
+  <meta name="twitter:description" content="IDE-grade Java code intelligence for AI coding agents: full parity-gated refactoring, whole-workspace scope, grounded memory, enforcement. No Eclipse required.">
+  <!-- JSON-LD -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "jawata",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux, macOS, Windows",
+    "description": "Compiler-accurate Java analysis and refactoring for AI agents — a JDT-backed MCP server with parity-gated reversible refactoring, whole-workspace scope, a grounded memory store, and agent enforcement. Managed by the jawata-studio desktop app.",
+    "url": "https://jawata.org/",
+    "downloadUrl": "https://github.com/haraldwegner/jawata-studio/releases",
+    "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
+  <style>
+    :root {
+      --indigo: #0b1020; --indigo-deep: #0f172a; --cream: #f1f5f9;
+      --gold: #b98a2e; --gold-bright: #d4a94e;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--indigo); color: var(--cream);
+      font: 17px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    main { max-width: 760px; margin: 0 auto; padding: 3.5rem 1.5rem 4rem; }
+    header { display: flex; align-items: center; gap: 1rem; margin-bottom: .75rem; }
+    header svg { flex: none; }
+    h1 { font-size: 2.6rem; letter-spacing: .06em; font-weight: 650; color: var(--gold-bright); }
+    .tagline { font-size: 1.45rem; color: var(--gold-bright); font-weight: 600; margin-bottom: .4rem; }
+    .subline { font-size: 1.02rem; color: #94a3b8; margin-bottom: 2.2rem; }
+    h2 { font-size: 1.25rem; color: var(--gold-bright); margin: 2.2rem 0 .6rem; }
+    p { margin-bottom: 1rem; }
+    blockquote {
+      border-left: 3px solid var(--gold); padding: .2rem 0 .2rem 1rem;
+      margin: 1.2rem 0; color: #cbd5e1; font-style: italic;
+    }
+    a { color: var(--gold-bright); }
+    ul { margin: 0 0 1rem 1.3rem; }
+    li { margin-bottom: .45rem; }
+    .cta { margin: 2.4rem 0; display: flex; gap: 1rem; flex-wrap: wrap; }
+    .cta a {
+      display: inline-block; padding: .7rem 1.4rem; border-radius: 8px;
+      text-decoration: none; font-weight: 600;
+    }
+    .cta .primary { background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #f8fafc; }
+    .cta .secondary { border: 1.5px solid rgba(148,163,184,.45); color: #cbd5e1; }
+    footer { margin-top: 3rem; padding-top: 1.2rem; border-top: 1px solid rgba(148,163,184,.25);
+             font-size: .9rem; color: #94a3b8; }
+    code { background: var(--indigo-deep); padding: .1rem .4rem; border-radius: 4px; }
+    pre.install {
+      background: var(--indigo-deep); border: 1px solid rgba(148,163,184,.25);
+      border-radius: 10px; padding: .9rem 1.1rem; margin: .4rem 0 .5rem;
+      overflow-x: auto; font-size: .95rem;
+    }
+    pre.install code { background: none; padding: 0; color: #93c5fd; }
+    .install-note { font-size: .9rem; color: #94a3b8; margin-bottom: 1.6rem; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <!-- the arch — the jawata mark (monoline abstraction of Javanese ja) -->
+    <svg width="40" height="44" viewBox="8 0 152 188" aria-hidden="true">
+      <path d="M52,174 C40,170 33,160 33,146 C30,112 30,78 35,56 C42,22 60,12 75,12
+               C92,12 110,24 113,54 C115,92 113,124 113,146 C113,164 119,174 131,174
+               L149,173" fill="none" stroke="#d4a94e" stroke-width="15"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h1>JAWATA</h1>
+  </header>
+  <p class="tagline">Agents write. jawata verifies. Java wins.</p>
+  <p class="subline">Compiler-accurate Java analysis &amp; refactoring for AI agents — JDT-backed, over MCP.</p>
+
+  <p><strong>Semantic Java is table stakes now.</strong> Bridges expose the compiler over
+  MCP; fleet platforms run recipe migrations across a hundred thousand repos. jawata is
+  neither — it is the layer <strong>where the actual work happens</strong>: your agent, your
+  machine, your working tree, today's change. A full refactoring <strong>engine</strong> the
+  agent composes freely — not a recipe library. A <strong>grounded memory</strong> of your
+  codebase's lessons. <strong>Enforcement</strong> that keeps the agent on the compiler
+  instead of drifting back to grep. And your code <strong>never leaves your machine</strong>.</p>
+
+  <div class="cta">
+    <a class="primary" href="https://github.com/haraldwegner/jawata-studio/releases">⬇ Download jawata-studio</a>
+    <a class="secondary" href="https://github.com/haraldwegner/jawata-mcp">the engine: jawata-mcp</a>
+  </div>
+
+  <h2>Install in one line</h2>
+  <pre class="install"><code>curl -fsSL https://raw.githubusercontent.com/haraldwegner/jawata-studio/main/install.sh | bash</code></pre>
+  <p class="install-note">Linux &amp; macOS — installs jawata-studio, which downloads and manages the
+  engine and wires up Claude Code and Cursor. Windows:
+  <a href="https://github.com/haraldwegner/jawata-studio/releases">grab the installer</a>.</p>
+
+  <h2>What only jawata brings</h2>
+  <ul>
+    <li><strong>The full engine, not a recipe library.</strong> Recipe engines automate
+        the <em>known</em> — the framework upgrade, the CVE sweep, a fix somebody already
+        authored, replayed across a fleet. jawata is built for the <em>unknown</em>: the
+        agent composes the refactoring <em>this</em> design problem needs — rename, move,
+        extract, change signature, multi-step pattern plans — freely, on live code. Every
+        change is compile-verified before it counts, applied for real, reversible with one
+        call. Design smells (Fowler, SOLID, Kerievsky) detected and cured. Your daily work
+        isn't a migration; it's the change nobody wrote a recipe for.</li>
+    <li><strong>Enforcement: fluency over grounding doesn't stand a chance.</strong>
+        Deployed hooks steer and, where it matters, <em>block</em> the agent's grep-and-guess
+        reflex, injecting the compiler-accurate route instead. Other tools hope the agent
+        uses them; jawata makes sure.</li>
+    <li><strong>Memory that doesn't live in a chat product.</strong> Portable files in
+        <em>your</em> git plus a grounded store anchored to <em>your</em> symbols — written
+        from any client, recalled from any client. A lesson recorded in Cursor today answers
+        by symbol in Claude Code tomorrow. One fitting fact or an honest nothing — never a
+        similarity pile.</li>
+    <li><strong>Whole codebases, not single projects.</strong> Multi-project workspaces with
+        deterministic routing — an enterprise repo tree is one workspace, not a folder at a
+        time. Something even IntelliJ doesn't give you: it opens one project per window;
+        jawata's agent sees the whole estate at once.</li>
+    <li><strong>Local and yours.</strong> Open source (AGPL-3.0), free, and it runs
+        entirely on your machine — no platform, no upload, no per-seat contract. The
+        compiler model is built from <em>your</em> working tree, live, and stays there.</li>
+    <li><strong>No IDE required — yours stays whatever it is.</strong> Headless residents
+        managed by <a href="https://github.com/haraldwegner/jawata-studio">jawata-studio</a>,
+        wired into Claude Code and Cursor in two clicks. jawata serves the <em>agent</em>,
+        not the editor: keep IntelliJ, keep Eclipse, keep VS Code — the agent gets
+        Eclipse-grade semantics either way. Tools and guard are identical on every client;
+        memory auto-push is full on Claude Code, best-effort on Cursor.</li>
+  </ul>
+
+  <h2>The Java renaissance</h2>
+  <p>Java was the "boring" language — verbose, chatty, the workhorse of enterprise business
+  logic that teams left for slicker syntax. AI agents flip that verdict. The boilerplate is
+  now written by the agent and <em>read</em> by you — and chatty means <em>readable</em>.
+  Meanwhile the compiler's exactness and type safety, once bureaucracy, become the agent's
+  safety rail: the language with the strictest compiler and the deepest tooling is suddenly
+  the best language to let an agent loose on. jawata is that tooling — Eclipse-grade
+  semantics and refactoring, packaged for agents.</p>
+
+  <h2>Why it matters now</h2>
+  <blockquote>The agent's prior is verifiability-seeking, not shortcut-seeking — it is a
+  liability only while design properties are expensive to verify. Make them cheap and it
+  flips sign: the agent grinds toward <code>find_field_writes = 0</code> with the same
+  stubbornness it grinds toward green tests.</blockquote>
+  <p>jawata makes design properties cheap to verify — design erosion becomes a number under
+  surveillance instead of an incident in production. That is the lever that lifts the
+  trust-ceiling for autonomous work on the highest-value, hardest-to-verify language:
+  Java in the enterprise.</p>
+
+  <div class="cta">
+    <a class="primary" href="https://github.com/haraldwegner/jawata-studio/releases">⬇ Download jawata-studio</a>
+    <a class="secondary" href="https://github.com/haraldwegner/jawata-mcp/releases">engine releases</a>
+  </div>
+
+  <footer>
+    <p><strong>jawata</strong> — Javanese for <em>the gods</em>; it contains <em>Jawa</em>,
+    the island that gave Java its name. "Gods of Java," in Java's own language.</p>
+    <p>jawata-mcp and jawata-studio are open source under AGPL-3.0, © Harald Wegner.
+    Some early parts derive from javalens-mcp (MIT) — credit to Peter Zalutski.</p>
+  </footer>
+</main>
+</body>
+</html>
