@@ -6,7 +6,7 @@
 
     <groupId>org.jawata</groupId>
     <artifactId>org.jawata.parent</artifactId>
-    <version>2.6.1-SNAPSHOT</version>
+    <version>2.7.0</version>
     <packaging>pom</packaging>
 
     <name>JAWATA :: Parent</name>
