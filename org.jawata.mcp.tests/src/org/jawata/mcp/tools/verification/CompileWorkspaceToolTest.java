@@ -236,6 +236,76 @@ class CompileWorkspaceToolTest {
             "error message should name the dropped projectKey; got: " + err.getMessage());
     }
 
+    // ========== v2.7.1 — output cap (dogfood find: 17,383 diagnostics in one 4.25 MB response) ==========
+
+    @Test
+    @DisplayName("v2.7.1: diagnostics are paged — limit caps the array, count/truncated/hint expose the rest")
+    void diagnostics_pagedByLimit() throws Exception {
+        writeBrokenSiblingOf("Clean.java", "Broken1.java");
+        writeBrokenSiblingOf("Clean.java", "Broken2.java");
+        writeBrokenSiblingOf("Clean.java", "Broken3.java");
+
+        ObjectNode args = objectMapper.createObjectNode();
+        args.put("limit", 2);
+        ToolResponse r = tool.execute(args);
+
+        assertTrue(r.isSuccess(), "got: " + r.getError());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) r.getData();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> diagnostics = (List<Map<String, Object>>) data.get("diagnostics");
+        assertEquals(2, diagnostics.size(), "limit=2 must cap the returned diagnostics");
+        assertTrue(((Number) data.get("count")).intValue() >= 3,
+            "count must carry the FULL total; got: " + data.get("count"));
+        assertEquals(Boolean.TRUE, data.get("truncated"), "truncation must be flagged");
+        assertNotNull(data.get("hint"), "a truncated page must carry the paging hint");
+        assertTrue(((Number) data.get("errorCount")).intValue() >= 3,
+            "errorCount must reflect the full set, not the page");
+    }
+
+    @Test
+    @DisplayName("v2.7.1: offset pages past the first window")
+    void diagnostics_offsetPages() throws Exception {
+        writeBrokenSiblingOf("Clean.java", "Broken1.java");
+        writeBrokenSiblingOf("Clean.java", "Broken2.java");
+        writeBrokenSiblingOf("Clean.java", "Broken3.java");
+
+        ObjectNode args = objectMapper.createObjectNode();
+        args.put("limit", 2);
+        args.put("offset", 2);
+        ToolResponse r = tool.execute(args);
+
+        assertTrue(r.isSuccess(), "got: " + r.getError());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) r.getData();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> diagnostics = (List<Map<String, Object>>) data.get("diagnostics");
+        int total = ((Number) data.get("count")).intValue();
+        assertEquals(Math.min(2, Math.max(0, total - 2)), diagnostics.size(),
+            "offset=2/limit=2 must return the second window");
+        assertEquals(2, ((Number) data.get("offset")).intValue(), "offset must be echoed");
+    }
+
+    @Test
+    @DisplayName("v2.7.1: summary=true returns counts only — no diagnostics array, byProject breakdown present")
+    void summary_returnsCountsWithoutDiagnostics() throws Exception {
+        writeBrokenSiblingOf("Clean.java", "Broken1.java");
+
+        ObjectNode args = objectMapper.createObjectNode();
+        args.put("summary", true);
+        ToolResponse r = tool.execute(args);
+
+        assertTrue(r.isSuccess(), "got: " + r.getError());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) r.getData();
+        assertFalse(data.containsKey("diagnostics"),
+            "summary mode must NOT ship the diagnostics array");
+        assertEquals(Boolean.TRUE, data.get("summary"));
+        assertTrue(((Number) data.get("errorCount")).intValue() >= 1,
+            "summary keeps the full error count");
+        assertNotNull(data.get("byProject"), "summary carries the per-project breakdown");
+    }
+
     // ================================ helpers ================================
 
     /**

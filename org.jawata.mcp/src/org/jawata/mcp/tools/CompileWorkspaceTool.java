@@ -86,9 +86,17 @@ public class CompileWorkspaceTool extends AbstractTool {
               src/main/* vs src/test/* convention). When the project compiles
               cleanly but test sources have errors, scope="test" surfaces them
               explicitly (bugs.md #9).
+            - summary — default false. When true, return counts only
+              (errorCount/warningCount + byProject) with NO diagnostics array —
+              the consumable shape when a broken classpath yields thousands of
+              errors (v2.7.1).
+            - limit / offset — page the diagnostics array (default limit 100,
+              offset 0). errorCount/warningCount/count always reflect the FULL
+              set; `truncated` + `hint` flag a capped page (v2.7.1).
 
             Result:
-              { operation, projectsCompiled, errorCount, warningCount,
+              { operation, projectsCompiled, errorCount, warningCount, count,
+                offset, limit, returnedCount, truncated,
                 diagnostics: [{filePath, line, column, severity, message,
                               sourceProject}] }
 
@@ -116,9 +124,21 @@ public class CompileWorkspaceTool extends AbstractTool {
             "type", "string",
             "enum", List.of("main", "test", "both"),
             "description", "Filter diagnostics by source-root convention (src/main/* vs src/test/*). Default 'both' (bugs.md #9)."));
+        properties.put("summary", Map.of(
+            "type", "boolean",
+            "description", "Counts only (errorCount/warningCount + byProject), NO diagnostics array — for workspaces with thousands of errors (v2.7.1). Default false."));
+        properties.put("limit", Map.of(
+            "type", "integer",
+            "description", "Max diagnostics returned (default 100); counts always reflect the full set (v2.7.1)."));
+        properties.put("offset", Map.of(
+            "type", "integer",
+            "description", "Skip the first N diagnostics (pagination; default 0) (v2.7.1)."));
         schema.put("properties", properties);
         return withProjectKey(schema);
     }
+
+    /** v2.7.1: default page size — mirrors find_quality_issue's v2.6.1 cap. */
+    private static final int DEFAULT_DIAGNOSTICS_LIMIT = 100;
 
     private static final Set<String> VALID_SCOPES = Set.of("main", "test", "both");
 
@@ -233,16 +253,55 @@ public class CompileWorkspaceTool extends AbstractTool {
                 }
             }
 
+            // v2.7.1 (dogfood 2026-07-10): a classpath-broken workspace produced
+            // 17,383 diagnostics in one 4.25 MB response — unconsumable for any
+            // MCP client. Bound the array the same way find_quality_issue was
+            // bounded in v2.6.1: summary → counts only; otherwise page with
+            // limit/offset. The counts always reflect the FULL set.
+            int total = diagnostics.size();
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("operation", "compile_workspace");
             data.put("projectsCompiled", compiled);
             data.put("errorCount", errorCount);
             data.put("warningCount", warningCount);
-            data.put("diagnostics", diagnostics);
+
+            if (getBooleanParam(arguments, "summary", false)) {
+                Map<String, Integer> byProject = new LinkedHashMap<>();
+                for (Map<String, Object> d : diagnostics) {
+                    byProject.merge(String.valueOf(d.get("sourceProject")), 1, Integer::sum);
+                }
+                data.put("summary", true);
+                data.put("count", total);
+                data.put("byProject", byProject);
+                return ToolResponse.success(data, ResponseMeta.builder()
+                    .totalCount(total)
+                    .returnedCount(0)
+                    .build());
+            }
+
+            int offset = Math.max(0, getIntParam(arguments, "offset", 0));
+            int limit = getIntParam(arguments, "limit", DEFAULT_DIAGNOSTICS_LIMIT);
+            if (limit <= 0) {
+                limit = DEFAULT_DIAGNOSTICS_LIMIT;
+            }
+            int from = Math.min(offset, total);
+            int to = Math.min(from + limit, total);
+            List<Map<String, Object>> page = new ArrayList<>(diagnostics.subList(from, to));
+            boolean truncated = to < total || from > 0;
+            data.put("count", total);
+            data.put("offset", offset);
+            data.put("limit", limit);
+            data.put("returnedCount", page.size());
+            data.put("truncated", truncated);
+            data.put("diagnostics", page);
+            if (truncated) {
+                data.put("hint", "showing diagnostics " + from + "–" + to + " of " + total
+                    + " — use summary:true for counts only, or offset/limit to page");
+            }
 
             return ToolResponse.success(data, ResponseMeta.builder()
-                .totalCount(diagnostics.size())
-                .returnedCount(diagnostics.size())
+                .totalCount(total)
+                .returnedCount(page.size())
                 .build());
         } catch (Exception e) {
             log.warn("compile_workspace threw unexpectedly: {}", e.getMessage(), e);
