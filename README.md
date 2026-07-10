@@ -1,4 +1,8 @@
-# JAWATA — surgical, risk-free Java refactoring for autonomous agents
+<img src="docs/favicon.svg" width="52" align="left" alt="the jawata arch">
+
+# JAWATA — compiler-accurate Java analysis & refactoring for AI agents
+
+**Agents write. jawata verifies. Java wins.** · [jawata.org](https://jawata.org)
 
 [![GitHub release](https://img.shields.io/github/v/release/haraldwegner/jawata-mcp)](https://github.com/haraldwegner/jawata-mcp/releases)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
@@ -117,6 +121,18 @@ symbol, get the lesson that was written for it — with the mandate to *match ev
 against the closed set, not invent a cause*. Written from any MCP client, recalled from
 any MCP client: a lesson recorded in Cursor today answers by symbol in Claude Code
 tomorrow. Promote it, prune it, export it — it's yours.
+
+**Honest client parity:** the tools and the guard are identical on every MCP client. The
+memory *auto-push* (session primer, prompt-boundary recall, on-edit recall) is **full on
+Claude Code** and **best-effort on Cursor** — Cursor's hook surface can't inject context
+at every seam, so there the recalled facts reach the agent via the deployed rule block
+and the steering that rides on every tool result. Same knowledge, different delivery —
+we'd rather tell you exactly what each client gets than claim "identical everywhere."
+
+> The agent's prior is verifiability-seeking, not shortcut-seeking — it is a liability
+> only while design properties are expensive to verify. Make them cheap and it flips
+> sign: the agent grinds toward `find_field_writes = 0` with the same stubbornness it
+> grinds toward green tests.
 
 ---
 
