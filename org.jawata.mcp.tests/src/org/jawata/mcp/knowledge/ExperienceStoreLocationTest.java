@@ -20,6 +20,36 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class ExperienceStoreLocationTest {
 
+    /**
+     * Sprint 22b (the jawata rebrand): the pre-rebrand user-shared dir
+     * {@code <base>/goja} moves AS-IS to {@code <base>/jawata} — whole directory,
+     * content untouched, never clobbering an existing jawata dir. Session-recorded
+     * store content survives the rebrand because the DIRECTORY moves (the v4 schema
+     * migration then rewrites the anchors inside).
+     */
+    @Test
+    void legacy_shared_dir_moves_to_jawata_once_never_clobbering(@TempDir Path base) throws Exception {
+        // Case 1: legacy goja dir present, jawata absent -> whole dir moves.
+        Files.createDirectories(base.resolve("goja"));
+        Files.writeString(base.resolve("goja").resolve("experience.mv.db"), "store-bytes");
+        Path resolved = H2ExperienceStore.migrateLegacySharedDir(base);
+        assertEquals(base.resolve("jawata"), resolved);
+        assertEquals("store-bytes",
+            Files.readString(base.resolve("jawata").resolve("experience.mv.db")),
+            "store content carried over untouched");
+        assertTrue(!Files.exists(base.resolve("goja")), "legacy dir moved away");
+
+        // Case 2: jawata already exists -> never clobber; legacy left alone.
+        Files.createDirectories(base.resolve("goja"));
+        Files.writeString(base.resolve("goja").resolve("stale.txt"), "old");
+        Path again = H2ExperienceStore.migrateLegacySharedDir(base);
+        assertEquals(base.resolve("jawata"), again);
+        assertEquals("store-bytes",
+            Files.readString(base.resolve("jawata").resolve("experience.mv.db")),
+            "existing jawata dir untouched");
+        assertTrue(Files.exists(base.resolve("goja")), "legacy dir left for manual review");
+    }
+
     @Test
     void open_retries_transient_lock_contention(@TempDir Path dir) {
         // v2.2.4 live find: a runtime swap restarts residents seconds apart; H2 refuses
