@@ -35,3 +35,10 @@ original base remain available under the MIT License:
 The MIT-licensed material above may continue to be used under those MIT terms.
 The combined work as distributed here — including all JAWATA additions — is
 licensed under the AGPL-3.0 (see LICENSE).
+
+== org.jawata.jdtpatch (added 2026-07-11, Sprint 22c) ==
+Contains a single modified class from Eclipse JDT (org.eclipse.jdt.core.compiler.batch,
+Eclipse Public License 2.0, https://www.eclipse.org/legal/epl-2.0/):
+org.eclipse.jdt.internal.compiler.problem.ProblemReporter — one null-guard added for
+https://github.com/eclipse-jdt/eclipse.jdt.core/issues/5188; shipped as an OSGi patch
+fragment and removed when the upstream fix ships. The combined work remains AGPL-3.0 as stated above; this fragment additionally carries its EPL-2.0 notices.

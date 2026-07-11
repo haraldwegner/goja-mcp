@@ -35,6 +35,8 @@
       <plugin id="org.eclipse.equinox.registry"/>
       <plugin id="org.eclipse.jdt.core"/>
       <plugin id="org.eclipse.jdt.core.compiler.batch"/>
+      <!-- 22c: patch fragment for eclipse.jdt.core#5188 — remove with the fragment -->
+      <plugin id="org.jawata.jdtpatch" fragment="true"/>
       <plugin id="org.eclipse.jdt.launching"/>
       <plugin id="org.eclipse.debug.core"/>
       <plugin id="org.eclipse.osgi"/>

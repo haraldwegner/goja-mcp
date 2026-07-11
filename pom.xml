@@ -33,6 +33,7 @@
 
     <modules>
         <module>org.jawata.target</module>
+        <module>org.jawata.jdtpatch</module>
         <module>org.jawata.core</module>
         <module>org.jawata.core.tests</module>
         <module>org.jawata.mcp</module>

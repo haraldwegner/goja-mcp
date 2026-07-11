@@ -1,0 +1,10 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: JAWATA JDT Patch Fragment (eclipse.jdt.core#5188)
+Bundle-SymbolicName: org.jawata.jdtpatch
+Bundle-Version: 2.7.1
+Bundle-Vendor: JAWATA
+Fragment-Host: org.eclipse.jdt.core.compiler.batch;bundle-version="[3.44.0,3.45.0)"
+Eclipse-PatchFragment: true
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Bundle-License: EPL-2.0
