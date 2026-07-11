@@ -1,0 +1,20 @@
+name: Feature request
+description: A tool, capability, or workflow jawata should have
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The task or workflow, not the solution — what does your agent (or you) need that jawata doesn't cover today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed shape (optional)
+      description: If you have a tool signature or behaviour in mind.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What do you do instead today?

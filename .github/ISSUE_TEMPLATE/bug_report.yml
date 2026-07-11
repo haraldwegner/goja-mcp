@@ -1,0 +1,37 @@
+name: Bug report
+description: Something in jawata behaves wrongly (a tool result, a crash, a migration issue)
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: jawata version
+      description: From `health_check` (version field) or Studio's Settings page.
+      placeholder: "2.8.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: AI client
+      options: [Claude Code, Cursor, Claude Desktop, Antigravity, other/none]
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: What did you do?
+      description: The tool call (name + arguments) or UI action, and the project shape if it matters (Maven / Gradle / Eclipse PDE).
+    validations:
+      required: true
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: Expected vs actual
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / error output
+      description: Tool error payloads, stack traces, or Studio banners. Redact anything private.

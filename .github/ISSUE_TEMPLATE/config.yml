@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question / discussion
+    url: https://github.com/haraldwegner/jawata-mcp/discussions
+    about: "Questions, usage help, and ideas-in-progress go to Discussions — issues stay the work queue."
