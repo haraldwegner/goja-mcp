@@ -184,6 +184,11 @@ public class FindQualityIssueTool extends AbstractTool {
         properties.put("summary", Map.of("type", "boolean",
             "description", "family sweeps only: return counts-by-kind + the conflicts list only "
                 + "(NO full findings array) — the consumable shape for a broad sweep on a large project."));
+        properties.put("excludePaths", Map.of("type", "array",
+            "items", Map.of("type", "string"),
+            "description", "Optional path substrings; findings (and conflicts) whose filePath contains "
+                + "any entry are dropped BEFORE counts/summary/baseline/pagination — e.g. a vendored "
+                + "module like a copied upstream source file (v2.8.1)."));
         properties.put("offset", Map.of("type", "integer",
             "description", "family sweeps only: skip the first N findings (pagination; default 0)."));
         properties.put("limit", Map.of("type", "integer",
@@ -223,9 +228,60 @@ public class FindQualityIssueTool extends AbstractTool {
                 "kind '" + kind + "' is not in family '" + family + "'. That family: " + catalog.kinds(family));
         }
         return catalog.get(kind)
-            .map(detector -> detector.detect(service, arguments))
+            .map(detector -> filterExcludedPaths(detector.detect(service, arguments), arguments))
             .orElseGet(() -> ToolResponse.invalidParameter("kind",
                 "Unknown kind '" + kind + "'. Allowed: " + catalog.kinds()));
+    }
+
+    /** v2.8.1 (dogfood 2026-07-11): parse the optional excludePaths array. */
+    private static List<String> excludePathsOf(JsonNode arguments) {
+        List<String> excludes = new ArrayList<>();
+        if (arguments != null && arguments.get("excludePaths") != null
+                && arguments.get("excludePaths").isArray()) {
+            arguments.get("excludePaths").forEach(n -> {
+                String s = n.asText("");
+                if (!s.isBlank()) excludes.add(s);
+            });
+        }
+        return excludes;
+    }
+
+    /**
+     * v2.8.1 (dogfood 2026-07-11): drop findings whose filePath contains any
+     * excludePaths entry. The trigger: a fowler sweep on jawata-mcp itself was
+     * flooded by the vendored 12k-line ProblemReporter copy in
+     * org.jawata.jdtpatch — correct findings, useless signal. Applied to
+     * single-kind responses here; the family path filters the merged list
+     * before conflicts/counts so every derived number stays consistent.
+     */
+    @SuppressWarnings("unchecked")
+    private static ToolResponse filterExcludedPaths(ToolResponse r, JsonNode arguments) {
+        List<String> excludes = excludePathsOf(arguments);
+        if (excludes.isEmpty() || r == null || !r.isSuccess()
+                || !(r.getData() instanceof Map<?, ?> raw)
+                || !(raw.get("findings") instanceof List<?> fs)) {
+            return r;
+        }
+        Map<String, Object> data = new LinkedHashMap<>((Map<String, Object>) raw);
+        List<Object> kept = keepUnexcluded((List<Object>) fs, excludes);
+        data.put("findings", kept);
+        if (data.get("count") instanceof Number) {
+            data.put("count", kept.size());
+        }
+        return ToolResponse.success(data, ResponseMeta.builder()
+            .totalCount(kept.size()).returnedCount(kept.size()).build());
+    }
+
+    private static List<Object> keepUnexcluded(List<Object> findings, List<String> excludes) {
+        List<Object> kept = new ArrayList<>(findings.size());
+        for (Object o : findings) {
+            if (o instanceof Map<?, ?> f && f.get("filePath") instanceof String fp
+                    && excludes.stream().anyMatch(fp::contains)) {
+                continue;
+            }
+            kept.add(o);
+        }
+        return kept;
     }
 
     /** Run every detector in {@code family} and merge their {@code findings} into one response. */
@@ -244,6 +300,9 @@ public class FindQualityIssueTool extends AbstractTool {
                 merged.addAll((List<Object>) fs);
             }
         }
+        // v2.8.1: excludePaths filters BEFORE conflicts/counts, so prevalence,
+        // conflict list, summary, baseline and pagination all see one set.
+        merged = keepUnexcluded(merged, excludePathsOf(arguments));
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("family", family);
         out.put("kinds", kinds);
