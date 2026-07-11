@@ -57,3 +57,7 @@ npm/dist/
 .claude/
 org.jawata.launcher/dependency-reduced-pom.xml
 docs/REFACTORING_LESSONS_LEARNED.md
+
+# 22c: the #5188-patched compiler.batch bundle must be tracked (Directory target
+# location) — the *.jar rule silently dropped it from 8b9f8eb; sentinel caught it on CI
+!org.jawata.target/patched-bundles/*.jar
