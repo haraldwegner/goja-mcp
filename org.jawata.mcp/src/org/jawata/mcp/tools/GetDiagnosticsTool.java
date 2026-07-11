@@ -193,6 +193,13 @@ public class GetDiagnosticsTool extends AbstractTool {
                 boolean isError = problem.isError();
                 boolean isWarning = problem.isWarning();
 
+                // 22c (2026-07-11, ported from upstream 2119dd80): newer JDT reports
+                // problems at other severities (e.g. info). This tool's contract is
+                // errors and warnings only — anything else must not be surfaced or
+                // counted (it would be mislabeled "warning" and totalDiagnostics would
+                // exceed errorCount + warningCount).
+                if (!isError && !isWarning) continue;
+
                 // Filter by severity
                 if ("error".equals(severity) && !isError) continue;
                 if ("warning".equals(severity) && !isWarning) continue;
@@ -251,6 +258,11 @@ public class GetDiagnosticsTool extends AbstractTool {
                 int sev = marker.getAttribute(IMarker.SEVERITY, IMarker.SEVERITY_INFO);
                 boolean isError = sev == IMarker.SEVERITY_ERROR;
                 boolean isWarning = sev == IMarker.SEVERITY_WARNING;
+                // 22c (2026-07-11): same contract as the AST path above — errors and
+                // warnings only; info markers neither surfaced nor counted.
+                if (!isError && !isWarning) {
+                    continue;
+                }
                 if ("error".equals(severity) && !isError) {
                     continue;
                 }
