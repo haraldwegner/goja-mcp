@@ -51,7 +51,7 @@ public final class SpikeTestMain {
                 currentClass[0] = "(loading) " + cn;
                 selectors.add(DiscoverySelectors.selectClass(Class.forName(cn, false, loader)));
                 lastEvent[0] = System.currentTimeMillis();
-                if (++loaded % 50 == 0) {
+                if (++loaded % 10 == 0 || loaded == 1) {
                     System.out.printf("loaded %d/%d test classes (%ds)%n", loaded,
                         classNames.length, (System.currentTimeMillis() - t0) / 1000);
                     System.out.flush();
