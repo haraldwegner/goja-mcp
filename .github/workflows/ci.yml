@@ -22,26 +22,27 @@ jobs:
       with:
         java-version: '21'
         distribution: 'temurin'
+        cache: maven
 
-    - name: p2 preflight — fall back to the FAU mirror if the Eclipse primary is down
+    # 22d: plain Maven build (Eclipse bundles from Maven Central; no Tycho, no p2).
+    - name: Build
+      shell: bash
+      run: mvn -B -f build/pom.xml install -DskipTests
+
+    # The full suite runs in-framework (the tycho-surefire replacement): the boot
+    # module starts Equinox, installs the test fragments, runs JUnit inside.
+    # Exit code = failed-test count.
+    - name: Test (in-framework)
       shell: bash
       run: |
-        if curl -sf --max-time 20 -o /dev/null https://download.eclipse.org/releases/2026-06/p2.index; then
-          echo "Eclipse primary healthy — canonical p2.base"
-        else
-          echo "P2_BASE_FLAG=-Dp2.base=https://ftp.fau.de/eclipse" >> "$GITHUB_ENV"
-          echo "::warning::download.eclipse.org unavailable — building against the FAU mirror"
-        fi
+        java -Djawata.test.fixtures="$PWD/org.jawata.core.tests/test-resources/sample-projects" \
+             -Djawata.experience.shared.dir="$RUNNER_TEMP/jawata-test-store" \
+             -jar build/dist/target/dist/jawata.jar -runTests | tee test-run.log
+        test ${PIPESTATUS[0]} -eq 0
 
-    - name: Build and Test
-      shell: bash
-      run: ./mvnw clean verify $P2_BASE_FLAG
-
-    - name: Upload test results
+    - name: Upload test log
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: test-results-${{ matrix.os }}
-        path: |
-          **/target/surefire-reports/
-          **/target/failsafe-reports/
+        name: test-log-${{ matrix.os }}
+        path: test-run.log

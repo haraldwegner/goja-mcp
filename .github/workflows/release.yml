@@ -22,48 +22,36 @@ jobs:
       with:
         java-version: '21'
         distribution: 'temurin'
+        cache: maven
 
-    - name: p2 preflight — fall back to the FAU mirror if the Eclipse primary is down
+    # 22d: plain Maven build (Eclipse bundles from Maven Central; no Tycho, no p2).
+    - name: Build
+      run: mvn -B -f build/pom.xml install -DskipTests
+
+    - name: Test (in-framework)
       run: |
-        if curl -sf --max-time 20 -o /dev/null https://download.eclipse.org/releases/2026-06/p2.index; then
-          echo "Eclipse primary healthy — canonical p2.base"
-        else
-          echo "P2_BASE_FLAG=-Dp2.base=https://ftp.fau.de/eclipse" >> "$GITHUB_ENV"
-          echo "::warning::download.eclipse.org unavailable — building against the FAU mirror"
-        fi
+        java -Djawata.test.fixtures="$PWD/org.jawata.core.tests/test-resources/sample-projects" \
+             -Djawata.experience.shared.dir="$RUNNER_TEMP/jawata-test-store" \
+             -jar build/dist/target/dist/jawata.jar -runTests
+        test $? -eq 0
 
-    - name: Build and Test
-      run: ./mvnw clean verify $P2_BASE_FLAG
-
-    - name: Package per-platform distributions
+    # ONE universal dist (every platform's SWT fragment ships; Equinox resolves the
+    # matching one at boot). The five per-consumer asset names are kept for full
+    # compatibility with install.sh and jawata-studio's release manager — identical
+    # content under each name.
+    - name: Package distributions
       run: |
         set -e
         TAG=${{ github.ref_name }}
-        OUT="$GITHUB_WORKSPACE/org.jawata.product/target/products"
-        P="$OUT/org.jawata.product"
-        # Linux + Windows: the product dir is named "jawata"; rename to jawata-<tag> then archive.
-        pkg_dir() {   # $1=platform-path  $2=suffix  $3=tar|zip
-          local d="$P/$1"
-          [ -d "$d/jawata" ] || { echo "skip $1 (no jawata/ — platform not built)"; return 0; }
-          ( cd "$d" && cp -r jawata "jawata-$TAG"
-            case "$3" in
-              tar) tar -czf "$OUT/jawata-$TAG-$2.tar.gz" "jawata-$TAG" ;;
-              zip) zip -rq  "$OUT/jawata-$TAG-$2.zip"    "jawata-$TAG" ;;
-            esac
-            rm -rf "jawata-$TAG" )
-        }
-        # macOS: the product IS the Jawata.app bundle; zip it as-is (keeps the .app).
-        pkg_app() {   # $1=platform-path  $2=suffix
-          local d="$P/$1"
-          [ -d "$d/Jawata.app" ] || { echo "skip $1 (no Jawata.app)"; return 0; }
-          ( cd "$d" && zip -rq "$OUT/jawata-$TAG-$2.zip" "Jawata.app" )
-        }
-        pkg_dir linux/gtk/x86_64    linux-x64    tar
-        pkg_dir linux/gtk/aarch64   linux-arm64  tar
-        pkg_dir win32/win32/x86_64  win32-x64    zip
-        pkg_app macosx/cocoa/x86_64   macos-x64
-        pkg_app macosx/cocoa/aarch64  macos-arm64
-        echo "=== packaged artifacts ===" && ls -la "$OUT"/jawata-"$TAG"-* || true
+        OUT="$GITHUB_WORKSPACE/build/dist/target"
+        cd "$OUT" && cp -r dist "jawata-$TAG"
+        tar -czf "jawata-$TAG-linux-x64.tar.gz"   "jawata-$TAG"
+        cp jawata-$TAG-linux-x64.tar.gz "jawata-$TAG-linux-arm64.tar.gz"
+        zip -rq "jawata-$TAG-win32-x64.zip"  "jawata-$TAG"
+        cp jawata-$TAG-win32-x64.zip "jawata-$TAG-macos-x64.zip"
+        cp jawata-$TAG-win32-x64.zip "jawata-$TAG-macos-arm64.zip"
+        rm -rf "jawata-$TAG"
+        echo "=== packaged artifacts ===" && ls -la jawata-"$TAG"-*
 
     - name: Pick release body
       id: notes
@@ -79,8 +67,8 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          org.jawata.product/target/products/jawata-${{ github.ref_name }}-*.tar.gz
-          org.jawata.product/target/products/jawata-${{ github.ref_name }}-*.zip
+          build/dist/target/jawata-${{ github.ref_name }}-*.tar.gz
+          build/dist/target/jawata-${{ github.ref_name }}-*.zip
         body_path: ${{ steps.notes.outputs.body_path }}
         generate_release_notes: ${{ steps.notes.outputs.body_path == '' }}
       env:
@@ -89,4 +77,3 @@ jobs:
     # NOTE: npm-publish and MCP-Registry-publish steps are intentionally
     # omitted. jawata-studio downloads the jar archives directly from the
     # GitHub Release attached above, which is all the runtime path needs.
-    # (A jawata npm package / registry entry can be added later if desired.)

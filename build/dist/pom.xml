@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 22d spike: dist assembly — the plain-world replacement for the p2 product
+     tree. target/dist/ = boot jar + org.eclipse.osgi (boot classpath) +
+     bundles/ (the EXPLICIT Stage-1 map; no transitive surprises). The #5188
+     patched compiler.batch is copied from the committed patched-bundles jar —
+     the ONLY carried artifact; the official bundle is nowhere in the dist. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.jawata.spike</groupId>
+        <artifactId>spike-parent</artifactId>
+        <version>2.8.1-SPIKE</version>
+    </parent>
+
+    <artifactId>spike-dist</artifactId>
+    <packaging>pom</packaging>
+
+    <dependencies>
+        <dependency><groupId>org.jawata.spike</groupId><artifactId>org.jawata.boot</artifactId><version>${project.version}</version></dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>boot-classpath</id>
+                        <phase>package</phase>
+                        <goals><goal>copy</goal></goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/dist</outputDirectory>
+                            <stripVersion>false</stripVersion>
+                            <artifactItems>
+                                <artifactItem><groupId>org.jawata.spike</groupId><artifactId>org.jawata.boot</artifactId><version>${project.version}</version><destFileName>jawata.jar</destFileName></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.osgi</artifactId><version>${v.osgi}</version></artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>test-bundles</id>
+                        <phase>package</phase>
+                        <goals><goal>copy</goal></goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/dist/test-bundles</outputDirectory>
+                            <stripVersion>false</stripVersion>
+                            <artifactItems>
+                                <artifactItem><groupId>org.jawata.spike</groupId><artifactId>org.jawata.core.tests</artifactId><version>${project.version}</version></artifactItem>
+                                <artifactItem><groupId>org.jawata.spike</groupId><artifactId>org.jawata.mcp.tests</artifactId><version>${project.version}</version></artifactItem>
+                                <artifactItem><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter-api</artifactId><version>5.11.4</version></artifactItem>
+                                <artifactItem><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter-engine</artifactId><version>5.11.4</version></artifactItem>
+                                <artifactItem><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter-params</artifactId><version>5.11.4</version></artifactItem>
+                                <artifactItem><groupId>org.junit.platform</groupId><artifactId>junit-platform-commons</artifactId><version>1.11.4</version></artifactItem>
+                                <artifactItem><groupId>org.junit.platform</groupId><artifactId>junit-platform-engine</artifactId><version>1.11.4</version></artifactItem>
+                                <artifactItem><groupId>org.junit.platform</groupId><artifactId>junit-platform-launcher</artifactId><version>1.11.4</version></artifactItem>
+                                <artifactItem><groupId>org.opentest4j</groupId><artifactId>opentest4j</artifactId><version>1.3.0</version></artifactItem>
+                                <artifactItem><groupId>org.apiguardian</groupId><artifactId>apiguardian-api</artifactId><version>1.1.2</version></artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>bundles</id>
+                        <phase>package</phase>
+                        <goals><goal>copy</goal></goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/dist/bundles</outputDirectory>
+                            <stripVersion>false</stripVersion>
+                            <artifactItems>
+                                <!-- ours -->
+                                <artifactItem><groupId>org.jawata.spike</groupId><artifactId>org.jawata.core</artifactId><version>${project.version}</version></artifactItem>
+                                <artifactItem><groupId>org.jawata.spike</groupId><artifactId>org.jawata.mcp</artifactId><version>${project.version}</version></artifactItem>
+                                <!-- JDT (compiler.batch comes from patched-bundles, below) -->
+                                <artifactItem><groupId>org.eclipse.jdt</groupId><artifactId>org.eclipse.jdt.core</artifactId><version>${v.jdt.core}</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.jdt</groupId><artifactId>org.eclipse.jdt.launching</artifactId><version>${v.jdt.launching}</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.jdt</groupId><artifactId>org.eclipse.jdt.core.manipulation</artifactId><version>${v.jdt.manipulation}</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.jdt</groupId><artifactId>org.eclipse.jdt.junit.core</artifactId><version>${v.jdt.junit.core}</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.jdt</groupId><artifactId>org.eclipse.jdt.junit.runtime</artifactId><version>${v.jdt.junit.runtime}</version></artifactItem>
+                                <!-- junit5.runtime DROPPED (finding #7): the Tycho product itself
+                                     does not carry it — parity, not regression -->
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.jface</artifactId><version>3.39.100</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.equinox.simpleconfigurator</artifactId><version>1.5.700</version></artifactItem>
+                                <!-- finding #8: manipulation → search.core; jface → swt.svg capability -->
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.search.core</artifactId><version>3.16.700</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.swt.svg</artifactId><version>3.133.0</version></artifactItem>
+                                <!-- platform -->
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.ltk.core.refactoring</artifactId><version>${v.ltk}</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.core.runtime</artifactId><version>${v.core.runtime}</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.core.resources</artifactId><version>${v.core.resources}</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.core.filesystem</artifactId><version>${v.core.filesystem}</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.core.jobs</artifactId><version>${v.core.jobs}</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.core.contenttype</artifactId><version>${v.core.contenttype}</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.core.expressions</artifactId><version>${v.core.expressions}</version></artifactItem>
+                                <!-- osgi.services/osgi.util facades DROPPED (boot-loop finding #6):
+                                     they only re-export per-spec bundles and drag the whole
+                                     org.osgi.service.* tree in; nothing of ours requires them -->
+                                <artifactItem><groupId>org.eclipse.jdt</groupId><artifactId>org.eclipse.jdt.debug</artifactId><version>3.26.0</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.core.filebuffers</artifactId><version>3.8.600</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.swt</artifactId><version>3.134.0</version></artifactItem>
+                                <!-- ONE universal dist: every platform's SWT fragment ships;
+                                     Equinox's Eclipse-PlatformFilter resolves only the matching
+                                     one at boot (replaces Tycho's five per-OS assets) -->
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.swt.gtk.linux.x86_64</artifactId><version>3.134.0</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.swt.gtk.linux.aarch64</artifactId><version>3.134.0</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.swt.cocoa.macosx.x86_64</artifactId><version>3.134.0</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.swt.cocoa.macosx.aarch64</artifactId><version>3.134.0</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.swt.win32.win32.x86_64</artifactId><version>3.134.0</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.equinox.simpleconfigurator.manipulator</artifactId><version>2.3.700</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.equinox.frameworkadmin</artifactId><version>2.3.600</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.equinox.frameworkadmin.equinox</artifactId><version>1.3.400</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.text</artifactId><version>${v.text}</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.jface.text</artifactId><version>${v.jface.text}</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.equinox.common</artifactId><version>${v.equinox.common}</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.equinox.preferences</artifactId><version>${v.equinox.preferences}</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.equinox.registry</artifactId><version>${v.equinox.registry}</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.equinox.app</artifactId><version>${v.equinox.app}</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.debug.core</artifactId><version>${v.debug.core}</version></artifactItem>
+                                <artifactItem><groupId>org.apache.felix</groupId><artifactId>org.apache.felix.scr</artifactId><version>${v.felix.scr}</version></artifactItem>
+                                <!-- per-spec OSGi API bundles p2 ships individually (boot-loop finding #1) -->
+                                <artifactItem><groupId>org.osgi</groupId><artifactId>org.osgi.service.component</artifactId><version>1.5.1</version></artifactItem>
+                                <artifactItem><groupId>org.osgi</groupId><artifactId>org.osgi.service.prefs</artifactId><version>1.1.2</version></artifactItem>
+                                <artifactItem><groupId>org.osgi</groupId><artifactId>org.osgi.util.promise</artifactId><version>1.3.0</version></artifactItem>
+                                <artifactItem><groupId>org.osgi</groupId><artifactId>org.osgi.util.function</artifactId><version>1.2.0</version></artifactItem>
+                                <!-- platform leaf deps (boot-loop finding #2): all OSGi-manifested on Central -->
+                                <artifactItem><groupId>net.java.dev.jna</groupId><artifactId>jna</artifactId><version>5.17.0</version></artifactItem>
+                                <artifactItem><groupId>net.java.dev.jna</groupId><artifactId>jna-platform</artifactId><version>5.17.0</version></artifactItem>
+                                <artifactItem><groupId>com.ibm.icu</groupId><artifactId>icu4j</artifactId><version>77.1</version></artifactItem>
+                                <!-- boot-loop finding #4: text requires core.commands; slf4j-api
+                                     mandatorily requires the ServiceLoader extender (spifly) -->
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.core.commands</artifactId><version>3.12.500</version></artifactItem>
+                                <artifactItem><groupId>org.apache.aries.spifly</groupId><artifactId>org.apache.aries.spifly.dynamic.bundle</artifactId><version>1.3.7</version></artifactItem>
+                                <!-- boot-loop finding #5: Central spifly variant weaves via ASM;
+                                     debug.core requires core.variables -->
+                                <artifactItem><groupId>org.ow2.asm</groupId><artifactId>asm</artifactId><version>9.10.1</version></artifactItem>
+                                <artifactItem><groupId>org.ow2.asm</groupId><artifactId>asm-commons</artifactId><version>9.10.1</version></artifactItem>
+                                <artifactItem><groupId>org.ow2.asm</groupId><artifactId>asm-util</artifactId><version>9.10.1</version></artifactItem>
+                                <artifactItem><groupId>org.ow2.asm</groupId><artifactId>asm-tree</artifactId><version>9.10.1</version></artifactItem>
+                                <artifactItem><groupId>org.ow2.asm</groupId><artifactId>asm-analysis</artifactId><version>9.10.1</version></artifactItem>
+                                <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.core.variables</artifactId><version>3.6.800</version></artifactItem>
+                                <!-- third-party (all ship OSGi manifests) -->
+                                <artifactItem><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${v.jackson}</version></artifactItem>
+                                <artifactItem><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-core</artifactId><version>${v.jackson}</version></artifactItem>
+                                <artifactItem><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-annotations</artifactId><version>${v.jackson}</version></artifactItem>
+                                <artifactItem><groupId>com.h2database</groupId><artifactId>h2</artifactId><version>${v.h2}</version></artifactItem>
+                                <artifactItem><groupId>org.slf4j</groupId><artifactId>slf4j-api</artifactId><version>${v.slf4j}</version></artifactItem>
+                                <artifactItem><groupId>org.slf4j</groupId><artifactId>slf4j-simple</artifactId><version>${v.slf4j}</version></artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>patched-compiler-batch</id>
+                        <phase>package</phase>
+                        <goals><goal>copy-resources</goal></goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/dist/bundles</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/../../org.jawata.target/patched-bundles</directory>
+                                    <includes><include>*.jar</include></includes>
+                                </resource>
+                                <!-- CARRY #2 (boot-loop finding #3): org.commonmark is NOT an OSGi
+                                     bundle on Central — carried p2-wrapped from the materialized
+                                     product (durable mechanism = commit-or-bnd-wrap; dossier). -->
+                                <resource>
+                                    <directory>${project.basedir}/../../org.jawata.product/target/products/org.jawata.product/linux/gtk/x86_64/jawata/plugins</directory>
+                                    <includes><include>org.commonmark_*.jar</include><include>org.commonmark.ext-gfm-tables_*.jar</include><include>org.junit_*.jar</include><include>org.hamcrest_*.jar</include><include>com.github.weisj.jsvg_*.jar</include></includes>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

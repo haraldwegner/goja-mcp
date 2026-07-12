@@ -1,0 +1,22 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: JAWATA MCP Tests (fragment)
+Bundle-SymbolicName: org.jawata.mcp.tests
+Bundle-Version: 2.8.1
+Fragment-Host: org.jawata.mcp
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Import-Package: org.junit.jupiter.api,
+ org.junit.jupiter.api.condition;resolution:=optional,
+ org.junit.jupiter.api.extension,
+ org.junit.jupiter.api.function,
+ org.junit.jupiter.api.io;resolution:=optional,
+ org.junit.jupiter.params;resolution:=optional,
+ org.junit.jupiter.params.provider;resolution:=optional,
+ org.junit.jupiter.engine,
+ org.junit.platform.engine,
+ org.junit.platform.launcher,
+ org.junit.platform.launcher.core,
+ org.junit.platform.launcher.listeners,
+ org.junit.platform.engine.discovery,
+ org.opentest4j
+DynamicImport-Package: *

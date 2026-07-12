@@ -323,11 +323,15 @@ workspace, so multiple agents share one engine instead of spawning a JVM each.
 ```bash
 git clone https://github.com/haraldwegner/jawata-mcp.git
 cd jawata-mcp
-./mvnw clean verify          # Tycho reactor build — produces the product under org.jawata.product/target
+mvn install                                                # plain Maven, ~10 s — dist under build/dist/target/dist
+java -jar build/dist/target/dist/jawata.jar -data <ws>     # run it
+java -jar build/dist/target/dist/jawata.jar -runTests      # full suite, in-framework
 ```
 
-Requires JDK 21. The build is an Eclipse Tycho / OSGi reactor; `org.jawata.product` materialises the
-runnable engine for each platform.
+Requires JDK 21. Since Sprint 22d the build is **plain Maven** — Eclipse's JDT/platform bundles come
+straight from Maven Central, and a small boot module starts the embedded OSGi framework
+programmatically (the same pattern Eclipse's own Java language server uses). One universal dist runs
+on every platform.
 
 ---
 
