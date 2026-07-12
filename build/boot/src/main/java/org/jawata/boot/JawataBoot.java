@@ -82,9 +82,12 @@ public final class JawataBoot {
         Map<String, String> props = baseProps(home, bundlesDir, null);
         props.put("eclipse.application", "org.jawata.mcp.application");
         EclipseStarter.setInitialProperties(props);
-        Object exit = EclipseStarter.run(modified.toArray(new String[0]), null);
-        EclipseStarter.shutdown();
-        return exit instanceof Integer i ? i : 0;
+        try {
+            Object exit = EclipseStarter.run(modified.toArray(new String[0]), null);
+            return exit instanceof Integer i ? i : 0;
+        } finally {
+            EclipseStarter.shutdown();
+        }
     }
 
     // -------------------------------------------------------------- run tests
@@ -103,7 +106,17 @@ public final class JawataBoot {
         props.put("osgi.instance.area", instance.toUri().toString());
         EclipseStarter.setInitialProperties(props);
         BundleContext ctx = EclipseStarter.startup(new String[0], null);
+        try {
+            return runInFramework(ctx, testBundles);
+        } finally {
+            // v2.9.0 lesson: failure must never skip shutdown — Equinox's
+            // non-daemon threads otherwise keep a dead JVM alive (the fake
+            // 75-minute CI "hang" was a 30-second resolution failure).
+            EclipseStarter.shutdown();
+        }
+    }
 
+    private static int runInFramework(BundleContext ctx, Path testBundles) throws Exception {
         String filter = System.getProperty("jawata.test.filter");
         if (filter != null && !filter.isBlank()) {
             System.out.println("Filter '" + filter + "' active");
@@ -119,6 +132,10 @@ public final class JawataBoot {
             System.err.println("FATAL: org.jawata.mcp bundle not found");
             return 2;
         }
+        // Fail-fast resolution gate (v2.9.0): force the resolver NOW — an
+        // incomplete dist dies here in seconds with the full unresolved-
+        // requirement chain, instead of a bare ClassNotFoundException later.
+        mcp.start();
         // Boot-side watchdog + stage markers: the LAST blind window (runner-class
         // load/activation, before SpikeTestMain's own watchdog exists). Every
         // stage prints; 5 idle minutes anywhere here → thread dump + halt(125).
@@ -153,9 +170,7 @@ public final class JawataBoot {
         // remaining unguarded slice is the reflective dispatch itself
         // (SpikeTestMain has no static state) — localized by the marker above.
         bootDog.interrupt();
-        int failed = (int) run.invoke(null, (Object) classNames.toArray(new String[0]));
-        EclipseStarter.shutdown();
-        return failed;
+        return (int) run.invoke(null, (Object) classNames.toArray(new String[0]));
     }
 
     // ---------------------------------------------------------- testable seams

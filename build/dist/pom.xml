@@ -166,14 +166,49 @@
                                     <directory>${project.basedir}/../../org.jawata.target/patched-bundles</directory>
                                     <includes><include>*.jar</include></includes>
                                 </resource>
-                                <!-- CARRY #2 (boot-loop finding #3): org.commonmark is NOT an OSGi
-                                     bundle on Central — carried p2-wrapped from the materialized
-                                     product (durable mechanism = commit-or-bnd-wrap; dossier). -->
+                                <!-- CARRY #2 (boot-loop finding #3): commonmark/org.junit/hamcrest/
+                                     jsvg are not OSGi bundles on Central — carried p2-wrapped as
+                                     COMMITTED jars. v2.9.0 root cause: these were copied from the
+                                     gitignored Tycho product target/ tree, absent on a clean
+                                     checkout; resources-plugin skips a missing dir SILENTLY, so CI
+                                     shipped a dist that could not resolve. Never copy from build
+                                     output of the retired build. -->
                                 <resource>
-                                    <directory>${project.basedir}/../../org.jawata.product/target/products/org.jawata.product/linux/gtk/x86_64/jawata/plugins</directory>
-                                    <includes><include>org.commonmark_*.jar</include><include>org.commonmark.ext-gfm-tables_*.jar</include><include>org.junit_*.jar</include><include>org.hamcrest_*.jar</include><include>com.github.weisj.jsvg_*.jar</include></includes>
+                                    <directory>${project.basedir}/../../org.jawata.target/carry-bundles</directory>
+                                    <includes><include>*.jar</include></includes>
                                 </resource>
                             </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Completeness gate (v2.9.0 lesson): every carried/patched bundle MUST
+                 be present in the assembled dist, or the build FAILS here — loudly,
+                 in seconds — instead of CI booting an unresolvable framework. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>dist-completeness</id>
+                        <phase>verify</phase>
+                        <goals><goal>enforce</goal></goals>
+                        <configuration>
+                            <rules>
+                                <requireFilesExist>
+                                    <files>
+                                        <file>${project.build.directory}/dist/bundles/org.commonmark_0.28.0.jar</file>
+                                        <file>${project.build.directory}/dist/bundles/org.commonmark.ext-gfm-tables_0.28.0.jar</file>
+                                        <file>${project.build.directory}/dist/bundles/org.junit_4.13.2.v20240929-1000.jar</file>
+                                        <file>${project.build.directory}/dist/bundles/org.hamcrest_3.0.0.jar</file>
+                                        <file>${project.build.directory}/dist/bundles/com.github.weisj.jsvg_2.1.0.jar</file>
+                                        <file>${project.build.directory}/dist/bundles/org.eclipse.jdt.core.compiler.batch_3.46.0.v20260528-0407-jawata5188.jar</file>
+                                        <file>${project.build.directory}/dist/jawata.jar</file>
+                                    </files>
+                                    <message>dist is INCOMPLETE — a carried/patched bundle did not reach target/dist/bundles (v2.9.0 failure class: silent copy from a missing directory)</message>
+                                </requireFilesExist>
+                            </rules>
                         </configuration>
                     </execution>
                 </executions>

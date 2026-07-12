@@ -38,7 +38,7 @@ jobs:
       run: |
         java -Djawata.test.fixtures="$PWD/org.jawata.core.tests/test-resources/sample-projects" \
              -Djawata.experience.shared.dir="$RUNNER_TEMP/jawata-test-store" \
-             -jar build/dist/target/dist/jawata.jar -runTests | tee test-run.log
+             -jar build/dist/target/dist/jawata.jar -runTests 2>&1 | tee test-run.log
         test ${PIPESTATUS[0]} -eq 0
 
     - name: Upload test log
