@@ -159,6 +159,11 @@ public class RunTestsTool extends AbstractTool {
                 + "immediately. status/cancel operate on a sessionId (scope not needed)."));
         properties.put("sessionId", Map.of("type", "string",
             "description", "Session handle from action=start; required for status/cancel."));
+        properties.put("extraClasspath", Map.of("type", "array",
+            "items", Map.of("type", "string"),
+            "description", "Launch descriptor: extra jar/dir paths appended to the runner "
+                + "classpath at RUNTIME only (e.g. plain-Java projects whose build model "
+                + "cannot declare them)."));
         schema.put("properties", properties);
         return withProjectKey(schema);
     }
@@ -260,6 +265,12 @@ public class RunTestsTool extends AbstractTool {
                 return ToolResponse.invalidParameter("project", assembled.refusalReason);
             }
             spec.classpath = assembled.classpath;
+            // Launch descriptor (Stage 3): caller-supplied runtime-only
+            // classpath additions — the plain-Java shape's escape hatch.
+            if (arguments.has("extraClasspath") && arguments.get("extraClasspath").isArray()) {
+                arguments.get("extraClasspath").forEach(n ->
+                    spec.classpath.add(Path.of(n.asText())));
+            }
             org.eclipse.core.runtime.IPath loc = javaProject.getProject().getLocation();
             if (loc != null) {
                 spec.workingDirectory = loc.toFile().toPath();

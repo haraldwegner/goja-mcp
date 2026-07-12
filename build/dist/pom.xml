@@ -96,10 +96,10 @@
                                 <artifactItem><groupId>org.eclipse.jdt</groupId><artifactId>org.eclipse.jdt.core</artifactId><version>${v.jdt.core}</version></artifactItem>
                                 <artifactItem><groupId>org.eclipse.jdt</groupId><artifactId>org.eclipse.jdt.launching</artifactId><version>${v.jdt.launching}</version></artifactItem>
                                 <artifactItem><groupId>org.eclipse.jdt</groupId><artifactId>org.eclipse.jdt.core.manipulation</artifactId><version>${v.jdt.manipulation}</version></artifactItem>
-                                <artifactItem><groupId>org.eclipse.jdt</groupId><artifactId>org.eclipse.jdt.junit.core</artifactId><version>${v.jdt.junit.core}</version></artifactItem>
-                                <artifactItem><groupId>org.eclipse.jdt</groupId><artifactId>org.eclipse.jdt.junit.runtime</artifactId><version>${v.jdt.junit.runtime}</version></artifactItem>
-                                <!-- junit5.runtime DROPPED (finding #7): the Tycho product itself
-                                     does not carry it — parity, not regression -->
+                                <!-- Sprint 23: jdt.junit.core + jdt.junit.runtime DROPPED — the
+                                     JDT-LTK launch path they served was replaced by the forked
+                                     runner (dist tools/); junit5.runtime was already dropped in
+                                     22d (finding #7). debug.core stays: jdt.launching requires it. -->
                                 <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.jface</artifactId><version>3.39.100</version></artifactItem>
                                 <artifactItem><groupId>org.eclipse.platform</groupId><artifactId>org.eclipse.equinox.simpleconfigurator</artifactId><version>1.5.700</version></artifactItem>
                                 <!-- finding #8: manipulation → search.core; jface → swt.svg capability -->

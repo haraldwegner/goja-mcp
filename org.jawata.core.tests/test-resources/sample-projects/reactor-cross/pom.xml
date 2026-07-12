@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Sprint 23 (Stage 3): reactor cross-module fixture — module-b's TESTS
+     exercise module-a's classes. The importer merges a Maven reactor into ONE
+     JDT project (recursive source collection), so module-b/pom.xml deliberately
+     does NOT declare a dependency on module-a: sibling visibility comes from
+     the merged project model, and `mvn dependency` resolution on the unbuilt
+     reactor stays free of reactor-sibling resolution failures. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>reactor-cross</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <modules>
+        <module>module-a</module>
+        <module>module-b</module>
+    </modules>
+
+</project>

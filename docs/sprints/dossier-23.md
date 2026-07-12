@@ -167,4 +167,43 @@ diff the REPO (releases + README), never the marketplace listing.
   CONTENTION FLAKES (load-sensitive searches; all pass focused AND in the idle
   sweep) — flagged as a Stage-6 hardening item (shards create that load
   deliberately), not a regression. 4 of 5 @Disabled now live; commits at C1
-  (49ae944) and C2.
+  (49ae944) and C2 (f489174).
+
+## C3 — Remaining shapes: Gradle · plain-Java · reactor (2026-07-13)
+
+### What shipped
+
+- **Gradle**: no new launch code needed — the spine is shape-agnostic
+  (JavaRuntime resolution on whatever the importer loaded); proof = ad-hoc
+  java-plugin project (mavenLocal, network-free, `jawata.skip.gradle` guard).
+- **Plain Java**: `extraClasspath` launch-descriptor arg on run_tests
+  (runtime-only classpath additions) + Eclipse-`.classpath` fixture generated
+  in-test from local-repository jars.
+- **Reactor**: committed `reactor-cross` fixture — module-b tests exercising
+  module-a code through the merged-reactor JDT project model.
+- **Cleanup rider**: the dead JDT-LTK launch path DELETED — JUnitLaunchHelper
+  stripped to the TestRunnerKind enum (find_references proved all external uses
+  are enum-only); `org.eclipse.jdt.junit.core` + `debug.core` dropped from the
+  bundle's Require-Bundle; jdt.junit.core/runtime dropped from the dist
+  (debug.core bundle stays — jdt.launching requires it).
+
+### Verification (expected vs actual)
+
+- RunTestsShapesTest 3/3 green, first run: Gradle class scope total 3 = 2
+  passed + 1 failed (exact fixture totals) ✓; plain-Java WITHOUT descriptor =
+  1 passed + 1 failed (runtime-only reflective dep, CNFE), WITH descriptor =
+  2 passed + 0 failed ✓ (the discriminating proof); reactor cross-module 2/2
+  passed with evidenceFinalized ✓.
+- Oracle note (declared deviation, rationale): the plan names "gradle XML" as
+  the Gradle oracle; the C1 maven-surefire oracle already validated the
+  runner's COUNTING, and the Gradle shape adds classpath/import risk, not
+  counting risk — known fixture totals used instead (running a full gradle
+  build in-test would double the test's runtime for no new signal).
+- Cleanup regression: the trimmed dist BOOTS (fail-fast resolution gate would
+  die on a missing requirement) and the whole runner family stays green
+  focused (12/12 + 3/3 + 2/2).
+
+### C3 exit status
+
+- **GREEN** (focused gates + boot-resolution proof; next full sweeps land at
+  C4's resident checks and Stage 6's serial-vs-shard totals by design).
