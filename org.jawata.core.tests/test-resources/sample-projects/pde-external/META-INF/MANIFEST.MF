@@ -1,0 +1,10 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: PDE External Pool Fixture
+Bundle-SymbolicName: org.jawata.fixture.ext;singleton:=true
+Bundle-Version: 1.0.0.qualifier
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Require-Bundle: com.fasterxml.jackson.core.jackson-databind
+Import-Package: org.slf4j,
+ com.fasterxml.jackson.core,
+ com.fasterxml.jackson.annotation

@@ -52,10 +52,15 @@ public final class RunnerClasspath {
      * Build the project (incremental; first build is effectively full) and
      * refuse honestly when compile errors remain — a runner launched on
      * broken classes produces lies, not evidence.
+     *
+     * <p>Referenced projects build FIRST (transitively): JDT's builder
+     * consumes a referenced project's BINARY output, so an unbuilt dependency
+     * makes every import from it unresolvable regardless of the model.</p>
      */
     public static String buildAndCheck(IJavaProject project, IProgressMonitor monitor) {
         IProject p = project.getProject();
         try {
+            buildRequiredProjects(project, monitor, new java.util.HashSet<>());
             p.build(IncrementalProjectBuilder.INCREMENTAL_BUILD, monitor);
             IMarker[] problems = p.findMarkers(IMarker.PROBLEM, true, IResource.DEPTH_INFINITE);
             int errors = 0;
@@ -78,6 +83,28 @@ public final class RunnerClasspath {
             return null;
         } catch (CoreException e) {
             return "Build of project '" + p.getName() + "' failed: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Depth-first build of the projects referenced via CLASSPATH project
+     * entries (cycle-safe). {@code IProject.getReferencedProjects()} sees
+     * only static .project references — JDT project entries are dynamic, so
+     * the dependency set comes from the resolved classpath.
+     */
+    private static void buildRequiredProjects(IJavaProject project, IProgressMonitor monitor,
+                                              java.util.Set<String> visited) throws CoreException {
+        if (!visited.add(project.getElementName())) return;
+        org.eclipse.core.resources.IWorkspaceRoot root =
+            org.eclipse.core.resources.ResourcesPlugin.getWorkspace().getRoot();
+        for (org.eclipse.jdt.core.IClasspathEntry entry : project.getResolvedClasspath(true)) {
+            if (entry.getEntryKind() != org.eclipse.jdt.core.IClasspathEntry.CPE_PROJECT) continue;
+            IProject dep = root.getProject(entry.getPath().lastSegment());
+            if (dep.exists() && dep.isOpen()) {
+                IJavaProject depJava = org.eclipse.jdt.core.JavaCore.create(dep);
+                buildRequiredProjects(depJava, monitor, visited);
+                dep.build(IncrementalProjectBuilder.INCREMENTAL_BUILD, monitor);
+            }
         }
     }
 

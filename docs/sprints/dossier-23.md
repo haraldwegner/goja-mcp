@@ -207,3 +207,45 @@ diff the REPO (releases + README), never the marketplace listing.
 
 - **GREEN** (focused gates + boot-resolution proof; next full sweeps land at
   C4's resident checks and Stage 6's serial-vs-shard totals by design).
+
+## C4 — PDE classpath: external bundle pools + PDE suite runs (2026-07-13)
+
+### What shipped
+
+- **`ExternalBundlePool`** (org.jawata.core.project): indexes pool directories
+  (manifest per jar, cached by dir mtime) → symbolic name → highest-version jar
+  + exported package → provider jar; quote-aware OSGi header splitting.
+  Pool chain: `jawata.bundle.pools` property → `~/.p2/pool/plugins` →
+  `jawata.dist.root/bundles` (self-hosting fallback).
+- **ProjectImporter**: workspace-pool misses now fall through to the external
+  pools — Require-Bundle → EXPORTED library entry; NEW Import-Package parser +
+  Export-Package resolution pass. Still-unresolved stays unresolved (logged),
+  as before.
+- **Spine fix found by the gate**: JDT's builder consumes a referenced
+  project's BINARY output — `RunnerClasspath.buildAndCheck` now builds
+  classpath-referenced projects first (DFS, cycle-safe; note:
+  `IProject.getReferencedProjects()` sees only static references, so the
+  dependency set comes from the resolved classpath).
+- **Fixtures**: `pde-external` (Require-Bundle jackson-databind +
+  Import-Package org.slf4j/jackson-core/annotations — resolvable ONLY from a
+  pool) + `pde-external-tests` (Require-Bundle onto the sibling via the
+  Sprint-11 workspace pool; jupiter via Import-Package from the dist
+  test-bundles pool).
+
+### Verification (expected vs actual)
+
+- PdeExternalPoolTest green: BOTH PDE fixtures compile **0 errors** on the
+  pool-resolved classpath ✓; the PDE suite runs through the forked runner
+  **2/2 passed** with jackson exercised at RUNTIME over the pool classpath ✓.
+- ExternalBundlePoolTest 3/3 (quoted-comma splitting incl. uses-clauses,
+  numeric version preference, name+export indexing over generated jars) ✓.
+- Self workspace (resident, live): expected 471+9 sprint files → actual
+  **480 sources / 0 errors** ✓; Disabled probe = **exactly 1 site**
+  (EncapsulateFieldToolTest L41 — the corrected remaining count per the C1
+  arithmetic note) ✓.
+- Runner-family battery after the build-deps fix: 12/12 + 3/3 + 2/2 + 3/3 +
+  1/1 ✓.
+
+### C4 exit status
+
+- **GREEN.**

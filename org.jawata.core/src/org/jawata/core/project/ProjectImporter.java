@@ -456,23 +456,59 @@ public class ProjectImporter {
 
         // Sprint 11 Phase B: workspace bundle pool — resolve Require-Bundle
         // entries against sibling projects already loaded into the workspace.
-        // Externally-resolved bundles (system bundles in the target platform,
-        // bundles from another tool's IDE) stay unresolved and just don't
-        // contribute classpath entries.
+        // Sprint 23 (D7): whatever the workspace pool does NOT satisfy is
+        // resolved against EXTERNAL pools (materialized target platform via
+        // jawata.bundle.pools, the shared p2 pool, the server's own dist
+        // bundles) — as EXPORTED library entries, plus an Import-Package pass
+        // over the pools' Export-Package index. Still-unresolved requirements
+        // stay unresolved (logged), exactly as before.
         int bundleEntries = 0;
-        if (workspaceManager != null) {
-            for (String required : readManifestRequireBundle(projectPath)) {
-                Optional<org.eclipse.jdt.core.IJavaProject> sibling =
-                    workspaceManager.resolveBundle(required);
-                if (sibling.isPresent()) {
-                    IPath projPath = sibling.get().getPath();
-                    if (addedProjectPaths.add(projPath)) {
-                        entries.add(JavaCore.newProjectEntry(projPath));
-                        bundleEntries++;
+        List<String> unresolvedRequires = new ArrayList<>();
+        for (String required : readManifestRequireBundle(projectPath)) {
+            Optional<org.eclipse.jdt.core.IJavaProject> sibling = workspaceManager == null
+                ? Optional.empty() : workspaceManager.resolveBundle(required);
+            if (sibling.isPresent()) {
+                IPath projPath = sibling.get().getPath();
+                if (addedProjectPaths.add(projPath)) {
+                    entries.add(JavaCore.newProjectEntry(projPath));
+                    bundleEntries++;
+                }
+            } else {
+                unresolvedRequires.add(required);
+            }
+        }
+        List<String> importedPackages = readManifestImportPackage(projectPath);
+        if (!unresolvedRequires.isEmpty() || !importedPackages.isEmpty()) {
+            ExternalBundlePool pool = ExternalBundlePool.index(ExternalBundlePool.defaultPoolDirs());
+            int external = 0;
+            for (String required : unresolvedRequires) {
+                Optional<java.nio.file.Path> jar = pool.bundleJar(required);
+                if (jar.isPresent()) {
+                    IPath eclipsePath = new Path(jar.get().toString());
+                    if (addedLibPaths.add(eclipsePath)) {
+                        // exported=true: a required bundle's classes are part of
+                        // this project's runtime surface for dependents.
+                        entries.add(JavaCore.newLibraryEntry(eclipsePath, null, null, true));
+                        external++;
                     }
                 } else {
-                    log.debug("Require-Bundle '{}' not found in workspace bundle pool; skipping", required);
+                    log.debug("Require-Bundle '{}' not found in workspace or external pools; skipping", required);
                 }
+            }
+            for (String pkg : importedPackages) {
+                Optional<java.nio.file.Path> jar = pool.packageProvider(pkg);
+                if (jar.isPresent()) {
+                    IPath eclipsePath = new Path(jar.get().toString());
+                    if (addedLibPaths.add(eclipsePath)) {
+                        entries.add(JavaCore.newLibraryEntry(eclipsePath, null, null, true));
+                        external++;
+                    }
+                } else {
+                    log.debug("Import-Package '{}' has no provider in the external pools; skipping", pkg);
+                }
+            }
+            if (external > 0) {
+                log.info("Resolved {} PDE requirement(s) from the external bundle pools", external);
             }
         }
         if (bundleEntries > 0) {
@@ -957,6 +993,37 @@ public class ProjectImporter {
             for (String entry : header.split(",")) {
                 String name = stripDirectives(entry).trim();
                 if (!name.isEmpty()) {
+                    result.add(name);
+                }
+            }
+            return result;
+        } catch (IOException e) {
+            log.warn("Failed to parse MANIFEST.MF at {}: {}", manifestPath, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * Read {@code Import-Package} from {@code META-INF/MANIFEST.MF} and return
+     * the imported package names (attributes/directives stripped; {@code java.*}
+     * skipped — the JRE container provides those). Sprint 23 (D7): feeds the
+     * external-pool Export-Package resolution.
+     */
+    public static List<String> readManifestImportPackage(java.nio.file.Path projectRoot) {
+        java.nio.file.Path manifestPath = projectRoot.resolve("META-INF").resolve("MANIFEST.MF");
+        if (!Files.isRegularFile(manifestPath)) {
+            return List.of();
+        }
+        try (InputStream in = Files.newInputStream(manifestPath)) {
+            Manifest manifest = new Manifest(in);
+            String header = manifest.getMainAttributes().getValue("Import-Package");
+            if (header == null || header.isBlank()) {
+                return List.of();
+            }
+            List<String> result = new ArrayList<>();
+            for (String entry : ExternalBundlePool.splitTopLevel(header)) {
+                String name = stripDirectives(entry).trim();
+                if (!name.isEmpty() && !name.startsWith("java.")) {
                     result.add(name);
                 }
             }

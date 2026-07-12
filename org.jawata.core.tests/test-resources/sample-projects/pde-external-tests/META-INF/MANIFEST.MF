@@ -1,0 +1,8 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: PDE External Pool Test Fixture
+Bundle-SymbolicName: org.jawata.fixture.ext.tests;singleton:=true
+Bundle-Version: 1.0.0.qualifier
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Require-Bundle: org.jawata.fixture.ext
+Import-Package: org.junit.jupiter.api
