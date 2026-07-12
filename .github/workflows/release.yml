@@ -29,11 +29,22 @@ jobs:
       run: mvn -B -f build/pom.xml install -DskipTests
 
     - name: Test (in-framework)
+      timeout-minutes: 75
       run: |
         java -Djawata.test.fixtures="$PWD/org.jawata.core.tests/test-resources/sample-projects" \
              -Djawata.experience.shared.dir="$RUNNER_TEMP/jawata-test-store" \
-             -jar build/dist/target/dist/jawata.jar -runTests
-        test $? -eq 0
+             -jar build/dist/target/dist/jawata.jar -runTests | tee test-run.log
+        test ${PIPESTATUS[0]} -eq 0
+
+    # always(): runs on failure, step-timeout AND cancellation — the per-class
+    # progress log survives every outcome (GitHub discards a cancelled step's
+    # own log; this artifact is the insurance).
+    - name: Upload test log
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: release-test-log
+        path: test-run.log
 
     # ONE universal dist (every platform's SWT fragment ships; Equinox resolves the
     # matching one at boot). The five per-consumer asset names are kept for full

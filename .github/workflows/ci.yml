@@ -33,6 +33,7 @@ jobs:
     # module starts Equinox, installs the test fragments, runs JUnit inside.
     # Exit code = failed-test count.
     - name: Test (in-framework)
+      timeout-minutes: 75
       shell: bash
       run: |
         java -Djawata.test.fixtures="$PWD/org.jawata.core.tests/test-resources/sample-projects" \

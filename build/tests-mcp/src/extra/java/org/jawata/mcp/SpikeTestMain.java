@@ -53,13 +53,39 @@ public final class SpikeTestMain {
         final long t0 = System.currentTimeMillis();
         final AtomicInteger done = new AtomicInteger();
         final int totalClasses = selectors.size();
+        final long[] lastEvent = { System.currentTimeMillis() };
+        final String[] currentClass = { "(discovery)" };
+        // Stall watchdog (2026-07-12, after two blind CI runs — GitHub DISCARDS a
+        // cancelled step's log, so the runner must self-diagnose): no test event
+        // for 5 minutes → print the stuck class + a full thread dump and halt
+        // with 124. A hang becomes a failed step with evidence, never silence.
+        Thread watchdog = new Thread(() -> {
+            while (true) {
+                try { Thread.sleep(30_000); } catch (InterruptedException e) { return; }
+                long idle = System.currentTimeMillis() - lastEvent[0];
+                if (idle > 300_000) {
+                    System.out.printf("%n=== STALL: no test event for %ds — stuck in %s ===%n",
+                        idle / 1000, currentClass[0]);
+                    Thread.getAllStackTraces().forEach((t, st) -> {
+                        System.out.println("--- thread: " + t.getName() + " (" + t.getState() + ")");
+                        for (StackTraceElement e : st) System.out.println("    at " + e);
+                    });
+                    System.out.flush();
+                    Runtime.getRuntime().halt(124);
+                }
+            }
+        }, "spike-test-watchdog");
+        watchdog.setDaemon(true);
+        watchdog.start();
         TestExecutionListener progress = new TestExecutionListener() {
             private boolean isClass(TestIdentifier id) {
                 return "class".equals(id.getUniqueIdObject().getLastSegment().getType());
             }
             @Override
             public void executionStarted(TestIdentifier id) {
+                lastEvent[0] = System.currentTimeMillis();
                 if (isClass(id)) {
+                    currentClass[0] = id.getDisplayName();
                     System.out.printf("[%3d/%d %5ds] %s%n", done.get() + 1, totalClasses,
                         (System.currentTimeMillis() - t0) / 1000, id.getDisplayName());
                     System.out.flush();
@@ -67,6 +93,7 @@ public final class SpikeTestMain {
             }
             @Override
             public void executionFinished(TestIdentifier id, TestExecutionResult result) {
+                lastEvent[0] = System.currentTimeMillis();
                 if (isClass(id)) {
                     done.incrementAndGet();
                     if (result.getStatus() != TestExecutionResult.Status.SUCCESSFUL) {
