@@ -131,6 +131,11 @@ public final class JawataBoot {
             }
         }
         classNames.sort(String::compareTo);
+        String filter = System.getProperty("jawata.test.filter");
+        if (filter != null && !filter.isBlank()) {
+            classNames.removeIf(cn -> !cn.contains(filter));
+            System.out.println("Filter '" + filter + "' active");
+        }
         System.out.println("Discovered " + classNames.size() + " test classes");
 
         Bundle mcp = null;
