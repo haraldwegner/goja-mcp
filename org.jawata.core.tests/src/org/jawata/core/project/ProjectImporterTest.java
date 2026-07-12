@@ -551,4 +551,46 @@ class ProjectImporterTest {
         assertEquals(List.of("/repo/a.jar", "/repo/b.jar", "/repo/c.jar"),
             ProjectImporter.parseClasspathOutput(content));
     }
+
+    // ========== v2.9.2 (dogfood D4): Maven executable resolution ==========
+
+    @Test
+    @DisplayName("resolveMavenCommand prefers the project's own wrapper")
+    void resolveMavenCommand_prefersWrapper(@TempDir Path dir) throws IOException {
+        Path wrapper = dir.resolve("mvnw");
+        Files.writeString(wrapper, "#!/bin/sh\n");
+        assertTrue(wrapper.toFile().setExecutable(true));
+        assertEquals(wrapper,
+            ProjectImporter.resolveMavenCommand(dir, "/nonexistent", List.of(), false));
+    }
+
+    @Test
+    @DisplayName("resolveMavenCommand finds mvn on PATH")
+    void resolveMavenCommand_findsOnPath(@TempDir Path dir) throws IOException {
+        Path bin = Files.createDirectories(dir.resolve("bin"));
+        Path mvn = bin.resolve("mvn");
+        Files.writeString(mvn, "#!/bin/sh\n");
+        assertTrue(mvn.toFile().setExecutable(true));
+        Path project = Files.createDirectories(dir.resolve("proj"));
+        assertEquals(mvn,
+            ProjectImporter.resolveMavenCommand(project, bin.toString(), List.of(), false));
+    }
+
+    @Test
+    @DisplayName("resolveMavenCommand falls back to known install locations when PATH lacks mvn (the Studio-resident case)")
+    void resolveMavenCommand_knownLocationFallback(@TempDir Path dir) throws IOException {
+        Path installBin = Files.createDirectories(dir.resolve("opt-maven-bin"));
+        Path mvn = installBin.resolve("mvn");
+        Files.writeString(mvn, "#!/bin/sh\n");
+        assertTrue(mvn.toFile().setExecutable(true));
+        Path project = Files.createDirectories(dir.resolve("proj"));
+        assertEquals(mvn,
+            ProjectImporter.resolveMavenCommand(project, "/usr/nonexistent", List.of(installBin), false));
+    }
+
+    @Test
+    @DisplayName("resolveMavenCommand returns null when nothing is found (loader must warn, not die silently)")
+    void resolveMavenCommand_nothingFound(@TempDir Path dir) {
+        assertNull(ProjectImporter.resolveMavenCommand(dir, "/usr/nonexistent", List.of(), false));
+    }
 }

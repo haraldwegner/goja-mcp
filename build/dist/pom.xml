@@ -11,7 +11,7 @@
     <parent>
         <groupId>org.jawata</groupId>
         <artifactId>org.jawata.build</artifactId>
-        <version>2.9.1</version>
+        <version>2.9.2</version>
     </parent>
 
     <artifactId>spike-dist</artifactId>
@@ -168,7 +168,7 @@
                                 </resource>
                                 <!-- CARRY #2 (boot-loop finding #3): commonmark/org.junit/hamcrest/
                                      jsvg are not OSGi bundles on Central — carried p2-wrapped as
-                                     COMMITTED jars. v2.9.1 root cause: these were copied from the
+                                     COMMITTED jars. v2.9.2 root cause: these were copied from the
                                      gitignored Tycho product target/ tree, absent on a clean
                                      checkout; resources-plugin skips a missing dir SILENTLY, so CI
                                      shipped a dist that could not resolve. Never copy from build
@@ -182,7 +182,7 @@
                     </execution>
                 </executions>
             </plugin>
-            <!-- Completeness gate (v2.9.1 lesson): every carried/patched bundle MUST
+            <!-- Completeness gate (v2.9.2 lesson): every carried/patched bundle MUST
                  be present in the assembled dist, or the build FAILS here — loudly,
                  in seconds — instead of CI booting an unresolvable framework. -->
             <plugin>
@@ -206,7 +206,7 @@
                                         <file>${project.build.directory}/dist/bundles/org.eclipse.jdt.core.compiler.batch_3.46.0.v20260528-0407-jawata5188.jar</file>
                                         <file>${project.build.directory}/dist/jawata.jar</file>
                                     </files>
-                                    <message>dist is INCOMPLETE — a carried/patched bundle did not reach target/dist/bundles (v2.9.1 failure class: silent copy from a missing directory)</message>
+                                    <message>dist is INCOMPLETE — a carried/patched bundle did not reach target/dist/bundles (v2.9.2 failure class: silent copy from a missing directory)</message>
                                 </requireFilesExist>
                             </rules>
                         </configuration>

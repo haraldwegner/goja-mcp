@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: JAWATA Core Tests (fragment)
 Bundle-SymbolicName: org.jawata.core.tests
-Bundle-Version: 2.9.1
+Bundle-Version: 2.9.2
 Fragment-Host: org.jawata.core
 Bundle-RequiredExecutionEnvironment: JavaSE-21
 Import-Package: org.junit.jupiter.api,

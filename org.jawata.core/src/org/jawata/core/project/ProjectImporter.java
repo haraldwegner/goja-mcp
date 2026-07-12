@@ -496,6 +496,57 @@ public class ProjectImporter {
     /** Per-module classpath file name — relative, so the reactor writes one per module. */
     private static final String CP_FILE_NAME = "jawata-classpath.txt";
 
+    /**
+     * v2.9.2 (dogfood D4): resolve the Maven executable robustly. A Studio-launched
+     * resident inherits a desktop/AppImage PATH without the user's shell profile —
+     * /opt/apache-maven/bin was absent, ProcessBuilder("mvn") failed silently, and
+     * the whole workspace classpath came back EMPTY (17k unresolved imports).
+     * Order: project wrapper (mvnw) > PATH > caller-supplied known locations.
+     * Package-visible seam for tests; production callers use the 1-arg overload.
+     */
+    static java.nio.file.Path resolveMavenCommand(java.nio.file.Path projectPath, String pathEnv,
+            List<java.nio.file.Path> knownLocations, boolean windows) {
+        String mvn = windows ? "mvn.cmd" : "mvn";
+        java.nio.file.Path wrapper = projectPath.resolve(windows ? "mvnw.cmd" : "mvnw");
+        if (Files.isExecutable(wrapper)) {
+            return wrapper;
+        }
+        if (pathEnv != null) {
+            for (String dir : pathEnv.split(File.pathSeparator)) {
+                if (!dir.isBlank()) {
+                    java.nio.file.Path candidate = java.nio.file.Path.of(dir).resolve(mvn);
+                    if (Files.isExecutable(candidate)) {
+                        return candidate;
+                    }
+                }
+            }
+        }
+        for (java.nio.file.Path dir : knownLocations) {
+            java.nio.file.Path candidate = dir.resolve(mvn);
+            if (Files.isExecutable(candidate)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private java.nio.file.Path resolveMavenCommand(java.nio.file.Path projectPath) {
+        List<java.nio.file.Path> known = new ArrayList<>();
+        String mavenHome = System.getenv("MAVEN_HOME");
+        if (mavenHome != null && !mavenHome.isBlank()) {
+            known.add(java.nio.file.Path.of(mavenHome, "bin"));
+        }
+        known.add(java.nio.file.Path.of("/opt/apache-maven/bin"));
+        known.add(java.nio.file.Path.of("/opt/maven/bin"));
+        known.add(java.nio.file.Path.of("/usr/share/maven/bin"));
+        known.add(java.nio.file.Path.of("/usr/local/bin"));
+        String home = System.getProperty("user.home", "");
+        if (!home.isBlank()) {
+            known.add(java.nio.file.Path.of(home, ".sdkman", "candidates", "maven", "current", "bin"));
+        }
+        return resolveMavenCommand(projectPath, System.getenv("PATH"), known, isWindows());
+    }
+
     private List<String> getMavenDependencies(java.nio.file.Path projectPath) {
         // v2.9.1 (dogfood D1): the output file is RELATIVE — it resolves against each
         // module's basedir, so a multi-module reactor writes one file per module.
@@ -505,10 +556,15 @@ public class ProjectImporter {
         // The per-module files are merged + deduped by parseClasspathOutput and
         // deleted after reading; they live under target/, never in source dirs.
         List<String> jars = new ArrayList<>();
+        java.nio.file.Path mvnCmd = resolveMavenCommand(projectPath);
+        if (mvnCmd == null) {
+            log.warn("No Maven executable found (checked project mvnw, PATH, MAVEN_HOME, known "
+                + "install dirs) — dependency classpath will be EMPTY and imports will not resolve");
+            return jars;
+        }
         try {
-            String mvnCmd = isWindows() ? "mvn.cmd" : "mvn";
             ProcessBuilder pb = new ProcessBuilder(
-                mvnCmd,
+                mvnCmd.toString(),
                 "dependency:build-classpath",
                 "-Dmdep.outputFile=target/" + CP_FILE_NAME,
                 "-q"
@@ -516,7 +572,7 @@ public class ProjectImporter {
             pb.directory(projectPath.toFile());
             pb.redirectErrorStream(true);
 
-            log.info("Running Maven to get classpath...");
+            log.info("Running Maven ({}) to get classpath...", mvnCmd);
             Process process = pb.start();
 
             // Consume output to prevent blocking
