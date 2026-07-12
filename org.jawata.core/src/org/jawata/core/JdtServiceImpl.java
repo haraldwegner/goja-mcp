@@ -105,7 +105,7 @@ public class JdtServiceImpl implements IJdtService {
     }
 
     private static int parseTimeout() {
-        String timeout = System.getenv("JAWATA_TIMEOUT_SECONDS") != null ? System.getenv("JAWATA_TIMEOUT_SECONDS") : System.getenv("GOJA_TIMEOUT_SECONDS"); /* legacy goja fallback — remove next release */
+        String timeout = System.getenv("JAWATA_TIMEOUT_SECONDS");
         if (timeout == null) return 30;
         try {
             int seconds = Integer.parseInt(timeout);

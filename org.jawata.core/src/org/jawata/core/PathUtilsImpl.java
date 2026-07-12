@@ -13,7 +13,7 @@ public class PathUtilsImpl implements IPathUtils {
 
     public PathUtilsImpl(Path projectRoot) {
         this.projectRoot = projectRoot.toAbsolutePath().normalize();
-        this.useAbsolutePaths = "true".equalsIgnoreCase(System.getenv("JAWATA_ABSOLUTE_PATHS")) || "true".equalsIgnoreCase(System.getenv("GOJA_ABSOLUTE_PATHS")); /* legacy goja fallback — remove next release */
+        this.useAbsolutePaths = "true".equalsIgnoreCase(System.getenv("JAWATA_ABSOLUTE_PATHS"));
     }
 
     @Override

@@ -174,7 +174,7 @@ public final class H2ExperienceStore implements ExperienceStore {
 
     /** {@code jawata.experience.shared.dir} property › {@code $XDG_DATA_HOME/jawata} › {@code ~/.local/share/jawata}. */
     static Path sharedStoreDir() {
-        String override = System.getProperty("jawata.experience.shared.dir", System.getProperty("goja.experience.shared.dir")); /* legacy goja fallback — remove next release */
+        String override = System.getProperty("jawata.experience.shared.dir");
         if (override != null && !override.isBlank()) {
             return Path.of(override);
         }

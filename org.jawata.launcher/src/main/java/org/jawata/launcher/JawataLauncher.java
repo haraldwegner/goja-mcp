@@ -42,7 +42,7 @@ public class JawataLauncher {
                 // Sprint 21a (item A): publish the ORIGINAL -data path. The app needs the
                 // stable workspace root (workspace.json, experience-store recovery) — not
                 // this session-isolated subdir, which is deleted on clean shutdown.
-                if (System.getProperty("jawata.workspace.root", System.getProperty("goja.workspace.root")) == null /* legacy goja fallback — remove next release */) {
+                if (System.getProperty("jawata.workspace.root") == null) {
                     System.setProperty("jawata.workspace.root", basePath.toAbsolutePath().toString());
                 }
 

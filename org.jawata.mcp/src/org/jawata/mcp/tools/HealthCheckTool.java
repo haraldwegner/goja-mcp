@@ -189,7 +189,7 @@ public class HealthCheckTool implements Tool {
     }
 
     private int getTimeoutSeconds() {
-        String timeout = System.getenv("JAWATA_TIMEOUT_SECONDS") != null ? System.getenv("JAWATA_TIMEOUT_SECONDS") : System.getenv("GOJA_TIMEOUT_SECONDS"); /* legacy goja fallback — remove next release */
+        String timeout = System.getenv("JAWATA_TIMEOUT_SECONDS");
         if (timeout == null) {
             return 30;
         }
@@ -202,6 +202,6 @@ public class HealthCheckTool implements Tool {
     }
 
     private boolean useAbsolutePaths() {
-        return "true".equalsIgnoreCase(System.getenv("JAWATA_ABSOLUTE_PATHS")) || "true".equalsIgnoreCase(System.getenv("GOJA_ABSOLUTE_PATHS")); /* legacy goja fallback — remove next release */
+        return "true".equalsIgnoreCase(System.getenv("JAWATA_ABSOLUTE_PATHS"));
     }
 }

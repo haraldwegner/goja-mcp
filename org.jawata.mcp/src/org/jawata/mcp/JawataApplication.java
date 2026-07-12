@@ -269,7 +269,7 @@ public class JawataApplication implements IApplication {
     private ExperienceStore openExperienceStore() {
         Path dataDir = resolveDataDir();
         Path workspaceRoot = resolveWorkspaceRoot(dataDir);
-        String mode = System.getProperty("jawata.experience.store", System.getProperty("goja.experience.store", "shared")) /* legacy goja fallback — remove next release */.trim();
+        String mode = System.getProperty("jawata.experience.store", "shared").trim();
         try {
             H2ExperienceStore store = switch (mode) {
                 case "memory" -> H2ExperienceStore.openMemory();
@@ -302,7 +302,7 @@ public class JawataApplication implements IApplication {
      * when the launcher is in play.
      */
     static Path resolveWorkspaceRoot(Path dataDir) {
-        String prop = System.getProperty("jawata.workspace.root", System.getProperty("goja.workspace.root")); /* legacy goja fallback — remove next release */
+        String prop = System.getProperty("jawata.workspace.root");
         if (prop != null && !prop.isBlank()) {
             return Path.of(prop);
         }
@@ -326,7 +326,7 @@ public class JawataApplication implements IApplication {
         return defaultMemoryRoots(
             Path.of(System.getProperty("user.home")),
             workspaceProjectDirs(),
-            System.getProperty("jawata.memory.roots", System.getProperty("goja.memory.roots"))); /* legacy goja fallback — remove next release */
+            System.getProperty("jawata.memory.roots"));
     }
 
     /** Package-private + static for tests (no OSGi). Only existing paths are returned. */
