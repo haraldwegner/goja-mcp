@@ -97,8 +97,10 @@ class FindUnusedDependenciesToolTest {
         // Diagnostic: confirm both deps were read out of the pom.
         Path pomFile = projectRoot.resolve("pom.xml");
         String pomContent = Files.readString(pomFile, StandardCharsets.UTF_8);
-        assertEquals(2, ((Number) data.get("totalDeclared")).intValue(),
-            "expected 2 declared deps; got: " + data.get("totalDeclared")
+        // Sprint 23: simple-maven declares 5 real deps of its own (the fixture
+        // became honestly compilable) + the 2 added above.
+        assertEquals(7, ((Number) data.get("totalDeclared")).intValue(),
+            "expected 7 declared deps; got: " + data.get("totalDeclared")
                 + "\npom:\n" + pomContent);
 
         assertTrue(unused.stream().anyMatch(d ->

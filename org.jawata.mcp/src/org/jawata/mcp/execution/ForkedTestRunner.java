@@ -93,6 +93,8 @@ public final class ForkedTestRunner {
         public int skipped;
         public long timeMs;
         public boolean timedOut;
+        /** True when the caller cancelled the session mid-run (Stage 2). */
+        public boolean cancelled;
         /** True iff the runner's run-finish event arrived AND the JVM exited 0. */
         public boolean evidenceFinalized;
         public int exitCode = Integer.MIN_VALUE;
@@ -108,19 +110,90 @@ public final class ForkedTestRunner {
         SessionLimitException(String msg) { super(msg); }
     }
 
+    /** Handle on a live forked run (Sprint 23 Stage 2 — the async seam). */
+    public static final class RunningSession {
+        private final java.util.concurrent.Future<Result> future;
+        private final java.util.concurrent.atomic.AtomicReference<Process> processRef;
+        private volatile boolean cancelRequested;
+
+        RunningSession(java.util.concurrent.Future<Result> future,
+                       java.util.concurrent.atomic.AtomicReference<Process> processRef) {
+            this.future = future;
+            this.processRef = processRef;
+        }
+
+        public boolean isDone() { return future.isDone(); }
+
+        public boolean isCancelRequested() { return cancelRequested; }
+
+        /** Reap the live process tree; the run completes with honest partial evidence. */
+        public void cancel() {
+            cancelRequested = true;
+            Process p = processRef.get();
+            if (p != null) reap(p);
+        }
+
+        /** Block until the run completes and return its (possibly partial) result. */
+        public Result await() throws InterruptedException {
+            try {
+                return future.get();
+            } catch (java.util.concurrent.ExecutionException e) {
+                Result crashed = new Result();
+                crashed.stderrTail = "runner infrastructure failed: " + e.getCause();
+                return crashed;
+            }
+        }
+
+        /** The result if finished, else null. */
+        public Result resultNow() {
+            if (!future.isDone()) return null;
+            try {
+                return await();
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+        }
+    }
+
+    private static final java.util.concurrent.ExecutorService RUNNER_POOL =
+        java.util.concurrent.Executors.newCachedThreadPool(r -> {
+            Thread t = new Thread(r, "jawata-testrun-session");
+            t.setDaemon(true);
+            return t;
+        });
+
     public Result run(Spec spec) throws IOException, InterruptedException, SessionLimitException {
+        return start(spec).await();
+    }
+
+    /** Fork the run asynchronously; the session limit is checked here, synchronously. */
+    public RunningSession start(Spec spec) throws InterruptedException, SessionLimitException {
         if (!SESSIONS.tryAcquire(5, TimeUnit.SECONDS)) {
             throw new SessionLimitException("Concurrent test-session limit ("
                 + MAX_CONCURRENT_SESSIONS + ") reached; retry after a running session finishes.");
         }
-        try {
-            return launch(spec);
-        } finally {
-            SESSIONS.release();
-        }
+        var processRef = new java.util.concurrent.atomic.AtomicReference<Process>();
+        RunningSession[] holder = new RunningSession[1];
+        java.util.concurrent.Future<Result> future = RUNNER_POOL.submit(() -> {
+            try {
+                Result r = launch(spec, processRef);
+                if (holder[0] != null && holder[0].cancelRequested) {
+                    r.cancelled = true;
+                    r.evidenceFinalized = false;
+                }
+                return r;
+            } finally {
+                SESSIONS.release();
+            }
+        });
+        RunningSession session = new RunningSession(future, processRef);
+        holder[0] = session;
+        return session;
     }
 
-    private Result launch(Spec spec) throws IOException, InterruptedException {
+    private Result launch(Spec spec, java.util.concurrent.atomic.AtomicReference<Process> processRef)
+            throws IOException, InterruptedException {
         Path session = Files.createTempDirectory("jawata-testrun-");
         Path eventFile = session.resolve("events.jsonl");
         Path argFile = session.resolve("run.args");
@@ -159,6 +232,7 @@ public final class ForkedTestRunner {
         Result result = new Result();
         long startNanos = System.nanoTime();
         Process process = pb.start();
+        processRef.set(process);
         StreamTail stdout = StreamTail.consume(process.getInputStream());
         StreamTail stderr = StreamTail.consume(process.getErrorStream());
         EventTailer tailer = spec.eventConsumer == null ? null
@@ -319,7 +393,9 @@ public final class ForkedTestRunner {
                     try {
                         Thread.sleep(150);
                     } catch (InterruptedException ie) {
-                        return;
+                        break; // fall through to the FINAL drain — the tail
+                               // events (class-finish, run-finish) arrive
+                               // exactly when the parent stops the tailer
                     }
                 }
                 drain(file, offset, consumer);

@@ -49,6 +49,9 @@ public class RunTestsTool extends AbstractTool {
 
     private static final Logger log = LoggerFactory.getLogger(RunTestsTool.class);
 
+    private final org.jawata.mcp.execution.TestSessionRegistry sessions =
+        new org.jawata.mcp.execution.TestSessionRegistry();
+
     public RunTestsTool(Supplier<IJdtService> serviceSupplier) {
         super(serviceSupplier);
     }
@@ -71,6 +74,17 @@ public class RunTestsTool extends AbstractTool {
               run_tests(scope={kind:"class",  typeName:"com.example.FooTest"})
               run_tests(scope={kind:"class",  filePath:"...", line:10, column:0})
               run_tests(scope={kind:"package", packageName:"com.example.tests"})
+
+            Async (long suites — progressive results):
+              run_tests(action="start", scope=...)        → { sessionId, state }
+              run_tests(action="status", sessionId="...") → live per-class progress
+                (plannedTests, classesStarted/Finished, testsFinished, recentEvents)
+                + the full summary once FINISHED; the summary stays retrievable
+                after completion.
+              run_tests(action="cancel", sessionId="...") → reaps the runner
+                process tree, returns the honest partial result (cancelled=true,
+                evidenceFinalized=false).
+              action="run" (default) behaves synchronously as above.
 
             Inputs:
             - scope.kind — "method" | "class" | "package".
@@ -139,13 +153,32 @@ public class RunTestsTool extends AbstractTool {
         properties.put("vmArgs", Map.of("type", "array",
             "items", Map.of("type", "string"),
             "description", "Optional JVM flags for the forked test runner."));
+        properties.put("action", Map.of("type", "string",
+            "enum", List.of("run", "start", "status", "cancel"),
+            "description", "run (default) = synchronous. start = async, returns a sessionId "
+                + "immediately. status/cancel operate on a sessionId (scope not needed)."));
+        properties.put("sessionId", Map.of("type", "string",
+            "description", "Session handle from action=start; required for status/cancel."));
         schema.put("properties", properties);
-        schema.put("required", List.of("scope"));
         return withProjectKey(schema);
     }
 
     @Override
     protected ToolResponse executeWithService(IJdtService service, JsonNode arguments) {
+        if (arguments == null) {
+            return ToolResponse.invalidParameter("scope", "Required object 'scope' is missing.");
+        }
+        String action = getStringParam(arguments, "action", "run");
+        switch (action) {
+            case "status", "cancel" -> {
+                return handleSessionAction(action, arguments);
+            }
+            case "run", "start" -> { /* fall through to launch */ }
+            default -> {
+                return ToolResponse.invalidParameter("action",
+                    "Must be 'run', 'start', 'status', or 'cancel'; got '" + action + "'.");
+            }
+        }
         if (arguments == null || !arguments.has("scope") || !arguments.get("scope").isObject()) {
             return ToolResponse.invalidParameter("scope", "Required object 'scope' is missing.");
         }
@@ -232,6 +265,30 @@ public class RunTestsTool extends AbstractTool {
                 spec.workingDirectory = loc.toFile().toPath();
             }
 
+            String frameworkLabel = frameworkRaw.equals("auto")
+                ? runnerKindToShortName(runner) : frameworkRaw;
+
+            if ("start".equals(action)) {
+                org.jawata.mcp.execution.TestSessionRegistry.Session session = sessions.create();
+                session.frameworkLabel = frameworkLabel;
+                spec.eventConsumer = session::onEvent;
+                try {
+                    session.attach(new ForkedTestRunner().start(spec));
+                } catch (ForkedTestRunner.SessionLimitException limit) {
+                    sessions.remove(session.id);
+                    return ToolResponse.invalidParameter("concurrency", limit.getMessage());
+                }
+                Map<String, Object> data = new LinkedHashMap<>();
+                data.put("operation", "run_tests");
+                data.put("action", "start");
+                data.put("sessionId", session.id);
+                data.put("state", session.state());
+                data.put("framework", frameworkLabel);
+                data.put("hint", "Poll run_tests(action=status, sessionId=…) for per-class "
+                    + "progress; abort with action=cancel.");
+                return ToolResponse.success(data, ResponseMeta.builder().build());
+            }
+
             ForkedTestRunner.Result r;
             try {
                 r = new ForkedTestRunner().run(spec);
@@ -241,50 +298,111 @@ public class RunTestsTool extends AbstractTool {
 
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("operation", "run_tests");
-            data.put("framework", frameworkRaw.equals("auto") ? runnerKindToShortName(runner) : frameworkRaw);
+            data.put("framework", frameworkLabel);
             data.put("projectsTested", 1);
-
-            Map<String, Object> summary = new LinkedHashMap<>();
-            summary.put("total", r.total);
-            summary.put("passed", r.passed);
-            summary.put("failed", r.failed);
-            summary.put("skipped", r.skipped);
-            if (r.aborted > 0) summary.put("aborted", r.aborted);
-            summary.put("timeMs", r.timeMs);
-            if (r.timedOut) summary.put("timedOut", true);
-            summary.put("evidenceFinalized", r.evidenceFinalized);
-            if (!r.evidenceFinalized) {
-                summary.put("evidenceNote", r.timedOut
-                    ? "The run TIMED OUT and was reaped — counts below are the partial "
-                        + "events seen before the kill; evidence was NOT finalized."
-                    : "The runner JVM ended abnormally (exit " + r.exitCode + ") — counts "
-                        + "below are partial; evidence was NOT finalized.");
-            }
-            data.put("summary", summary);
-
-            List<Map<String, Object>> failures = new ArrayList<>();
-            for (ForkedTestRunner.CaseResult c : r.failures) {
-                Map<String, Object> f = new LinkedHashMap<>();
-                f.put("testClass", c.testClass);
-                f.put("testMethod", c.testMethod);
-                f.put("status", c.status);
-                if (c.message != null) f.put("message", c.message);
-                if (c.stackTrace != null) f.put("stackTrace", c.stackTrace);
-                f.put("durationMs", c.durationMs);
-                failures.add(f);
-            }
-            data.put("failures", failures);
-            data.put("stdoutTail", r.stdoutTail == null ? "" : r.stdoutTail);
-            data.put("stderrTail", r.stderrTail == null ? "" : r.stderrTail);
+            appendResult(data, r);
 
             return ToolResponse.success(data, ResponseMeta.builder()
                 .totalCount(r.total)
-                .returnedCount(failures.size())
+                .returnedCount(r.failures.size())
                 .build());
         } catch (Exception e) {
             log.warn("run_tests threw unexpectedly: {}", e.getMessage(), e);
             return ToolResponse.internalError(e);
         }
+    }
+
+    /** status/cancel on a previously started async session. */
+    private ToolResponse handleSessionAction(String action, JsonNode arguments) {
+        String sid = getStringParam(arguments, "sessionId");
+        if (sid == null || sid.isBlank()) {
+            return ToolResponse.invalidParameter("sessionId",
+                "sessionId is required for action='" + action + "'.");
+        }
+        org.jawata.mcp.execution.TestSessionRegistry.Session session = sessions.get(sid);
+        if (session == null) {
+            return ToolResponse.invalidParameter("sessionId",
+                "Unknown or expired session '" + sid + "'.");
+        }
+        if ("cancel".equals(action)) {
+            session.cancel();
+            // Give the reap a moment so the response can carry the final
+            // (honestly partial) result instead of a still-RUNNING state.
+            long deadline = System.currentTimeMillis() + 5000;
+            while ("RUNNING".equals(session.state()) && System.currentTimeMillis() < deadline) {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("operation", "run_tests");
+        data.put("action", action);
+        data.put("sessionId", sid);
+        data.put("state", session.state());
+        data.put("framework", session.frameworkLabel);
+        Map<String, Object> progress = new LinkedHashMap<>();
+        progress.put("plannedTests", session.plannedTests);
+        progress.put("classesStarted", session.classesStarted.get());
+        progress.put("classesFinished", session.classesFinished.get());
+        progress.put("testsFinished", session.testsFinished.get());
+        data.put("progress", progress);
+        List<Map<String, Object>> events = session.recentEvents();
+        data.put("recentEvents",
+            events.size() > 25 ? events.subList(events.size() - 25, events.size()) : events);
+        ForkedTestRunner.Result r = session.resultNow();
+        if (r != null) {
+            appendResult(data, r);
+        }
+        return ToolResponse.success(data, ResponseMeta.builder().build());
+    }
+
+    /** Map a runner result onto the response shape (shared by run/status/cancel). */
+    private static void appendResult(Map<String, Object> data, ForkedTestRunner.Result r) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("total", r.total);
+        summary.put("passed", r.passed);
+        summary.put("failed", r.failed);
+        summary.put("skipped", r.skipped);
+        if (r.aborted > 0) summary.put("aborted", r.aborted);
+        summary.put("timeMs", r.timeMs);
+        if (r.timedOut) summary.put("timedOut", true);
+        if (r.cancelled) summary.put("cancelled", true);
+        summary.put("evidenceFinalized", r.evidenceFinalized);
+        if (!r.evidenceFinalized) {
+            String note;
+            if (r.cancelled) {
+                note = "The run was CANCELLED and the runner reaped — counts are the "
+                    + "partial events seen before the kill; evidence was NOT finalized.";
+            } else if (r.timedOut) {
+                note = "The run TIMED OUT and was reaped — counts below are the partial "
+                    + "events seen before the kill; evidence was NOT finalized.";
+            } else {
+                note = "The runner JVM ended abnormally (exit " + r.exitCode + ") — counts "
+                    + "below are partial; evidence was NOT finalized.";
+            }
+            summary.put("evidenceNote", note);
+        }
+        data.put("summary", summary);
+
+        List<Map<String, Object>> failures = new ArrayList<>();
+        for (ForkedTestRunner.CaseResult c : r.failures) {
+            Map<String, Object> f = new LinkedHashMap<>();
+            f.put("testClass", c.testClass);
+            f.put("testMethod", c.testMethod);
+            f.put("status", c.status);
+            if (c.message != null) f.put("message", c.message);
+            if (c.stackTrace != null) f.put("stackTrace", c.stackTrace);
+            f.put("durationMs", c.durationMs);
+            failures.add(f);
+        }
+        data.put("failures", failures);
+        data.put("stdoutTail", r.stdoutTail == null ? "" : r.stdoutTail);
+        data.put("stderrTail", r.stderrTail == null ? "" : r.stderrTail);
     }
 
     private ToolResponse configureMethodScope(ForkedTestRunner.Spec spec,

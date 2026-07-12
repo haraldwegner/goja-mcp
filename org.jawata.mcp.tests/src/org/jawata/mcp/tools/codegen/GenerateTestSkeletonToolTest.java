@@ -8,7 +8,6 @@ import org.jawata.mcp.fixtures.TestProjectHelper;
 import org.jawata.mcp.models.ToolResponse;
 import org.jawata.mcp.tools.codegen.GenerateTestSkeletonTool;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -77,12 +76,6 @@ class GenerateTestSkeletonToolTest {
     }
 
     @Test
-    @Disabled("v1.7.0 known limitation: simple-maven fixture's external Maven "
-        + "deps don't resolve onto JDT's classpath in Tycho-surefire test "
-        + "runtime, so FrameworkDetection finds nothing. Production usage "
-        + "(real workspace with M2E-resolved classpath) detects correctly. "
-        + "Same fixture-build gap that has run_tests happy-paths @Disabled. "
-        + "See docs/upgrade-checklist.md.")
     @DisplayName("auto: framework detection picks junit5 for jupiter on classpath")
     void frameworkAutoDetect_picksJUnit5() throws Exception {
         IFile target = findFile("HelloWorld.java");

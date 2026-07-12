@@ -115,4 +115,56 @@ diff the REPO (releases + README), never the marketplace listing.
 
 ### C1 exit status
 
-- PENDING the full-suite gate (in flight); all focused gates green.
+- All focused gates green (12/12 + safety 3/3 ×3 + oracle identical). First
+  full-suite sweep (2026-07-13, WALL 1665 s, run with CONCURRENT builds/MCP load
+  from the agent): 1195 = 1189 + 4 failed + 2 skipped — the 4 failures
+  (SearchSymbolsRankingTest, FindUnusedDependenciesToolTest, SuggestImportsToolTest,
+  FindReflectionUsageToolTest) share one shape: a search/index query returning
+  EMPTY. All four pass focused, repeatedly. One (FindUnusedDependencies) was a real
+  expectation shift (fixture now declares 5 deps → totalDeclared 7, fixed); the
+  other three are load-order/contention-sensitive searches — the discriminating
+  IDLE full-suite rerun is the C1+C2 combined gate below. NOTE for Stage 6: if the
+  idle rerun is green, these three are contention-sensitive searches that the
+  sharded suite will stress deliberately — harden there.
+
+## C2 — Streaming / progressive results (2026-07-13)
+
+### What shipped
+
+- `ForkedTestRunner.start()` → `RunningSession` (Future + live process ref +
+  cancel-with-reap); `run()` = `start().await()`. Event-file tailer feeds a
+  per-session consumer; BUGFIX caught by the gate: the tailer's interrupt handler
+  returned instead of falling through to the FINAL drain — tail events
+  (class-finish, run-finish) were dropped from progress counters.
+- `TestSessionRegistry`: sessionId → progress counters (plannedTests,
+  classesStarted/Finished, testsFinished) + bounded 200-event ring + retained
+  final result (32-session cap, oldest-finished evicted).
+- run_tests front door (0 new tools): `action` = run (default, sync) | start
+  (immediate sessionId) | status (live per-class progress + recentEvents + the
+  full summary once finished, retrievable repeatedly) | cancel (reap, honest
+  partial, `cancelled=true`, evidenceFinalized=false). Poll = the baseline
+  transport; push notifications deferred to transports that support them.
+- Fixture: `com.example.pathological.slow.{SlowAlphaTest,SlowBetaTest}` (4 × 1.5 s).
+- GenerateTestSkeletonToolTest L79 re-enabled — its actual blocker was the fixture
+  classpath (delivered in C1), not streaming; landed a stage early.
+
+### Verification (expected vs actual)
+
+- AsyncRunTestsTest (green 2× consecutively): a status poll observed
+  state=RUNNING with testsFinished ≥ 1 BEFORE completion ✓; final summary exact
+  (4 = 4 passed, evidenceFinalized=true, classesFinished=2) ✓; summary retrievable
+  on a later poll ✓; cancel mid-hang → state CANCELLED, cancelled=true,
+  evidenceFinalized=false, NO orphan runner JVM machine-wide ✓.
+- GenerateTestSkeletonToolTest 2/2 green ✓ (auto-detect picks junit5 from the
+  fixture classpath).
+- Combined C1+C2 full-suite gate (IDLE): expected 1197 = 1196 passed + 1 skipped
+  (only EncapsulateFieldToolTest L41 remains @Disabled), 0 failed · Actual:
+  **1197 = 1196 + 1 skipped, 0 failed, WALL 1775 s** ✓ EXACT.
+
+### C1 + C2 exit status
+
+- **BOTH GREEN.** The idle rerun confirms the 3 residual C1 failures were
+  CONTENTION FLAKES (load-sensitive searches; all pass focused AND in the idle
+  sweep) — flagged as a Stage-6 hardening item (shards create that load
+  deliberately), not a regression. 4 of 5 @Disabled now live; commits at C1
+  (49ae944) and C2.
