@@ -699,3 +699,37 @@ fails if either drifts:
 | artifacts | list + explicit delete; honest miss | ✓ |
 | D17 | three statements, tool AND README | verbatim-checked, both ✓ |
 | DebugClosureTest | green | **7/7** ✓ |
+
+## C13 — RELEASE v2.12.0 prepared (2026-07-13) — ⏸ AWAITING THE WORD
+
+Version bumped 2.11.1 → 2.12.0 (poms + 3 manifests); release notes written
+(`docs/release-notes/v2.12.0.md`), including the carried F4 fix (the "It has:" member
+list in a stale-symbol correction — deduped, constructor-free, bounded with a visible
+`…`).
+
+### Gates
+
+| Gate | Expected | Actual |
+|---|---|---|
+| Suite, sharded | green | **1301/1301**, zero flakes ✓ |
+| Suite, SERIAL | green | **1301/1301** ✓ (first serial run found 2 — see below) |
+| Clean-clone build | green, from the release commit | ✓ (`2.12.0`, jar built) |
+| toolCount | **44 EXACT** | 44 — enumerated: 43 inline registrations + `experienceTool` (registered via a variable, which is why a naive grep says 43) ✓ |
+
+### WHAT THE SERIAL RUN CAUGHT — and the sharded run had masked
+
+**1. My own test over-claimed, and the product text with it.** `DevProbeTest` asserted a
+capturing logpoint is never OBSERVED suspended. But such a logpoint genuinely suspends
+the thread to read the frame — that is exactly what `perturbs: true` means — so the
+assertion contradicted our own documentation. Worse, the docs called the cost
+*"microseconds"*. **Measured:** a capture whose expression INVOKES A METHOD, on a 25 ms
+loop, keeps the thread suspended so much that a 50 ms poll rarely catches it running.
+That is not microseconds; it is **a different program**, and on a race or a timing bug it
+would hide the bug or invent one. The docs now say so plainly, and the test asserts what
+actually matters: the program keeps making progress on its own, and **removing the probe
+leaves it whole**.
+
+**2. An unexplained one-off.** `ReplaceDuplicatesToolTest` failed once in serial ("clone
+group not found in: []") and did **not** reproduce — clean on a second full serial run and
+2× focused. Recorded as unexplained rather than explained away. If it returns, it is real
+order-dependence, not CPU contention.
