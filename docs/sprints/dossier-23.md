@@ -420,3 +420,42 @@ diff the REPO (releases + README), never the marketplace listing.
 ### C8 exit status
 
 - **GREEN.**
+
+## C9 — Per-test attribution + impacted_tests (2026-07-13)
+
+### What shipped
+
+- DESIGN REFINEMENT over the plan's tcpserver sketch: the RUNNER dumps+resets
+  the agent IN-PROCESS at every test boundary (org.jacoco.agent.rt.RT via
+  reflection — the runner stays dependency-free; no TCP races, no parent
+  coordination). One .exec segment per executed test + index.tsv; the union
+  merges into jacoco.exec at finalize so an attribution artifact doubles as
+  a normal coverage artifact.
+- `attribution=true` on run_tests (implies coverage; agent output=none);
+  `CoverageAttribution` (targeted single-class segment analysis; evidence-kind
+  rank unit<integration<system<replay<manual).
+- Actions: `coverage_tests_covering` (scans attribution artifacts, ranked
+  focused-first, kinds labeled, honest "unavailable"), `coverage_of_test`
+  (artifact-scoped; misaddressed queries list the artifact's known tests),
+  `coverage_impacted_tests` (explicit symbols or derived from a git diff;
+  ranked by kind then breadth).
+
+### Verification (expected vs actual) — CoverageAttributionTest 2/2
+
+- tests_covering EXACT both directions: alwaysCalled → exactly the two
+  exercising tests; neverCalled → nobody ✓.
+- unit + integration both covering a symbol → unit ranked FIRST, kinds
+  labeled ✓.
+- coverage_of_test names what the unit test exercised (alwaysCalled in,
+  neverCalled out) ✓.
+- impacted_tests(branchy) = both tests ranked; impacted_tests(ghost symbol)
+  = empty set, no guess ✓.
+- Cross-module: CrossModuleTest#magicComesFromModuleA attributed EXACTLY to
+  AlphaLib#magic ✓.
+- No attribution evidence → attributionAvailable=false with the never-guesses
+  note ✓.
+- Coverage-family regression: 6/6 + 5/5 + 12/12 ✓.
+
+### C9 exit status
+
+- **GREEN.**

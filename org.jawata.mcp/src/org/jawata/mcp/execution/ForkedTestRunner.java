@@ -74,6 +74,8 @@ public final class ForkedTestRunner {
         public Path workingDirectory;
         /** Progress callback for streaming (Stage 2); may be null. */
         public java.util.function.Consumer<JsonNode> eventConsumer;
+        /** Per-test coverage segments land here when set (Stage 9). */
+        public Path attributionDir;
     }
 
     public static final class CaseResult {
@@ -201,6 +203,9 @@ public final class ForkedTestRunner {
 
         StringBuilder args = new StringBuilder();
         args.append("event-file=").append(eventFile).append('\n');
+        if (spec.attributionDir != null) {
+            args.append("attribution-dir=").append(spec.attributionDir).append('\n');
+        }
         spec.selectClasses.forEach(c -> args.append("select-class=").append(c).append('\n'));
         spec.selectMethods.forEach(m -> args.append("select-method=").append(m).append('\n'));
         spec.selectPackages.forEach(p -> args.append("select-package=").append(p).append('\n'));

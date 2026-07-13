@@ -42,6 +42,9 @@ public class CoverageManifest {
     /** Environment attribution (os/arch of the measuring host). */
     public String environment;
 
+    /** Per-test segments were collected (Stage 9 attribution run). */
+    public boolean attribution;
+
     /** Run outcome: did the evidence get finalized (run-finish + exit 0)? */
     public boolean runFinalized;
     public String completionStatus;          // FINALIZED | TIMED_OUT | CANCELLED | ABNORMAL

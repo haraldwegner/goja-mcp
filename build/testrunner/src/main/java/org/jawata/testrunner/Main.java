@@ -65,6 +65,7 @@ public final class Main {
     private static void run(Path argFile) throws IOException {
         List<DiscoverySelector> selectors = new ArrayList<>();
         Path eventFile = null;
+        Path attributionDir = null;
         for (String line : Files.readAllLines(argFile, StandardCharsets.UTF_8)) {
             line = line.strip();
             if (line.isEmpty() || line.startsWith("#")) continue;
@@ -74,6 +75,7 @@ public final class Main {
             String value = line.substring(eq + 1);
             switch (key) {
                 case "event-file" -> eventFile = Path.of(value);
+                case "attribution-dir" -> attributionDir = Path.of(value);
                 case "select-class" -> selectors.add(DiscoverySelectors.selectClass(value));
                 case "select-method" -> selectors.add(DiscoverySelectors.selectMethod(value));
                 case "select-package" -> selectors.add(DiscoverySelectors.selectPackage(value));
@@ -95,7 +97,80 @@ public final class Main {
                 .selectors(selectors)
                 .build();
             Launcher launcher = LauncherFactory.create();
-            launcher.execute(request, new EmittingListener(sink));
+            EmittingListener emitting = new EmittingListener(sink);
+            if (attributionDir != null) {
+                launcher.execute(request, emitting,
+                    new AttributionListener(attributionDir));
+            } else {
+                launcher.execute(request, emitting);
+            }
+        }
+    }
+
+    /**
+     * Sprint 23 (D4) — per-test coverage segments: at every test boundary the
+     * JaCoCo agent's in-process API ({@code org.jacoco.agent.rt.RT},
+     * accessed reflectively so the runner stays dependency-free) is dumped
+     * AND reset, yielding one .exec segment per test. An index file maps
+     * segment file → test id.
+     */
+    private static final class AttributionListener implements TestExecutionListener {
+        private final Path dir;
+        private Object agent;                 // org.jacoco.agent.rt.IAgent
+        private java.lang.reflect.Method getExecutionData;
+        private BufferedWriter index;
+        private int counter;
+
+        AttributionListener(Path dir) {
+            this.dir = dir;
+        }
+
+        @Override
+        public void testPlanExecutionStarted(TestPlan testPlan) {
+            try {
+                Files.createDirectories(dir);
+                Class<?> rt = Class.forName("org.jacoco.agent.rt.RT");
+                agent = rt.getMethod("getAgent").invoke(null);
+                getExecutionData = agent.getClass()
+                    .getMethod("getExecutionData", boolean.class);
+                getExecutionData.setAccessible(true);
+                index = Files.newBufferedWriter(dir.resolve("index.tsv"),
+                    StandardCharsets.UTF_8);
+                // Discard everything executed before the first test (JUnit
+                // bootstrap, static init of shared infra).
+                getExecutionData.invoke(agent, true);
+            } catch (Exception e) {
+                System.err.println("attribution unavailable (no jacoco agent?): " + e);
+                agent = null;
+            }
+        }
+
+        @Override
+        public void executionFinished(TestIdentifier id, TestExecutionResult result) {
+            if (agent == null || !id.isTest()) return;
+            try {
+                byte[] segment = (byte[]) getExecutionData.invoke(agent, true);
+                String fileName = "seg-" + (++counter) + ".exec";
+                Files.write(dir.resolve(fileName), segment);
+                String testId = id.getSource().map(s -> {
+                    if (s instanceof org.junit.platform.engine.support.descriptor.MethodSource m) {
+                        return m.getClassName() + "#" + m.getMethodName();
+                    }
+                    return id.getDisplayName();
+                }).orElse(id.getDisplayName());
+                index.write(fileName + "\t" + testId + "\n");
+                index.flush();
+            } catch (Exception e) {
+                System.err.println("attribution segment failed for "
+                    + id.getDisplayName() + ": " + e);
+            }
+        }
+
+        @Override
+        public void testPlanExecutionFinished(TestPlan testPlan) {
+            try {
+                if (index != null) index.close();
+            } catch (IOException ignored) { }
         }
     }
 

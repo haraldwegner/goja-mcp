@@ -47,11 +47,27 @@ public final class CoverageService {
 
     /** Pre-run: create the artifact + mount the agent on the runner spec. */
     public String mountCollector(ForkedTestRunner.Spec spec) throws IOException {
+        return mountCollector(spec, false);
+    }
+
+    /**
+     * Attribution variant (Stage 9): the agent runs with {@code output=none}
+     * and the RUNNER dumps+resets at every test boundary into per-test
+     * segment files; the union is merged into jacoco.exec at finalize so the
+     * artifact doubles as a normal coverage artifact.
+     */
+    public String mountCollector(ForkedTestRunner.Spec spec, boolean attribution)
+            throws IOException {
         String artifactId = store.newArtifactId();
         Path dir = store.createArtifactDir(artifactId);
         Path agentJar = RunnerClasspath.toolJar("org.jacoco.agent-");
-        spec.vmArgs.add(0, "-javaagent:" + agentJar + "=destfile="
-            + dir.resolve(CoverageStore.EXEC_FILE) + ",dumponexit=true");
+        if (attribution) {
+            spec.vmArgs.add(0, "-javaagent:" + agentJar + "=output=none");
+            spec.attributionDir = dir.resolve("segments");
+        } else {
+            spec.vmArgs.add(0, "-javaagent:" + agentJar + "=destfile="
+                + dir.resolve(CoverageStore.EXEC_FILE) + ",dumponexit=true");
+        }
         return artifactId;
     }
 
@@ -77,6 +93,12 @@ public final class CoverageService {
 
         collectRoots(project.javaProject(), m);
         gitProvenance(project.projectRoot(), m);
+
+        Path segments = store.root().resolve(artifactId).resolve("segments");
+        if (Files.isDirectory(segments)) {
+            m.attribution = true;
+            mergeSegments(segments, store.execFile(artifactId));
+        }
 
         m.runFinalized = result.evidenceFinalized;
         m.completionStatus = result.evidenceFinalized ? "FINALIZED"
@@ -140,6 +162,18 @@ public final class CoverageService {
                 m.dirtyFingerprint = "dirty-unhashed";
             }
         }
+    }
+
+    /** Union of all per-test segments = the artifact's ordinary exec data. */
+    private static void mergeSegments(Path segmentsDir, Path execFile) throws IOException {
+        org.jacoco.core.tools.ExecFileLoader loader = new org.jacoco.core.tools.ExecFileLoader();
+        try (var files = Files.list(segmentsDir)) {
+            for (Path seg : files.filter(p -> p.getFileName().toString().endsWith(".exec"))
+                    .sorted().toList()) {
+                loader.load(seg.toFile());
+            }
+        }
+        loader.save(execFile.toFile(), false);
     }
 
     private static String runGit(Path dir, String... args) {

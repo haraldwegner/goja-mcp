@@ -103,6 +103,25 @@ public class RunTestsTool extends AbstractTool {
                 action hint; same-FQN-in-two-bundles yields separate facts.
               run_tests(action="coverage_artifacts") / (action="coverage_delete",
                 artifactId=...) manage stored artifacts explicitly.
+              run_tests(action="coverage_delta", diff="worktree|staged|range")
+                → changed-lines coverage (rename-aware; unstable lines never
+                count covered); baselines via coverage_baseline_set/compare
+                (regression judged per symbol/line, blind to a rising global
+                percentage); coverage_threshold_set stores a VERSIONED policy
+                whose value/version/waivers surface in responses;
+                coverage_stability registers unstable lines from two
+                same-selection runs; coverage_import ingests a CI exec file
+                (class-id gated).
+
+            Who-tests-what (attribution=true runs record per-test segments):
+              run_tests(action="coverage_tests_covering", target="Foo#m")
+                → the tests that EXERCISED the symbol, ranked focused-first
+                (unit before integration), kinds labeled; answers
+                "unavailable" without attribution evidence — never guesses.
+              run_tests(action="coverage_of_test", test="FooTest#m")
+                → every symbol that test exercised.
+              run_tests(action="coverage_impacted_tests" [, symbols] [, diff])
+                → the smallest evidence-backed test set for a change.
 
             Inputs:
             - scope.kind — "method" | "class" | "package".
@@ -192,8 +211,37 @@ public class RunTestsTool extends AbstractTool {
         properties.put("artifactId", Map.of("type", "string",
             "description", "Coverage artifact for the coverage_* actions (default: latest)."));
         properties.put("target", Map.of("type", "string",
-            "description", "coverage_uncovered target: 'com.example.Foo' or "
-                + "'com.example.Foo#method'."));
+            "description", "coverage_uncovered / coverage_tests_covering target: "
+                + "'com.example.Foo' or 'com.example.Foo#method'."));
+        properties.put("attribution", Map.of("type", "boolean",
+            "description", "Collect PER-TEST coverage segments during this run (implies "
+                + "coverage=true); enables the who-tests-what queries."));
+        properties.put("test", Map.of("type", "string",
+            "description", "coverage_of_test: 'com.example.FooTest#method'."));
+        properties.put("symbols", Map.of("type", "array",
+            "items", Map.of("type", "string"),
+            "description", "coverage_impacted_tests: explicit symbol list (else derived "
+                + "from the git diff)."));
+        properties.put("diff", Map.of("type", "string",
+            "enum", List.of("worktree", "staged", "range"),
+            "description", "coverage_delta / coverage_impacted_tests: which git diff "
+                + "(default worktree)."));
+        properties.put("range", Map.of("type", "string",
+            "description", "Commit range for diff=range, e.g. 'HEAD~1..HEAD'."));
+        properties.put("name", Map.of("type", "string",
+            "description", "Baseline name for coverage_baseline_set/compare."));
+        properties.put("otherArtifactId", Map.of("type", "string",
+            "description", "coverage_stability: the second same-selection artifact."));
+        properties.put("lineThresholdPercent", Map.of("type", "number",
+            "description", "coverage_threshold_set: the line-coverage threshold; every "
+                + "change bumps the stored policy VERSION."));
+        properties.put("waivers", Map.of("type", "array",
+            "items", Map.of("type", "object"),
+            "description", "coverage_threshold_set: [{pattern, reason}] — always visible "
+                + "in threshold-bearing responses."));
+        properties.put("execFile", Map.of("type", "string",
+            "description", "coverage_import: path to an external jacoco.exec (CI run); "
+                + "acceptance is gated by the class-id check."));
         schema.put("properties", properties);
         return withProjectKey(schema);
     }
@@ -211,7 +259,8 @@ public class RunTestsTool extends AbstractTool {
             case "coverage_report", "coverage_uncovered", "coverage_artifacts",
                  "coverage_delete", "coverage_delta", "coverage_baseline_set",
                  "coverage_baseline_compare", "coverage_threshold_set",
-                 "coverage_stability" -> {
+                 "coverage_stability", "coverage_tests_covering",
+                 "coverage_of_test", "coverage_impacted_tests" -> {
                 return handleCoverageAction(action, arguments);
             }
             case "coverage_import" -> {
@@ -321,13 +370,16 @@ public class RunTestsTool extends AbstractTool {
             String frameworkLabel = frameworkRaw.equals("auto")
                 ? runnerKindToShortName(runner) : frameworkRaw;
 
-            // Sprint 23 D3: optional coverage collection on this run.
-            boolean withCoverage = arguments.has("coverage")
-                && arguments.get("coverage").asBoolean(false);
+            // Sprint 23 D3/D4: optional coverage collection on this run;
+            // attribution=true additionally records per-test segments.
+            boolean withAttribution = arguments.has("attribution")
+                && arguments.get("attribution").asBoolean(false);
+            boolean withCoverage = withAttribution || (arguments.has("coverage")
+                && arguments.get("coverage").asBoolean(false));
             String evidenceKind = getStringParam(arguments, "evidenceKind", "unit");
             String artifactId = null;
             if (withCoverage) {
-                artifactId = coverage.mountCollector(spec);
+                artifactId = coverage.mountCollector(spec, withAttribution);
             }
             final String covArtifact = artifactId;
             final LoadedProject covProject = loaded;
@@ -429,6 +481,12 @@ public class RunTestsTool extends AbstractTool {
                 return ToolResponse.success(data, ResponseMeta.builder()
                     .totalCount(items.size()).returnedCount(items.size()).build());
             }
+            if ("coverage_tests_covering".equals(action)) {
+                return coverageTestsCovering(arguments);
+            }
+            if ("coverage_impacted_tests".equals(action)) {
+                return coverageImpactedTests(arguments);
+            }
             if ("coverage_threshold_set".equals(action)) {
                 if (!arguments.has("lineThresholdPercent")) {
                     return ToolResponse.invalidParameter("lineThresholdPercent",
@@ -507,6 +565,9 @@ public class RunTestsTool extends AbstractTool {
             }
             if ("coverage_stability".equals(action)) {
                 return coverageStability(id, model, arguments);
+            }
+            if ("coverage_of_test".equals(action)) {
+                return coverageOfTest(id, model, arguments);
             }
             String target = getStringParam(arguments, "target");
             if (target == null || target.isBlank()) {
@@ -924,6 +985,197 @@ public class RunTestsTool extends AbstractTool {
             log.warn("coverage_import failed: {}", e.getMessage(), e);
             return ToolResponse.internalError(e);
         }
+    }
+
+    /** Stage 9 — evidence-backed who-tests-what, focused-first. */
+    private ToolResponse coverageTestsCovering(JsonNode arguments) throws Exception {
+        String target = getStringParam(arguments, "target");
+        if (target == null || target.isBlank()) {
+            return ToolResponse.invalidParameter("target",
+                "target is required: 'com.example.Foo' or 'com.example.Foo#method'.");
+        }
+        String fqn = target.contains("#") ? target.substring(0, target.indexOf('#')) : target;
+        String methodName = target.contains("#") ? target.substring(target.indexOf('#') + 1) : null;
+
+        String onlyArtifact = getStringParam(arguments, "artifactId");
+        java.util.List<String> artifacts = onlyArtifact != null && !onlyArtifact.isBlank()
+            ? List.of(onlyArtifact) : coverage.store().list();
+
+        boolean anyAttribution = false;
+        // test → {test, evidenceKind, artifactId}; first (most focused) hit wins.
+        Map<String, Map<String, Object>> hits = new LinkedHashMap<>();
+        for (String id : artifacts) {
+            org.jawata.mcp.coverage.CoverageManifest m =
+                coverage.store().readManifest(id).orElse(null);
+            if (m == null || !m.attribution || !m.runFinalized) continue;
+            anyAttribution = true;
+            Path classFile = org.jawata.mcp.coverage.CoverageAttribution.classFile(m, fqn);
+            if (classFile == null) continue;
+            Map<String, Path> segments =
+                org.jawata.mcp.coverage.CoverageAttribution.segments(coverage.store(), id);
+            for (Map.Entry<String, Path> seg : segments.entrySet()) {
+                if (!org.jawata.mcp.coverage.CoverageAttribution.covers(
+                        seg.getValue(), classFile, methodName)) {
+                    continue;
+                }
+                Map<String, Object> existing = hits.get(seg.getKey());
+                int rank = org.jawata.mcp.coverage.CoverageAttribution.kindRank(m.evidenceKind);
+                if (existing == null || rank < org.jawata.mcp.coverage.CoverageAttribution
+                        .kindRank((String) existing.get("evidenceKind"))) {
+                    Map<String, Object> hit = new LinkedHashMap<>();
+                    hit.put("test", seg.getKey());
+                    hit.put("evidenceKind", m.evidenceKind);
+                    hit.put("artifactId", id);
+                    hits.put(seg.getKey(), hit);
+                }
+            }
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("operation", "run_tests");
+        data.put("action", "coverage_tests_covering");
+        data.put("target", target);
+        if (!anyAttribution) {
+            data.put("attributionAvailable", false);
+            data.put("note", "No attribution artifacts exist (runs with attribution=true) — "
+                + "who-tests-what CANNOT be answered from plain coverage runs, and this "
+                + "surface never guesses.");
+            return ToolResponse.success(data, ResponseMeta.builder().build());
+        }
+        data.put("attributionAvailable", true);
+        java.util.List<Map<String, Object>> ranked = new ArrayList<>(hits.values());
+        ranked.sort(java.util.Comparator
+            .comparingInt((Map<String, Object> h) -> org.jawata.mcp.coverage.CoverageAttribution
+                .kindRank((String) h.get("evidenceKind")))
+            .thenComparing(h -> String.valueOf(h.get("test"))));
+        data.put("coveredBy", ranked);
+        return ToolResponse.success(data, ResponseMeta.builder()
+            .totalCount(ranked.size()).returnedCount(ranked.size()).build());
+    }
+
+    /** Stage 9 — everything one test exercised (from its segment). */
+    private ToolResponse coverageOfTest(String id, org.jawata.mcp.coverage.CoverageModel model,
+            JsonNode arguments) {
+        String test = getStringParam(arguments, "test");
+        if (test == null || test.isBlank()) {
+            return ToolResponse.invalidParameter("test",
+                "test is required: 'com.example.FooTest#method'.");
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("operation", "run_tests");
+        data.put("action", "coverage_of_test");
+        data.put("artifactId", id);
+        data.put("test", test);
+        if (!model.manifest.attribution) {
+            data.put("attributionAvailable", false);
+            data.put("note", "Artifact '" + id + "' has no per-test segments — run with "
+                + "attribution=true.");
+            return ToolResponse.success(data, ResponseMeta.builder().build());
+        }
+        Map<String, Path> segments =
+            org.jawata.mcp.coverage.CoverageAttribution.segments(coverage.store(), id);
+        Path segment = segments.get(test);
+        if (segment == null) {
+            data.put("attributionAvailable", true);
+            data.put("note", "No segment for test '" + test + "' in this artifact; known tests: "
+                + segments.keySet());
+            return ToolResponse.success(data, ResponseMeta.builder().build());
+        }
+        java.util.List<String> covers = org.jawata.mcp.coverage.CoverageAttribution
+            .coveredSymbols(segment, model.manifest, 200);
+        data.put("attributionAvailable", true);
+        data.put("covers", covers);
+        return ToolResponse.success(data, ResponseMeta.builder()
+            .totalCount(covers.size()).returnedCount(covers.size()).build());
+    }
+
+    /** Stage 9 — smallest evidence-backed test set for a change. */
+    private ToolResponse coverageImpactedTests(JsonNode arguments) throws Exception {
+        // Symbols: explicit list, or derived from a git diff via the newest
+        // attribution artifact's line model.
+        java.util.List<String> symbols = new ArrayList<>();
+        if (arguments.has("symbols") && arguments.get("symbols").isArray()) {
+            arguments.get("symbols").forEach(n -> symbols.add(n.asText()));
+        }
+        String attributionArtifact = null;
+        for (String id : coverage.store().list()) {
+            org.jawata.mcp.coverage.CoverageManifest m =
+                coverage.store().readManifest(id).orElse(null);
+            if (m != null && m.attribution && m.runFinalized) {
+                attributionArtifact = id;
+                break;
+            }
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("operation", "run_tests");
+        data.put("action", "coverage_impacted_tests");
+        if (attributionArtifact == null) {
+            data.put("attributionAvailable", false);
+            data.put("note", "No attribution artifacts exist — impacted-test selection needs "
+                + "at least one run with attribution=true.");
+            return ToolResponse.success(data, ResponseMeta.builder().build());
+        }
+        org.jawata.mcp.coverage.CoverageModel model = coverage.model(attributionArtifact);
+        if (symbols.isEmpty()) {
+            String diffKind = getStringParam(arguments, "diff", "worktree");
+            String range = getStringParam(arguments, "range");
+            org.jawata.mcp.coverage.GitDiff diff = org.jawata.mcp.coverage.GitDiff.read(
+                Path.of(model.manifest.projectRoot), diffKind, range);
+            for (Map.Entry<String, java.util.Set<Integer>> e : diff.changedLinesByFile.entrySet()) {
+                org.jawata.mcp.coverage.CoverageModel.ClassCov clazz =
+                    classForPath(model, e.getKey());
+                if (clazz == null) continue;
+                for (org.jawata.mcp.coverage.CoverageModel.MethodCov m : clazz.methods) {
+                    for (Integer line : e.getValue()) {
+                        if (line >= m.firstLine && line <= m.lastLine) {
+                            String sym = clazz.fqn + "#" + m.name;
+                            if (!symbols.contains(sym)) symbols.add(sym);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        data.put("symbols", symbols);
+        // Union of tests covering each symbol; count how many symbols each covers.
+        Map<String, Map<String, Object>> tests = new LinkedHashMap<>();
+        for (String symbol : symbols) {
+            String fqn = symbol.contains("#") ? symbol.substring(0, symbol.indexOf('#')) : symbol;
+            String method = symbol.contains("#") ? symbol.substring(symbol.indexOf('#') + 1) : null;
+            for (String id : coverage.store().list()) {
+                org.jawata.mcp.coverage.CoverageManifest m =
+                    coverage.store().readManifest(id).orElse(null);
+                if (m == null || !m.attribution || !m.runFinalized) continue;
+                Path classFile = org.jawata.mcp.coverage.CoverageAttribution.classFile(m, fqn);
+                if (classFile == null) continue;
+                for (Map.Entry<String, Path> seg : org.jawata.mcp.coverage.CoverageAttribution
+                        .segments(coverage.store(), id).entrySet()) {
+                    if (!org.jawata.mcp.coverage.CoverageAttribution.covers(
+                            seg.getValue(), classFile, method)) {
+                        continue;
+                    }
+                    Map<String, Object> row = tests.computeIfAbsent(seg.getKey(), k -> {
+                        Map<String, Object> t = new LinkedHashMap<>();
+                        t.put("test", k);
+                        t.put("evidenceKind", m.evidenceKind);
+                        t.put("coversSymbols", new ArrayList<String>());
+                        return t;
+                    });
+                    @SuppressWarnings("unchecked")
+                    java.util.List<String> covers = (java.util.List<String>) row.get("coversSymbols");
+                    if (!covers.contains(symbol)) covers.add(symbol);
+                }
+            }
+        }
+        java.util.List<Map<String, Object>> ranked = new ArrayList<>(tests.values());
+        ranked.sort(java.util.Comparator
+            .comparingInt((Map<String, Object> t) -> org.jawata.mcp.coverage.CoverageAttribution
+                .kindRank((String) t.get("evidenceKind")))
+            .thenComparing(t -> -((java.util.List<?>) t.get("coversSymbols")).size())
+            .thenComparing(t -> String.valueOf(t.get("test"))));
+        data.put("attributionAvailable", true);
+        data.put("impactedTests", ranked);
+        return ToolResponse.success(data, ResponseMeta.builder()
+            .totalCount(ranked.size()).returnedCount(ranked.size()).build());
     }
 
     private void attachPolicy(Map<String, Object> data, Double achievedPercent) {
