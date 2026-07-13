@@ -311,3 +311,60 @@ green, and ships at the end of Phase 2. Carried forward so it cannot be lost:
 | Dogfood-in-anger → findings fixed | ✓ 3 findings → **v2.11.1 released** (CI green, 1251/1251) |
 | Second dogfood round on the patch | ✓ both fixes hold; 1 cosmetic finding (F4) → deferred to v2.12.0 by decision |
 | Spec D1–D4 | ✓ as-built |
+
+# PHASE 2 — Dev/sim debugging → v2.12.x
+
+## C6 — The JDI-layer decision spike (2026-07-13)
+
+### The decision: the JDK's own JDI (`com.sun.jdi`), Eclipse's eval engine in reserve
+
+**Microsoft `java-debug`: DISQUALIFIED on structure.** It is a DAP adapter
+layered ON TOP of `org.eclipse.jdt.debug` — the same JDI stack underneath.
+Adopting it means adding jars to obtain a protocol translation we would
+immediately discard, because we speak MCP, not DAP. It buys nothing we do not
+already have, and puts a third-party layer between us and the JDI we want.
+
+**The Eclipse stack costs zero anyway.** `org.eclipse.jdt.launching` is ALREADY
+in `org.jawata.mcp`'s Require-Bundle, and `org.eclipse.jdt.debug` (964 KB) +
+`org.eclipse.debug.core` ride in as its dependencies — all three already sit in
+`dist/bundles/`. `jdt.debug` needs no UI bundle (core.resources, debug.core,
+jdt.core, core.runtime, core.expressions) and exports
+`org.eclipse.jdt.debug.eval` — the expression-evaluation engine D6 needs. So the
+eval engine is available for free when Stage 8 wants it.
+
+**Until then, raw JDI is simpler and free.** `jdk.jdi@21.0.10` is in the runtime
+already.
+
+### The empirical proof (`DebugSpikeTest`, green FIRST run)
+
+Launched a JVM under `-agentlib:jdwp` -> **attached** over `dt_socket` -> set a
+**line breakpoint** -> **hit** it (line 12, method `tick`) -> **read the frame**,
+pulling a live argument value out of a running program -> reaped the process
+tree. All inside our OSGi runtime, with **no new dependency and no boot-config
+change**.
+
+That is the question a manifest cannot answer, and it is now answered before a
+line of debugger code exists — which is exactly why the plan put this stage
+first.
+
+### The fixtures
+
+- **`debug-target`** — runs until killed. One of each thing an interactive
+  debugger must handle: a named seam (`computeSignal`), a hot loop (`spin` — a
+  non-suspending probe must watch it while it demonstrably keeps RUNNING), a
+  changing field (`lastSignal`, for watchpoints), an exception site
+  (`riskyStep`), and a flag the debugger flips in the D7 hypothesis proofs.
+- **`replay-app`** — deterministic by design, because "capture at the FIRST
+  violation" is only testable against a replay that violates in exactly one
+  place. Balance walks down to exactly 0, then **event 7** takes it to -40 (the
+  first violation); events 8 and 9 violate it again, so "the first one" is a
+  real assertion, not a tautology. Arithmetic independently verified.
+
+Both compile with `-g` (locals must be visible or the frame reads nothing).
+
+### C6 exit
+
+| Gate | Expected | Actual |
+|---|---|---|
+| Layer chosen on breakpoint evidence | proof on both candidates, or a documented disqualification | JDK JDI proven end-to-end; java-debug disqualified on structure ✓ |
+| Fixtures compile | in-suite | both compile; replay determinism verified by running it ✓ |

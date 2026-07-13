@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Sprint 24: the fixture the DEBUGGER stages work against. A long-running
+     app with the four things an interactive debugger must handle: a named seam
+     (method breakpoints), a hot loop (non-suspending probes must watch it while
+     it RUNS), a field that changes (watchpoints), and an exception site
+     (exception breakpoints). Never run by `mvn test` — it runs forever by
+     design; jawata launches it under the debug agent and attaches. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>replay-app</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>Replay App Fixture</name>
+    <description>Deterministic replay for the Sprint 24 invariant-capture proofs</description>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- -g: locals must be visible to the debugger, or the frame reads nothing. -->
+        <maven.compiler.debug>true</maven.compiler.debug>
+    </properties>
+</project>

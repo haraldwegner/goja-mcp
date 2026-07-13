@@ -40,10 +40,11 @@ class ForkedRunnerSafetyTest {
 
     private RunTestsTool tool;
     private ObjectMapper objectMapper;
+    private JdtServiceImpl service;
 
     @BeforeEach
     void setUp() throws Exception {
-        JdtServiceImpl service = helper.loadProjectCopy("runner-pathological");
+        service = helper.loadProjectCopy("runner-pathological");
         tool = new RunTestsTool(() -> service);
         objectMapper = new ObjectMapper();
     }
@@ -62,13 +63,32 @@ class ForkedRunnerSafetyTest {
         assertEquals(Boolean.FALSE, summary.get("evidenceFinalized"), "summary: " + summary);
         assertNotNull(summary.get("evidenceNote"), "an unfinalized run must explain itself");
 
-        // No orphan: no live process anywhere on this machine still runs our
-        // forked-runner main class.
-        List<String> orphans = ProcessHandle.allProcesses()
-            .filter(ProcessHandle::isAlive)
-            .map(p -> p.info().commandLine().orElse(""))
-            .filter(cmd -> cmd.contains("org.jawata.testrunner.Main"))
-            .toList();
+        // No orphan of OURS. A machine-wide scan for the runner main class is wrong
+        // in a parallel suite: it catches sibling tests' LEGITIMATE runners (it caught
+        // a coverage test's, mid-run) and calls them orphans. Scope it to this test's
+        // own fixture copy, and poll — reaping (destroyForcibly + descendants) is
+        // asynchronous. Same fix as AsyncRunTestsTest carried in Sprint 23; this test
+        // had the identical defect and was simply never hit until now.
+        String ourFixture = service.getProjectRoot().toString();
+        List<String> orphans = List.of();
+        long deadline = System.currentTimeMillis() + 15_000;
+        while (System.currentTimeMillis() < deadline) {
+            orphans = ProcessHandle.allProcesses()
+                .filter(ProcessHandle::isAlive)
+                .map(p -> p.info().commandLine().orElse(""))
+                .filter(cmd -> cmd.contains("org.jawata.testrunner.Main")
+                    && cmd.contains(ourFixture))
+                .toList();
+            if (orphans.isEmpty()) {
+                break;
+            }
+            try {
+                Thread.sleep(250);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
         assertTrue(orphans.isEmpty(), "orphan runner JVM(s) survived the reap: " + orphans);
     }
 
