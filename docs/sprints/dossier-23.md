@@ -565,3 +565,58 @@ diff the REPO (releases + README), never the marketplace listing.
 ### C12 exit status
 
 - **GREEN.**
+
+## C13 — Query-DSL decision matrix (2026-07-13) — AWAITING HARALD
+
+### Method
+
+Ten representative agent asks, MEASURED live this session against the
+resident serving the real jawata-mcp workspace (481 sources); token ≈
+chars/3.5. "count-only" and "field-selected" computed from the measured
+payloads (drop rows / drop redundant fields); jdtbridge pipe estimates from
+their documented one-line-per-hit output format.
+
+### The matrix (response tokens)
+
+| # | Agent ask (live) | as-is | count-only | field-selected | jdtbridge pipe |
+|---|---|---|---|---|---|
+| 1 | search_symbols `*Tool` (50 hits) | ~3,400 | ~60 | ~1,200 | ~600 |
+| 2 | find_references on a class (15 refs) | ~1,300 | ~50 | ~500 | ~250 |
+| 3 | get_call_hierarchy incoming (2 callers) | ~490 | ~40 | ~250 | ~60 |
+| 4 | inspect type_members (34 members) | ~1,700 | ~50 | ~700 | ~400 |
+| 5 | find_pattern_usages instantiation (7 hits) | ~550 | ~45 | ~250 | ~110 |
+| 6 | diagnostics sweep (126 warnings) | ~9,400 | ~70 | ~3,000 | ~2,000 |
+| 7 | compile_workspace summary=true | ~90 (already shaped) | — | — | ~50 |
+| 8 | find_quality_issue family summary | ~300 (already shaped) | — | — | n/a |
+| 9 | search_symbols narrow (2 hits) | ~310 | ~40 | ~150 | ~30 |
+| 10 | experience recall (1 entry) | ~260 | — | — | n/a |
+
+### Findings
+
+- The redundancy factor on LIST-shaped responses is ~2.5–3×: `qualifiedName`
+  duplicates `package`+`name`, filePath/line/column/context repeat per row,
+  and `meta.steering` adds ~50 tokens to EVERY response.
+- jdtbridge's pipes are 3–6× leaner than our as-is, but only ~2× leaner than
+  a field-selected shape — the DSL is not where their economy comes from;
+  the per-row projection is.
+- We already ship shaping precedents (compile_workspace summary/limit,
+  find_quality_issue summary/limit, find_duplicate_code paging) — the
+  pattern exists tool-by-tool; the open question is generalizing it.
+
+### Options for Harald
+
+- **A — keep as-is.** Worst realistic case ~3.4k tokens per broad search;
+  zero cost; agents cap with maxResults today.
+- **B — light `fields` projection (RECOMMENDED).** A `fields=[name,line,…]`
+  param on the 5 list-heavy tools (search_symbols, find_references,
+  get_call_hierarchy, find_pattern_usages, get_diagnostics), count-only via
+  the existing summary pattern. ~2.5–3× cheaper hot paths, no new language,
+  ~half a day inside this sprint.
+- **C — a pipe-style query DSL (jdtbridge-shaped).** Marginal gain over B
+  (~2×) for a NEW query language to design, document, teach and maintain —
+  the evidence does not justify it.
+
+### C13 exit status
+
+- Matrix presented — **PAUSED for Harald's decision** (the plan's mandatory
+  stop). Implementation of the chosen option follows the word.
