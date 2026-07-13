@@ -152,6 +152,12 @@ public class GetCallHierarchyIncomingTool extends AbstractTool {
             for (SearchMatch match : matches) {
                 if (callers.size() >= maxResults) break;
 
+                // Sprint 23 (D11): a {@link}/@see reference in a Javadoc
+                // comment is DOCUMENTATION, not a call — it used to surface
+                // as a phantom caller with callerMethod=<initializer>.
+                if (match.isInsideDocComment()) {
+                    continue;
+                }
                 Map<String, Object> callerInfo = extractCallerInfo(match, service);
                 if (callerInfo != null) {
                     callers.add(callerInfo);

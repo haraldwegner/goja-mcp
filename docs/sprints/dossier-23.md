@@ -533,3 +533,35 @@ diff the REPO (releases + README), never the marketplace listing.
 ### C11 exit status
 
 - **GREEN.**
+
+## C12 — Lib source by FQN + D11 hierarchy precision (2026-07-13)
+
+### What shipped
+
+- `inspect(kind=source, typeName=FQN)` (0 new tools): workspace source →
+  JDT-attached source (JDK src.zip) → the sibling `…-sources.jar` read
+  DIRECTLY (existing jars only — fetching is an explicit user action, never
+  silent) → an honestly-labeled disassembled stub (ToolFactory
+  disassembler; "signatures accurate, bodies omitted"). Origin always
+  declared; source bounded with a truncation mark.
+- D11: `get_call_hierarchy(incoming)` drops matches
+  `isInsideDocComment()` — a `{@link}` is documentation, not a call; the
+  phantom `<initializer>` caller class is gone.
+
+### Verification (expected vs actual) — LibSourceAndHierarchyTest 3/3, first run
+
+- Workspace type → workspace-source with the real code ✓; JDK ArrayList →
+  attached source or LABELED stub ✓; dependency type (jupiter) readable ✓;
+  DETERMINISTIC sources-jar case (lib + sibling sources jar built in-test,
+  Eclipse-.classpath project) → origin sources-jar with the ORIGINAL comment
+  marker ✓; PDE half: pool-resolved jackson ObjectMapper readable by FQN ✓.
+- D11 fixture (one real caller + one Javadoc {@link}): incoming = EXACTLY 1
+  caller (realCaller), no `<initializer>`, no phantom ✓. (The
+  getMavenDependencies probe on the live resident lands in the C14 dogfood
+  battery — the resident still runs v2.9.2.)
+- Regression: call-hierarchy suite 4/4, quality baseline, find_quality_issue
+  10/10, lazy-class, find-tests — all green ✓.
+
+### C12 exit status
+
+- **GREEN.**

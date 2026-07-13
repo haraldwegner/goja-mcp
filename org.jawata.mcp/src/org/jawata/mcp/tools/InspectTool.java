@@ -25,7 +25,7 @@ public class InspectTool extends AbstractTool {
     private static final List<String> KINDS = List.of(
         "type_hierarchy", "document_symbols", "type_members", "classpath",
         "project_structure", "type_usage", "complexity", "dependency_graph",
-        "di_registrations");
+        "di_registrations", "source");
 
     private final GetTypeHierarchyTool typeHierarchy;
     private final GetDocumentSymbolsTool documentSymbols;
@@ -72,6 +72,13 @@ public class InspectTool extends AbstractTool {
             - complexity       — complexity metrics for a file. Needs: filePath.
             - dependency_graph — dependency edges. Needs: scope, name.
             - di_registrations — DI bean/registration sites. (no params)
+            - source           — readable source for ANY type by FQN (JDK,
+                                 dependency jars, workspace). Needs: typeName.
+                                 Origin is declared: workspace-source |
+                                 attached-source | sources-jar (the sibling
+                                 …-sources.jar in the local repo, existing
+                                 only — no silent fetch) | disassembled-stub
+                                 (honest header, signatures only).
 
             Requires load_project to be called first.
             """;
@@ -115,8 +122,30 @@ public class InspectTool extends AbstractTool {
             case "complexity"        -> complexity.executeWithService(service, arguments);
             case "dependency_graph"  -> dependencyGraph.executeWithService(service, arguments);
             case "di_registrations"  -> diRegistrations.executeWithService(service, arguments);
+            case "source"            -> libSource(service, arguments);
             default -> ToolResponse.invalidParameter("kind",
                 "Unknown kind '" + kind + "'. Allowed: " + KINDS);
         };
+    }
+
+    /** Sprint 23 (D8) — source by FQN, origin always declared. */
+    private ToolResponse libSource(IJdtService service, JsonNode arguments) {
+        String typeName = getStringParam(arguments, "typeName");
+        if (typeName == null || typeName.isBlank()) {
+            return ToolResponse.invalidParameter("typeName",
+                "kind=source needs typeName (a fully-qualified type name).");
+        }
+        try {
+            Map<String, Object> result =
+                org.jawata.mcp.tools.shared.LibrarySource.sourceOf(service, typeName);
+            if (result == null) {
+                return ToolResponse.symbolNotFound(
+                    "Type '" + typeName + "' resolves in no loaded project.");
+            }
+            return ToolResponse.success(result,
+                org.jawata.mcp.models.ResponseMeta.builder().build());
+        } catch (Exception e) {
+            return ToolResponse.internalError(e);
+        }
     }
 }
