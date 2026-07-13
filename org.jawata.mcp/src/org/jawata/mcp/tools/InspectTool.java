@@ -25,7 +25,7 @@ public class InspectTool extends AbstractTool {
     private static final List<String> KINDS = List.of(
         "type_hierarchy", "document_symbols", "type_members", "classpath",
         "project_structure", "type_usage", "complexity", "dependency_graph",
-        "di_registrations", "source");
+        "di_registrations", "source", "landmarks");
 
     private final GetTypeHierarchyTool typeHierarchy;
     private final GetDocumentSymbolsTool documentSymbols;
@@ -72,6 +72,10 @@ public class InspectTool extends AbstractTool {
             - complexity       — complexity metrics for a file. Needs: filePath.
             - dependency_graph — dependency edges. Needs: scope, name.
             - di_registrations — DI bean/registration sites. (no params)
+            - landmarks        — the workspace's load-bearing types, most-referenced
+                                 first: what a human knows from having worked here.
+                                 Start a session with it instead of searching your
+                                 way in. Optional: limit (default 20).
             - source           — readable source for ANY type by FQN (JDK,
                                  dependency jars, workspace). Needs: typeName.
                                  Origin is declared: workspace-source |
@@ -100,6 +104,7 @@ public class InspectTool extends AbstractTool {
         properties.put("filePath", Map.of("type", "string", "description", "document_symbols/complexity: source file."));
         properties.put("scope", Map.of("type", "string", "description", "dependency_graph: scope (e.g. package/class)."));
         properties.put("name", Map.of("type", "string", "description", "dependency_graph: the entity name."));
+        properties.put("limit", Map.of("type", "integer", "description", "landmarks: how many to name (default 20)."));
 
         schema.put("properties", properties);
         schema.put("required", List.of("kind"));
@@ -123,9 +128,34 @@ public class InspectTool extends AbstractTool {
             case "dependency_graph"  -> dependencyGraph.executeWithService(service, arguments);
             case "di_registrations"  -> diRegistrations.executeWithService(service, arguments);
             case "source"            -> libSource(service, arguments);
+            case "landmarks"         -> landmarks(service, arguments);
             default -> ToolResponse.invalidParameter("kind",
                 "Unknown kind '" + kind + "'. Allowed: " + KINDS);
         };
+    }
+
+    /**
+     * Sprint 24 (D4) — the workspace's landmarks: the types everything else
+     * leans on, most-referenced first. What a human knows from having worked
+     * here; a fresh agent otherwise searches its way to them every session.
+     */
+    private ToolResponse landmarks(IJdtService service, JsonNode arguments) {
+        int limit = getIntParam(arguments, "limit", 20);
+        limit = Math.min(Math.max(limit, 1), 200);
+        try {
+            List<Map<String, Object>> found =
+                org.jawata.mcp.tools.shared.Landmarks.of(service, limit);
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("landmarks", found);
+            data.put("count", found.size());
+            return ToolResponse.success(data, org.jawata.mcp.models.ResponseMeta.builder()
+                .returnedCount(found.size())
+                .steering("These are the workspace's load-bearing types. Address them by name "
+                    + "(symbol=/typeName=) — no search needed.")
+                .build());
+        } catch (Exception e) {
+            return ToolResponse.internalError(e);
+        }
     }
 
     /** Sprint 23 (D8) — source by FQN, origin always declared. */

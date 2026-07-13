@@ -182,6 +182,7 @@ public class SearchSymbolsTool extends AbstractTool {
             return ToolResponse.success(data, ResponseMeta.builder()
                 .returnedCount(page.size())
                 .truncated(page.size() == maxResults)
+                .steering(teachTheAddress(query, page))
                 .suggestedNextTools(List.of(
                     "get_symbol_info at a result location for detailed info",
                     "get_type_members for type results",
@@ -193,6 +194,36 @@ public class SearchSymbolsTool extends AbstractTool {
             log.error("Error searching symbols: {}", e.getMessage(), e);
             return ToolResponse.internalError(e);
         }
+    }
+
+    /**
+     * Sprint 24 (D3) — <b>a search teaches its own address</b>. When the caller
+     * named an exact symbol and we found it, tell them how to go STRAIGHT there
+     * next time: the FQN is the stable memory key, and a found symbol should
+     * become remembered knowledge instead of a search repeated every session.
+     *
+     * <p>Only on an EXACT-name hit (no wildcards in the query, a row whose name
+     * IS the query) — a wildcard sweep has no single address to teach. Returns
+     * null otherwise, which leaves the central steering in place.</p>
+     */
+    public static String teachTheAddress(String query, List<Map<String, Object>> page) {
+        if (query.indexOf('*') >= 0 || query.indexOf('?') >= 0) {
+            return null;
+        }
+        for (Map<String, Object> row : page) {
+            if (!query.equals(row.get("name"))) {
+                continue;
+            }
+            Object qualified = row.get("qualifiedName");
+            String address = qualified != null
+                ? String.valueOf(qualified)
+                : row.get("containingType") + "#" + row.get("name");
+            return "Address this directly next time: symbol=\"" + address + "\" — the name is "
+                + "the stable key (it survives file moves; a position does not), and every "
+                + "reading tool and whole-symbol refactoring accepts it. Remember it instead "
+                + "of searching again.";
+        }
+        return null;
     }
 
     /**

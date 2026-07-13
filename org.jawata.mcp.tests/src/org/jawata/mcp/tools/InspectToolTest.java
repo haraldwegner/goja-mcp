@@ -58,14 +58,15 @@ class InspectToolTest {
     }
 
     @Test
-    @DisplayName("schema lists all ten kinds (incl. Sprint 23 D8 'source'); requires kind")
+    @DisplayName("schema lists all eleven kinds (Sprint 23 'source' + Sprint 24 'landmarks'); requires kind")
     @SuppressWarnings("unchecked")
     void schema_lists_kinds() {
         Map<String, Object> schema = tool.getInputSchema();
         Map<String, Object> props = (Map<String, Object>) schema.get("properties");
         List<String> kinds = (List<String>) ((Map<String, Object>) props.get("kind")).get("enum");
-        assertEquals(10, kinds.size());
+        assertEquals(11, kinds.size());
         assertTrue(kinds.contains("source"), "Sprint 23 D8 lib-source kind: " + kinds);
+        assertTrue(kinds.contains("landmarks"), "Sprint 24 D4 landmarks kind: " + kinds);
         assertTrue(((List<String>) schema.get("required")).contains("kind"));
     }
 

@@ -126,3 +126,42 @@ direct call to the helper immediately after a move (bypassing any tool) sees a
 stale index and finds nothing. In production the helper only ever runs INSIDE a
 tool call, so this is a test artifact — the battery now makes the tool call
 first, exactly as a caller would, rather than asserting against a stale index.
+
+## C3 — D3 key-teaching + D4 landmarks — STREAM 1 COMPLETE (2026-07-13)
+
+### What shipped
+
+**D3 — a search teaches its own address.** An EXACT-name hit (no wildcards, a
+row whose name IS the query) returns steering naming the direct address:
+`symbol="com.example.Calculator"` — plus WHY the name is the key (it survives
+file moves; a position does not). A wildcard sweep teaches nothing: there is no
+single address to teach. Rides the existing steering-precedence contract
+(tool-set steering wins; `applySteering` only fills when empty).
+
+**D4 — a session starts oriented.** `inspect(kind=landmarks)`: the workspace's
+own types ranked by how much of the code leans on each (incoming references from
+the JDT index), cached per workspace load. The head start a human has from
+having worked in the codebase.
+
+### Verification (expected vs actual)
+
+| Gate | Expected | Actual |
+|---|---|---|
+| KeyTeachingAndLandmarksTest | teach on exact / silent on wildcard; landmarks ranked | **5/5** ✓ |
+| Touched-tool regressions | green | 35/35 (SearchSymbols 15, Inspect 11, LibSource 3, FieldsProjection 6) ✓ |
+| **Full suite (sharded)** | 1249, 0 failed | **1249/1249, 0 failed — first run, 155 s** ✓ |
+
+Suite grew 1230 → 1249: +10 (D1) +4 (D2) +5 (D3/D4).
+
+### SURPRISE — my own D4 draft had a flaw the battery caught
+
+The first landmarks ranking offered `com.example.ShotgunTarget` — a SECONDARY
+type (declared beside a file's primary type). `cu.getTypes()` returns those, but
+their FQN does NOT resolve through `findType` — so the top landmark could not be
+addressed by the very name it advertised. **A landmark you cannot address by
+name is worse than none: it teaches a name that fails.** Every candidate is now
+filtered through `findType` before ranking, and the test asserts the invariant
+for EVERY landmark, not just the top one — the D4 → D1 loop (orient, then go
+straight there) only closes if every offered name works. Recorded as a durable
+rule (experience store aebb1dad): any feature that hands an agent a name to
+reuse must verify that name resolves through the same path the agent will use.
