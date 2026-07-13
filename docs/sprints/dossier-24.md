@@ -258,3 +258,40 @@ better than the v2.11.0 schema-cache caveat predicted.
 
 Lesson recorded (experience store dbc242d9): a bounded count used for RANKING
 must not saturate; and never dress a guess as a fact.
+
+## C5b — Second dogfood round, on v2.11.1 itself (2026-07-13)
+
+The patch was itself dogfooded on the live 2.11.1 resident. Both v2.11.1 fixes
+confirmed in anger, and one further finding.
+
+### The v2.11.1 fixes, live
+
+**Landmarks now actually ranks** — and the fix revealed what the cap had hidden:
+
+| Before (cap 200) | After |
+|---|---|
+| six types tied at exactly `200`, order arbitrary | `ToolResponse` **2000+** (`atLeast: true`), `IJdtService` 681, `TestProjectHelper` 550, `JdtServiceImpl` 458, `RefactoringChangeCache` 286, `ResponseMeta` 249, … |
+
+The true #1 is `ToolResponse` — every tool in the system returns one — and the
+old ranking did not even list it first. A saturated value is now honestly
+flagged as a floor.
+
+**Relocate**: a typo (`ToolResponse#applySteerin`) gets a confident correction to
+`applySteering` with NO noise candidates (the affinity filter working); a member
+that never existed on a real type gets the honest "the type did not move; that
+member is not on it".
+
+### F4 (real, minor) — the "It has:" list was noise
+
+Live on `ToolResponse`, the member list read:
+`ToolResponse, isSuccess, getData, getError, getMeta, applySteering, success,
+success, error, error, … internalError, internalError, success, data, error,
+meta` — the constructor, every overload twice, and then the method names AGAIN
+as fields. Twenty-five entries, half of them noise, in the one message whose job
+is a CLEAN, actionable correction.
+
+Fixed: an addressable name is said exactly once (`Type#name` addresses every
+overload at once), the constructor is dropped (it is not addressable as
+`Type#member`), and the list is bounded at 30 — with a trailing `…` when it
+truncates, because a bounded list presented as a complete one is the same lie as
+a capped count presented as an exact one.

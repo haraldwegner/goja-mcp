@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -163,6 +164,19 @@ class ResolveOrRelocateTest {
             "says what is actually true: " + message);
         assertTrue(message.contains("It has:") && message.contains("add"),
             "and names the members that DO exist: " + message);
+
+        // Second dogfood round (v2.11.1, live on ToolResponse): the list carried the
+        // constructor, every overload twice, and then the method names AGAIN as
+        // fields — 25 entries, half of them noise, in the one message whose job is a
+        // clean correction. A name is addressable once (Type#name covers every
+        // overload), so it is said once.
+        String listed = message.substring(message.indexOf("It has:"));
+        assertFalse(listed.contains("Calculator"),
+            "the constructor is not addressable as Type#member: " + listed);
+        List<String> names = List.of(listed
+            .replace("It has:", "").replace(".", "").trim().split(",\\s*"));
+        assertEquals(names.size(), Set.copyOf(names).size(),
+            "every name is said exactly once — no duplicated overloads: " + names);
     }
 
     @Test

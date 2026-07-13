@@ -47,6 +47,9 @@ public final class ResolveOrRelocate {
     /** Below this, a "match" is just a shared `get`/`is` prefix — noise, not a lead. */
     private static final int MIN_AFFINITY = 4;
 
+    /** A directory, not an inventory: a 200-member god class helps nobody. */
+    private static final int MAX_MEMBERS_LISTED = 30;
+
     private ResolveOrRelocate() {
     }
 
@@ -83,7 +86,11 @@ public final class ResolveOrRelocate {
                 List<String> members = allMembers(service, typePart);
                 String has = members.isEmpty()
                     ? ""
-                    : " It has: " + String.join(", ", members) + ".";
+                    : " It has: " + String.join(", ", members)
+                        // A truncated list must say so — a bounded list presented as a
+                        // complete one is the same lie as a capped count presented as
+                        // an exact one.
+                        + (members.size() >= MAX_MEMBERS_LISTED ? ", …" : "") + ".";
                 return ToolResponse.symbolNotFound(
                     "'" + typePart + "' exists, but it has no member '" + member(name)
                         + "' — the type did not move; that member is not on it." + has);
@@ -173,24 +180,41 @@ public final class ResolveOrRelocate {
         return new ArrayList<>(found);
     }
 
-    /** Every member the type actually declares — a directory, not a guess. */
+    /**
+     * The names a caller could actually ADDRESS on this type — a directory, not a
+     * guess. Second dogfood round (v2.11.1, live): the first cut listed the
+     * constructor, repeated every overload ({@code success, success}), and then
+     * repeated the method names again as fields ({@code success, data, error,
+     * meta}) — twenty-five entries of which half were noise, in the very message
+     * whose job is a clean, actionable correction. An addressable name is what
+     * matters here, and {@code Type#name} addresses every overload at once, so a
+     * name is worth saying exactly once.
+     */
     static List<String> allMembers(IJdtService service, String typeFqn) {
         Optional<IJavaElement> typeEl = FqnResolver.resolveWorkspace(typeFqn, service);
         if (typeEl.isEmpty() || !(typeEl.get() instanceof IType type)) {
             return List.of();
         }
-        List<String> members = new ArrayList<>();
+        Set<String> names = new LinkedHashSet<>();
         try {
+            String simpleName = type.getElementName();
             for (IMethod m : type.getMethods()) {
-                members.add(m.getElementName());
+                // The constructor is not addressable as `Type#member`.
+                if (m.isConstructor() || simpleName.equals(m.getElementName())) {
+                    continue;
+                }
+                names.add(m.getElementName());
             }
             for (IField f : type.getFields()) {
-                members.add(f.getElementName());
+                names.add(f.getElementName());
             }
         } catch (Exception e) {
             log.debug("Listing members of {} failed: {}", typeFqn, e.getMessage());
         }
-        return members;
+        List<String> members = new ArrayList<>(names);
+        return members.size() > MAX_MEMBERS_LISTED
+            ? members.subList(0, MAX_MEMBERS_LISTED)
+            : members;
     }
 
     /**
