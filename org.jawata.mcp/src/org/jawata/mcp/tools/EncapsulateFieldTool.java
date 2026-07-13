@@ -134,6 +134,7 @@ public class EncapsulateFieldTool extends AbstractRefactoringTool {
                 ? setterName
                 : defaultSetterName(fieldName);
 
+            org.jawata.mcp.tools.shared.HeadlessJdtConfig.ensureInitialized();
             SelfEncapsulateFieldRefactoring refactoring = new SelfEncapsulateFieldRefactoring(field);
             refactoring.setGetterName(resolvedGetter);
             refactoring.setSetterName(resolvedSetter);
@@ -144,6 +145,8 @@ public class EncapsulateFieldTool extends AbstractRefactoringTool {
             return runRefactoring(service, refactoring, "encapsulate_field", arguments);
 
         } catch (Exception e) {
+            org.slf4j.LoggerFactory.getLogger(EncapsulateFieldTool.class)
+                .warn("encapsulate_field failed: {}", e.toString(), e);
             return ToolResponse.internalError(e);
         }
     }

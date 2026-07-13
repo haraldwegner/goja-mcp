@@ -249,3 +249,40 @@ diff the REPO (releases + README), never the marketplace listing.
 ### C4 exit status
 
 - **GREEN.**
+
+## C5 — The fifth @Disabled: EncapsulateFieldToolTest (2026-07-13)
+
+### What shipped
+
+- **NO JDT patch needed** — the plan's either/or (upstream fixed | 22c patch)
+  resolved via a THIRD path: the root cause is HEADLESS-EMBEDDER CONFIGURATION,
+  not (only) the upstream bug. New `HeadlessJdtConfig` (one-shot, idempotent;
+  called from JawataApplication.start + the tool): sets
+  `JavaManipulation.setPreferenceNodeId`, seeds the JDT-UI defaults that
+  manipulation reads UNGUARDED (member sort order, visibility order, import
+  order, on-demand thresholds), and registers a code-template store
+  (TemplateStoreCore — core org.eclipse.text, NO UI) with the IDE-default
+  getter/setter/method/constructor/catch stub bodies.
+- Root-cause chain peeled live, three layers: (1) null preference node id →
+  IAE in ProjectScope.getNode; (2) missing import-order default → NPE in
+  CodeStyleConfiguration.configureImportRewrite; (3) missing template store →
+  CodeGeneration returns null → the upstream fallback bug (bare Assignment
+  where a Statement is required). With the store registered, the buggy
+  fallback is UNREACHABLE.
+- EncapsulateFieldTool's silent catch now logs (the swallowed stack cost a
+  diagnosis round).
+- UPSTREAM NOTE: the fallback bug in SelfEncapsulateFieldRefactoring
+  (createSetterMethod) still exists for other headless embedders — filing it
+  upstream is optional courtesy under Harald's account; listed as a close-out
+  question, no patch carried.
+
+### Verification (expected vs actual)
+
+- EncapsulateFieldToolTest expected 3/3 · actual **3/3 green, twice** ✓.
+- Self Disabled-probe expected 0 · actual **0** ✓ — ALL FIVE @Disabled
+  resolved (D1's "5 Disabled fully resolved" leg complete).
+- Resident self-workspace: **481 sources / 0 errors** ✓.
+
+### C5 exit status
+
+- **GREEN.**

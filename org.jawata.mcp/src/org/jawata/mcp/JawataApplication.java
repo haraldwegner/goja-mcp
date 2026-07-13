@@ -121,6 +121,11 @@ public class JawataApplication implements IApplication {
         log.info("JAWATA MCP Server starting...");
         instance = this;
 
+        // Sprint 23 (Stage 5): headless JDT-manipulation config (preference
+        // node id + JDT-UI-style defaults + code-template store) — the IDE
+        // gets this from JDT-UI activation, a headless embedder must do it.
+        org.jawata.mcp.tools.shared.HeadlessJdtConfig.ensureInitialized();
+
         // Sprint 14a Stage 2: parse transport CLI flags from the application
         // argv. HTTP is the default; -transport stdio opts back to the
         // pre-Sprint-14a behaviour. Unknown flags (Eclipse -data / -clean /

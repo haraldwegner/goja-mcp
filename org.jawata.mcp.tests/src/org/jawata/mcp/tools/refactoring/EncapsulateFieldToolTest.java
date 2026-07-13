@@ -7,7 +7,6 @@ import org.jawata.mcp.fixtures.TestProjectHelper;
 import org.jawata.mcp.models.ToolResponse;
 import org.jawata.mcp.tools.EncapsulateFieldTool;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -39,17 +38,6 @@ class EncapsulateFieldToolTest {
     }
 
     @Test
-    @Disabled("Blocked on JDT 2024-09 bug: SelfEncapsulateFieldRefactoring.createSetterMethod's "
-        + "fallback path (used when CodeGeneration.getSetterMethodBodyContent returns null because "
-        + "no GETTERSTUB/SETTERSTUB code template is registered) creates a bare Assignment AST node "
-        + "and adds it to Block.statements() — which expects Statement instances and fails with "
-        + "'class Assignment is not an instance of class Statement'. Eclipse IDE never hits this "
-        + "fallback because its JDT-UI plug-in registers code templates on activator startup; in "
-        + "headless RCP we'd need to recreate JavaContextType + ContributionContextTypeRegistry "
-        + "(more JDT-UI internals than is reasonable). v1.5.2 disables this single happy-path; "
-        + "validation and conflict paths still cover the tool. The fix belongs upstream in "
-        + "SelfEncapsulateFieldRefactoring (wrap the fallback Assignment in an ExpressionStatement). "
-        + "See docs/upgrade-checklist.md.")
     @DisplayName("happy: encapsulate RefactoringDerived.fieldToEncapsulate generates accessors")
     void happy_encapsulatePublicField() throws Exception {
         Path file = projectPath.resolve("src/main/java/com/example/RefactoringHierarchy.java");
