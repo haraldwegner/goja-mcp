@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: JAWATA MCP Tests (fragment)
 Bundle-SymbolicName: org.jawata.mcp.tests
-Bundle-Version: 2.9.2
+Bundle-Version: 2.10.0
 Fragment-Host: org.jawata.mcp
 Bundle-RequiredExecutionEnvironment: JavaSE-21
 Import-Package: org.junit.jupiter.api,
