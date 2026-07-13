@@ -110,6 +110,21 @@ public final class DebugController implements AutoCloseable {
     }
 
     /**
+     * What every event carries besides itself: which session it came from, and which project
+     * the code belongs to.
+     *
+     * <p>Without this, a line in the hit stream is an orphan. With it, a watcher reading
+     * {@code {"class": "com.example.Foo", "method": "bar", "projectKey": "orb"}} can hand
+     * that straight to {@code get_call_hierarchy(symbol="com.example.Foo#bar")} — no search,
+     * no guessing which workspace it meant. That is the whole loop closing.</p>
+     */
+    private volatile Map<String, Object> context = Map.of();
+
+    public void setContext(Map<String, Object> context) {
+        this.context = Map.copyOf(context);
+    }
+
+    /**
      * Stream every hit, as one JSON line, to a file — so that an agent can be WOKEN by a
      * breakpoint instead of asking about it.
      *
@@ -407,7 +422,7 @@ public final class DebugController implements AutoCloseable {
     }
 
     private void record(Bp bp, Event event, ThreadReference thread) {
-        Map<String, Object> hit = new LinkedHashMap<>();
+        Map<String, Object> hit = new LinkedHashMap<>(context);
         hit.put("hitId", "hit-" + ids.incrementAndGet());
         hit.put("breakpointId", bp.internal ? "(step-to-line)" : bp.id);
         hit.put("kind", bp.kind);
@@ -1227,7 +1242,7 @@ public final class DebugController implements AutoCloseable {
         }
         int seen = probe.seen.incrementAndGet();
 
-        Map<String, Object> streamed = new LinkedHashMap<>();
+        Map<String, Object> streamed = new LinkedHashMap<>(context);
         streamed.put("probeId", probe.id);
         streamed.put("kind", probe.kind);
         streamed.put("event", "probe");

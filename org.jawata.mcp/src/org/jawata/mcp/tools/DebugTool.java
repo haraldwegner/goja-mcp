@@ -218,10 +218,27 @@ public class DebugTool extends AbstractTool {
             captures, dumps), with provenance and an expiry. Explicit delete, because
             these get large.
 
-            WHAT THIS DOES TO THE TARGET: a debug session can suspend threads and
-            change state in the JVM it attaches to. It is meant for a development or
-            simulation machine. Attaching it anywhere else is your professional
-            judgment.
+            CLOSING THE LOOP: a hit names the class and the method, and that IS the key the
+            static tools take — symbol="com.example.Foo#bar" goes straight into
+            get_call_hierarchy / find_references / analyze. Never search for something the
+            running program has just told you.
+
+            ────────────────────────────────────────────────────────────────────────────
+            WHAT THIS DOES TO THE TARGET — read this once.
+
+            1. A debug session SUSPENDS THREADS AND CHANGES STATE in the JVM it is attached
+               to. Breakpoints stop it; set_value, force_return, pop_frame and redefine
+               rewrite it. This is not observation — it is intervention.
+
+            2. It is meant for a DEVELOPMENT OR SIMULATION machine. That is not a
+               disclaimer, it is the design: a JVM can only be debugged if it was STARTED
+               with a debug agent, and one cannot be added later. A production JVM that was
+               not launched for debugging is not protected by policy — it is unreachable.
+
+            3. Where a JVM *is* debuggable — a test or staging box, say — pointing this at
+               it is YOUR PROFESSIONAL JUDGMENT, and jawata will not second-guess it. If
+               you do not know what suspending that JVM would do, that is the answer.
+            ────────────────────────────────────────────────────────────────────────────
 
             The dev/sim launch preset is one host-controlled switch that prepares a
             JVM for the whole toolkit: loopback debug port, continuous bounded flight
@@ -407,13 +424,27 @@ public class DebugTool extends AbstractTool {
             .orElseThrow(() -> new DebugController.DebugException("SESSION_UNKNOWN",
                 "No debug session '" + sessionId + "'. Open one with "
                     + "debug(action=launch) or debug(action=attach)."));
-        return debuggerOf(session);
+        return debuggerOf(session, getStringParam(arguments, "projectKey"));
     }
 
     /** Every session journals its hits, from the first one — see {@link #hitStreamOf}. */
     private DebugController debuggerOf(RuntimeSession session) {
+        return debuggerOf(session, null);
+    }
+
+    private DebugController debuggerOf(RuntimeSession session, String projectKey) {
         DebugController debugger = session.debugger();
         debugger.journalHitsTo(hitStreamOf(session));
+
+        // Stamp every event with where it came from. A hit that says
+        // {class, method, projectKey} can be handed STRAIGHT to
+        // get_call_hierarchy(symbol="Class#method") — no search, no guessing the workspace.
+        Map<String, Object> context = new LinkedHashMap<>();
+        context.put("sessionId", session.id);
+        if (projectKey != null && !projectKey.isBlank()) {
+            context.put("projectKey", projectKey);
+        }
+        debugger.setContext(context);
         return debugger;
     }
 
@@ -495,10 +526,19 @@ public class DebugTool extends AbstractTool {
         Map<String, Object> data = new LinkedHashMap<>(hit.get());
         data.put("hit", true);
         data.put("morePending", debugger.pendingHits());
+
+        // THE LOOP CLOSES HERE. The hit already names the class and the method — which is
+        // exactly the key every static tool takes. No search is needed, and none should be
+        // run: a search would only re-derive what the running program just told us.
+        String symbol = data.get("class") + "#" + data.get("method");
+        data.put("symbol", symbol);
+
         return ToolResponse.success(data, ResponseMeta.builder()
-            .steering("The thread is SUSPENDED at this point. Read it with "
-                + "action=snapshot (threadId above), then action=step or action=resume. "
-                + "Every other thread is still running.")
+            .steering("The thread is SUSPENDED here. Read it with action=snapshot (threadId "
+                + "above), then step or resume; every other thread is still running. AND YOU "
+                + "ALREADY HAVE THE KEY: symbol=\"" + symbol + "\" goes straight into "
+                + "get_call_hierarchy / find_references / analyze — do NOT search for it, the "
+                + "running program has just told you exactly where it is.")
             .build());
     }
 
@@ -936,7 +976,7 @@ public class DebugTool extends AbstractTool {
                     + "-agentlib:jdwp to however it is launched.");
         }
         return sessionResponse(session, "Attached. This JVM is not ours — detach releases it, "
-            + "it keeps running.");
+            + "it keeps running.", getStringParam(arguments, "projectKey"));
     }
 
     private ToolResponse launch(JsonNode arguments) throws Exception {
@@ -960,7 +1000,8 @@ public class DebugTool extends AbstractTool {
             "Launched under the dev/sim preset, and HELD BEFORE ITS FIRST INSTRUCTION. "
                 + "This JVM is ours — detach kills it. Arm your breakpoints now, then "
                 + "debug(action=resume) to start the program: a target that is already "
-                + "running has already run past whatever you wanted to see.");
+                + "running has already run past whatever you wanted to see.",
+            getStringParam(arguments, "projectKey"));
     }
 
     private ToolResponse status(JsonNode arguments) {
@@ -1017,10 +1058,10 @@ public class DebugTool extends AbstractTool {
         return ToolResponse.success(data, ResponseMeta.builder().build());
     }
 
-    private ToolResponse sessionResponse(RuntimeSession session, String note) {
+    private ToolResponse sessionResponse(RuntimeSession session, String note, String projectKey) {
         // Open the journal NOW, before the caller can arm anything — so a watcher can be
         // attached to an existing file rather than racing its creation.
-        debuggerOf(session);
+        debuggerOf(session, projectKey);
 
         Map<String, Object> data = new LinkedHashMap<>(session.describe());
         data.put("note", note);

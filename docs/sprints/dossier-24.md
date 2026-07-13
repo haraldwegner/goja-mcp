@@ -646,3 +646,56 @@ which is the most expensive wrong answer a debugger can give.
 | inconclusive ≠ pass | never dressed up as clean | `programEnded: false`, "STILL RUNNING … not yet" ✓ |
 | unevaluatable invariant | stops, blames the condition | `conditionError` + "not because it was true" ✓ |
 | ReplayInvariantTest | green | **5/5** (×2) ✓ |
+
+## C12 — D15 closure + D16 audit + D17 disclaimer (2026-07-13)
+
+### THE LOOP CLOSES — the sprint's central claim, tested
+
+A breakpoint hit names the class and the method. **That IS the key the static tools
+take.** The hit now carries `symbol: "com.example.debug.DebugTarget#computeSignal"`
+pre-assembled, and the test hands it STRAIGHT to `get_call_hierarchy` — which resolves
+it with no intermediate search and reports that `main` calls it. A fact the RUNNING
+PROGRAM knew, reached into a fact the COMPILER knows, with nothing in between. The
+steering says so in as many words ("do NOT search for what the running program has
+just told you"), because a loop that closes only by luck does not close.
+
+The same key works on the **knowledge store**: a lesson recorded against the symbol a
+breakpoint produced is recalled by that same symbol. What we learn at runtime is
+findable by the name the runtime used.
+
+### D16 — the audit battery
+
+- **Every event carries `sessionId` + `projectKey`** — in the response AND in the
+  streamed journal line. Without the project key the symbol a hit hands you is
+  ambiguous the moment a workspace has two projects.
+- **The subagent hand-off and the wait contract are documented in the front door**
+  (`SUBAGENT`, `NOTHING IS EVER MISSED`, `hitStream`), so an agent reads them without
+  being told.
+- **Artifacts** list and delete explicitly; deleting what is not there is an honest
+  miss, not a crash.
+
+### D17 — the disclaimer, in both places, verbatim-checked
+
+The `debug` description and the README both carry all three statements, and a test
+fails if either drifts:
+
+1. **It suspends threads and changes state** — this is intervention, not observation.
+2. **It is for a development or simulation machine** — and *why that is structural*: a
+   JVM can only be debugged if it was STARTED with a debug agent, so a production JVM
+   is not protected by policy, it is **unreachable**.
+3. **Elsewhere it is the operator's professional judgment** — a debuggable test/staging
+   box is an ordinary thing for a professional to want; jawata does not second-guess
+   it. But if you do not know what suspending that JVM would do, that is the answer.
+
+### Verification (expected vs actual)
+
+| Gate | Expected | Actual |
+|---|---|---|
+| debug fact → static tool | no intermediate search | hit's `symbol` → `get_call_hierarchy` resolves; `main` found as caller ✓ |
+| steering | tells the agent not to search | contains the exact key + "do NOT search" ✓ |
+| runtime symbol → memory | record + recall by the same key | lesson recorded at the hit's symbol, recalled by it ✓ |
+| every event | sessionId + projectKey, response AND journal | both ✓ |
+| front door | subagent hand-off + wait contract documented | ✓ |
+| artifacts | list + explicit delete; honest miss | ✓ |
+| D17 | three statements, tool AND README | verbatim-checked, both ✓ |
+| DebugClosureTest | green | **7/7** ✓ |

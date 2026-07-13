@@ -283,10 +283,48 @@ gate to check its own edits before moving on — the post-edit loop a careful de
   absence — never a similarity pile); prime the domain layer at session start; seed from memory
   files and keep pointers honest against the compiler.
 
-*43 tools total; front doors (`analyze`, `inspect`, `extract`, `inline`, `move`, `generate`,
+**Debug (a running JVM)**
+- *Debug* — `debug` *(discover / launch / attach / breakpoints / wait / snapshot / evaluate /
+  step / probes / replay / set_value / force_return / pop_frame / redefine)* — attach to a live
+  JVM, or launch one held before its first instruction. Break, inspect and evaluate **in the
+  running program** (a real method call in `evaluate` really runs there); **probe** without
+  stopping it; declare an **invariant** and capture the first moment it breaks. A hit names the
+  class and method — which is exactly the key `get_call_hierarchy` and `find_references` take, so
+  a runtime fact goes straight back into the compiler-accurate tools with no search in between.
+
+*44 tools total; front doors (`analyze`, `inspect`, `extract`, `inline`, `move`, `generate`,
 `find_quality_issue`, `find_pattern_usages`, `find_modernization`, `refactor_to_pattern`,
-`dependency`, `quick_fix`, `refactoring`, `project`) each dispatch a `kind`/action, so the loaded
-surface stays small while capability grows by registration.*
+`dependency`, `quick_fix`, `refactoring`, `project`, `debug`) each dispatch a `kind`/action, so the
+loaded surface stays small while capability grows by registration.*
+
+---
+
+## Runtime debugging — what it does to the target
+
+Read this once, before pointing `debug` at anything.
+
+**1. A debug session suspends threads and changes state in the JVM it attaches to.** Breakpoints
+stop the program; `set_value`, `force_return`, `pop_frame` and `redefine` rewrite it. This is not
+observation, it is intervention — and the session records every change it made, because a program
+you have edited is no longer the program you started, and a finding drawn from it must say so.
+
+**2. It is meant for a development or simulation machine.** That is not a disclaimer bolted on
+afterwards; it is how the JVM works. A JVM can only be debugged if it was **started** with a debug
+agent, and one cannot be added to a running JVM — OpenJDK's JDWP agent has no attach entry point.
+So a production JVM that was not launched for debugging is not protected by a policy we wrote; it
+is simply unreachable. The dangerous action is unrepresentable rather than refused.
+
+**3. Where a JVM *is* debuggable — a test or staging box, a shared sim — pointing this at it is
+your professional judgment.** Typical staging is dev → test → prod, and a debuggable agent in a
+test environment is a perfectly ordinary thing for a professional to want. jawata will not
+second-guess you there. But suspending a thread on a machine other people are relying on has
+consequences that are yours, not ours: if you do not know what stopping that JVM would do, that
+is the answer.
+
+Probes (`probe_set`) exist precisely for the case where you may **not** stop the world: they read
+what the JVM's own events already carry and never suspend anything. The one exception — a logpoint
+that captures expressions — must read a frame, so it does stop the thread briefly, and it reports
+`perturbs: true` rather than pretending otherwise.
 
 ---
 
