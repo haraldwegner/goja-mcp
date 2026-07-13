@@ -654,3 +654,78 @@ already summary-shaped).
 | No regression on touched tools | existing batteries green | 73/73 across 10 filters (SearchSymbols 15, FindReferences 8, FindImplementations 8, FindMethodReferences 7, FindRefsQueryAlias 4, GetCallHierarchy 12, CallHierarchyFqn 2, FindPatternUsages 8, GetDiagnostics 6, LibSourceAndHierarchy 3) ✓ |
 
 - **GREEN.**
+
+## C14 — Release + dogfood + close-out (2026-07-13, pre-release half)
+
+### Suite proofs (Stage-14 gate: sharded AND serial, expected vs actual)
+
+| Run | Expected | Actual |
+|---|---|---|
+| Sharded (4) | green, totals = serial | 1230/1230, 0 skipped, wall 209 s ✓ |
+| Serial confirmation | green, same totals | 1230/1230, 0 skipped ✓ |
+
+The FIRST sharded run surfaced 3 failures: 1 REAL stale test
+(InspectToolTest expected 9 inspect kinds; D8 added `source` → 10; fixed
+0cd5a97) + 2 known-class contention flakes (AsyncRunTestsTest cancel-reap,
+ComposeMethodToolTest — both green focused on an idle machine, matching the
+C1 lesson). Rerun: fully green both modes.
+
+### Clean-clone build (dist changed heavily this sprint)
+
+Fresh `git clone` of commit 6ca22fb → `mvn -f build/pom.xml install`:
+**exit 0**, enforcer completeness gates passed, `jawata.jar` +
+`tools/org.jawata.testrunner-2.10.0.jar` present. Operational note: an
+in-place rebuild after the version bump WITHOUT `clean` leaves the old
+2.9.2 bundles beside the 2.10.0 ones in `target/dist` and the boot refuses
+to start — bump rebuilds must be `clean install` (the clean clone is
+immune by construction).
+
+### Version + notes
+
+2.9.2 → **2.10.0** via find-based ignore-proof sweep: 10 pom `<version>`
+lines + 5 `Bundle-Version` manifests; dist references are all
+`${project.version}` (no hardcoded jar names); the historical "v2.9.2
+lesson" comments in build/dist/pom.xml intentionally kept. Release notes:
+`docs/release-notes/v2.10.0.md`. Commits: 582623e (C13-B) · 0cd5a97
+(stale test) · 6ca22fb (release bump).
+
+### Stage-14 suite-hygiene catches (the full-suite runs earned their keep)
+
+Repeated sharded runs surfaced a rotating 1–3-failure cast; every one was run
+to ground rather than waved off:
+
+1. **InspectToolTest stale assertion** (REAL, test-side): expected 9 inspect
+   kinds, D8 added `source` → 10. Fixed 0cd5a97.
+2. **AsyncRunTestsTest orphan false positive** (REAL, test-side): the
+   machine-wide `testrunner.Main` scan caught LEGITIMATE runners forked by
+   sibling suite shards (the caught "orphan" ran the coverage-target fixture,
+   not this test's) and asserted the instant after cancel although reaping is
+   asynchronous. Scoped to the test's fixture copy + bounded 15 s reap poll.
+   Fixed 13182d1.
+3. **RecipeEngine stale-buffer race** (REAL, PRODUCT bug, Sprint-19 code):
+   `compose_method` failed ~1-in-3 EVEN IDLE — step N+1's prepare could parse
+   the pre-step-N JDT buffer (perform() writes via the LTK file buffer; the
+   Openable buffer invalidates only on workspace-delta processing) and its
+   insertion offset landed MID-TOKEN in the new document:
+   `private void wri` … `teFooter()` — a user-visible file corruption.
+   Root-caused from the failing file dump; fix = close modified units after
+   each recipe step; sole RecipeEngine consumer is compose_method (the
+   plan/apply_plan path compile-gates each step and was never exposed).
+   Fixed 9f2eda7; soak 20/20 green (pre-fix ~3/8). Plausibly Sprint-23-triggered in
+   frequency only: the maven-classpath cache made project loads fast enough
+   to race.
+4. **FindModernizationToolTest.delombok** (shard-load contention flake, the
+   known C1 class): empty search result under CPU load; 9/9 focused. Recorded,
+   no change.
+
+### Final release-candidate proofs (HEAD = 9f2eda7, all fixes in)
+
+| Run | Result |
+|---|---|
+| Sharded (4) | 1230/1230, 0 skipped, wall 199 s ✓ |
+| Serial | 1230/1230, 0 skipped ✓ |
+| ComposeMethodToolTest soak | 20/20 (pre-fix ~3/8) ✓ |
+| Clean-clone build (6ca22fb) | exit 0, enforcer-complete dist, testrunner-2.10.0.jar ✓ |
+
+⏸ Awaiting Harald's release word (push + tag v2.10.0 → CI → fleet flip →
+resident dogfood battery → close-out questions).
