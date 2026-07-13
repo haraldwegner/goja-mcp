@@ -17,6 +17,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -571,6 +575,98 @@ class DebugInteractiveTest {
         Map<String, Object> frame = frameOf(snapshot(threadId, 1));
         assertEquals("computeSignal", frame.get("method"),
             "the thread waited for us, indefinitely: " + frame);
+    }
+
+    @Test
+    @DisplayName("hits are STREAMED to a journal — the channel an agent can be woken by")
+    void hitsAreStreamedToAWatchableJournal() throws Exception {
+        // An MCP server cannot push anything into an agent: it only speaks when spoken to.
+        // But the agent's OWN harness watches files, and wakes it when one grows. So the hit
+        // does not travel over MCP — it lands here, and a file monitor turns each breakpoint
+        // into a notification. This is what makes "wait for a rare bug" cost nothing.
+        ToolResponse status = tool.execute(onSession("status"));
+        Path journal = Path.of(String.valueOf(data(status).get("hitStream")));
+        assertTrue(Files.exists(journal),
+            "the journal exists BEFORE the first hit — a watcher must not race its creation");
+
+        // EVERY hit is journalled — including the bootstrap stop this test started from.
+        int before = Files.readAllLines(journal).size();
+
+        arm("line", Map.of("line", lineOf("int echoed = echo();")));
+        go();
+        Map<String, Object> first = awaitHit();
+
+        List<String> lines = Files.readAllLines(journal);
+        assertEquals(before + 1, lines.size(), "one JSON line per hit: " + lines);
+        Map<?, ?> streamed = new ObjectMapper().readValue(lines.get(lines.size() - 1), Map.class);
+        assertEquals(first.get("hitId"), streamed.get("hitId"),
+            "the streamed line IS the hit, not a summary of it: " + streamed);
+        assertEquals("main", streamed.get("method"));
+        assertNotNull(streamed.get("threadId"), "with everything needed to act on it");
+
+        // A second hit appends — so a monitor sees a growing stream, one event per line.
+        go();
+        awaitHit();
+        assertEquals(before + 2, Files.readAllLines(journal).size(),
+            "append-only, one line per hit");
+    }
+
+    @Test
+    @DisplayName("a blocking wait does NOT freeze the session: other actions answer while it waits")
+    void aBlockingWaitDoesNotBlockEverythingElse() throws Exception {
+        // `wait` holds a request open for minutes. If that stalled everything else, a debug
+        // session would take the whole server down with it — so this is not a nicety.
+        ExecutorService waiter = Executors.newSingleThreadExecutor();
+        try {
+            ObjectNode waitArgs = onSession("wait");
+            waitArgs.put("timeoutMillis", 10_000);      // nothing is armed: it WILL block
+            Future<ToolResponse> blocked = waiter.submit(() -> tool.execute(waitArgs));
+
+            Thread.sleep(300);                          // let it get into the wait
+            assertFalse(blocked.isDone(), "the wait really is blocking");
+
+            long start = System.currentTimeMillis();
+            assertTrue(tool.execute(onSession("status")).isSuccess());
+            assertTrue(tool.execute(onSession("breakpoint_list")).isSuccess());
+            assertTrue(tool.execute(onSession("threads")).isSuccess());
+            long elapsed = System.currentTimeMillis() - start;
+
+            assertTrue(elapsed < 3_000,
+                "other actions must answer WHILE a wait is blocking; took " + elapsed + "ms");
+            assertFalse(blocked.isDone(), "and the wait is still waiting, undisturbed");
+
+            ToolResponse timedOut = blocked.get(20, TimeUnit.SECONDS);
+            assertTrue(timedOut.isSuccess());
+            assertEquals(Boolean.FALSE, data(timedOut).get("hit"), "nothing was armed");
+        } finally {
+            waiter.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("a conditional breakpoint REPORTS what it costs — every miss stops the thread")
+    void conditionalBreakpointsReportTheirCost() {
+        Map<String, Object> armed = arm("conditional", Map.of(
+            "line", lineOf("int doubled = iteration * 2;"),
+            "condition", "iteration == 6"));
+        go();
+        awaitHit();
+
+        ObjectNode list = onSession("breakpoint_list");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> breakpoints =
+            (List<Map<String, Object>>) data(tool.execute(list)).get("breakpoints");
+        Map<String, Object> reported = breakpoints.stream()
+            .filter(b -> armed.get("breakpointId").equals(b.get("breakpointId")))
+            .findFirst().orElseThrow();
+
+        // It matched once, on iteration 6 — but the thread was STOPPED seven times to find
+        // out. That is the real price of a condition, and it is stated rather than hidden.
+        assertEquals(1, ((Number) reported.get("hits")).intValue(), "got: " + reported);
+        assertEquals(7, ((Number) reported.get("conditionEvaluations")).intValue(),
+            "iterations 0..6 each stopped the thread to evaluate: " + reported);
+        assertEquals(6, ((Number) reported.get("passedOver")).intValue(),
+            "six of those stops matched nothing — the cost of asking: " + reported);
     }
 
     @Test

@@ -317,7 +317,18 @@ public class DebugTool extends AbstractTool {
             .orElseThrow(() -> new DebugController.DebugException("SESSION_UNKNOWN",
                 "No debug session '" + sessionId + "'. Open one with "
                     + "debug(action=launch) or debug(action=attach)."));
-        return session.debugger();
+        return debuggerOf(session);
+    }
+
+    /** Every session journals its hits, from the first one — see {@link #hitStreamOf}. */
+    private DebugController debuggerOf(RuntimeSession session) {
+        DebugController debugger = session.debugger();
+        debugger.journalHitsTo(hitStreamOf(session));
+        return debugger;
+    }
+
+    private Path hitStreamOf(RuntimeSession session) {
+        return artifacts.root().resolve("sessions").resolve(session.id).resolve("hits.jsonl");
     }
 
     private ToolResponse breakpointSet(JsonNode arguments) throws Exception {
@@ -609,7 +620,15 @@ public class DebugTool extends AbstractTool {
         if (session.isEmpty()) {
             return ToolResponse.symbolNotFound("No debug session '" + sessionId + "'.");
         }
-        return ToolResponse.success(session.get().describe(), ResponseMeta.builder().build());
+        // Opens the journal if it is not open yet: every path that hands back a session must
+        // name its hit stream, or an agent that never called launch cannot find it.
+        debuggerOf(session.get());
+        Map<String, Object> described = new LinkedHashMap<>(session.get().describe());
+        described.put("hitStream", hitStreamOf(session.get()).toString());
+        return ToolResponse.success(described, ResponseMeta.builder()
+            .steering("Every hit is appended as one JSON line to `hitStream` — point a file "
+                + "monitor at it and each breakpoint wakes you, no polling.")
+            .build());
     }
 
     private ToolResponse detach(JsonNode arguments) {
@@ -634,12 +653,23 @@ public class DebugTool extends AbstractTool {
     }
 
     private ToolResponse sessionResponse(RuntimeSession session, String note) {
+        // Open the journal NOW, before the caller can arm anything — so a watcher can be
+        // attached to an existing file rather than racing its creation.
+        debuggerOf(session);
+
         Map<String, Object> data = new LinkedHashMap<>(session.describe());
         data.put("note", note);
+        data.put("hitStream", hitStreamOf(session).toString());
         return ToolResponse.success(data, ResponseMeta.builder()
-            .steering("The capabilities are read from the JVM itself, not assumed: "
-                + "hot-swap and pop-frame are not universal. Preset capabilities: "
-                + DevSimPreset.CAPABILITIES + ".")
+            .steering("BE WOKEN BY BREAKPOINTS, DO NOT POLL FOR THEM: every hit is appended "
+                + "as one JSON line to `hitStream`. Point your harness's file monitor at it "
+                + "(e.g. `tail -f <hitStream>`) and each breakpoint becomes a notification — "
+                + "the session stays live and you stay idle in between. jawata cannot push to "
+                + "you over MCP (a server only speaks when spoken to), but your own harness "
+                + "can wake you, and this is the channel it watches. `wait` remains available "
+                + "for the simple case: it blocks and returns the next hit. "
+                + "Capabilities are read from the JVM, never assumed — hot-swap and pop-frame "
+                + "are not universal. Preset capabilities: " + DevSimPreset.CAPABILITIES + ".")
             .build());
     }
 

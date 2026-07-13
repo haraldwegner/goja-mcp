@@ -30,9 +30,14 @@ import com.sun.jdi.request.EventRequest;
 import com.sun.jdi.request.EventRequestManager;
 import com.sun.jdi.request.ExceptionRequest;
 import com.sun.jdi.request.StepRequest;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -63,6 +68,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class DebugController implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(DebugController.class);
+    private static final ObjectMapper JOURNAL = new ObjectMapper();
 
     /** Instances-of-type: past this, we stop counting live and go get an exact number. */
     public static final int INSTANCES_CAP = 100;
@@ -83,6 +89,8 @@ public final class DebugController implements AutoCloseable {
     private volatile String vmGone;
     /** A JVM we launched is held before its first instruction until the caller starts it. */
     private volatile boolean awaitingStart;
+    /** Append-only, one JSON line per hit — the thing an agent can be WOKEN by. */
+    private volatile Path hitJournal;
 
     public DebugController(VirtualMachine vm, long pid) {
         this(vm, pid, false);
@@ -101,6 +109,61 @@ public final class DebugController implements AutoCloseable {
         return awaitingStart;
     }
 
+    /**
+     * Stream every hit, as one JSON line, to a file — so that an agent can be WOKEN by a
+     * breakpoint instead of asking about it.
+     *
+     * <p>An MCP server cannot push anything: it only ever speaks when spoken to, and
+     * nothing it sends re-invokes an agent that is not already in a turn. But the agent's
+     * own harness CAN wake it — it watches files, background jobs and subagents, and
+     * re-invokes the model when one of them fires. So the hit does not travel over MCP at
+     * all: it lands in this file, the agent points a file monitor at it, and every
+     * breakpoint becomes a notification in its reasoning loop. The session stays live and
+     * the agent stays idle in between.</p>
+     *
+     * <p>This is what a human gets from an IDE: you do not poll the debugger, it tells you.
+     * Same thing, different channel.</p>
+     */
+    public void journalHitsTo(Path journal) {
+        if (hitJournal != null) {
+            return;   // idempotent: one journal per session, opened once
+        }
+        try {
+            Files.createDirectories(journal.getParent());
+            // Create it EMPTY and up front, so a watcher can attach before the first hit.
+            // A file that springs into existence on the first event is a race for whoever
+            // is trying to tail it.
+            if (!Files.exists(journal)) {
+                Files.writeString(journal, "");
+            }
+            hitJournal = journal;
+        } catch (IOException e) {
+            log.warn("cannot open the hit journal {}: {}", journal, e.getMessage());
+        }
+    }
+
+    /** Where the hits are being streamed, if anywhere. */
+    public Optional<Path> hitJournal() {
+        return Optional.ofNullable(hitJournal);
+    }
+
+    private void appendToJournal(Map<String, Object> hit) {
+        Path journal = hitJournal;
+        if (journal == null) {
+            return;
+        }
+        try {
+            // One line per hit, flushed on write: a watcher must see it NOW, not when a
+            // buffer happens to fill.
+            Files.writeString(journal, JOURNAL.writeValueAsString(hit) + System.lineSeparator(),
+                StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (Exception e) {
+            // A journal that cannot be written must not take the debug session down with
+            // it — the hit itself is still recorded and still waiting to be collected.
+            log.warn("cannot append to the hit journal: {}", e.getMessage());
+        }
+    }
+
     /** One breakpoint, as asked for and as it actually stands. */
     private static final class Bp {
         final String id;
@@ -113,6 +176,9 @@ public final class DebugController implements AutoCloseable {
         final Integer hitCount;
         final boolean internal;
         final AtomicInteger hits = new AtomicInteger();
+
+        /** How often the CONDITION was evaluated — i.e. how often we stopped the world. */
+        final AtomicInteger evaluations = new AtomicInteger();
 
         volatile EventRequest request;
         volatile ClassPrepareRequest deferred;
@@ -149,6 +215,18 @@ public final class DebugController implements AutoCloseable {
             }
             if (condition != null) {
                 described.put("condition", condition);
+                int tried = evaluations.get();
+                described.put("conditionEvaluations", tried);
+                described.put("passedOver", Math.max(0, tried - hits.get()));
+                if (tried > 500) {
+                    // The user is paying for this, and should know they are.
+                    described.put("costWarning", "This condition has stopped the thread "
+                        + tried + " times to be evaluated, and matched " + hits.get()
+                        + ". Each evaluation is a round trip to the JVM, so a condition on a "
+                        + "hot path slows the target substantially and shifts its timing. If "
+                        + "you can, break somewhere colder, or use kind=hit_count — the JVM "
+                        + "counts that one itself, without stopping anything.");
+                }
             }
             if (hitCount != null) {
                 described.put("hitCount", hitCount);
@@ -248,6 +326,10 @@ public final class DebugController implements AutoCloseable {
         // A condition decides whether this is a stop at all. Evaluate it in the very
         // frame that hit — that is the only place it means anything.
         if (bp.condition != null) {
+            // EVERY occurrence stops the thread and costs a round trip to evaluate — even
+            // the ones that do not match. On a hot path that is the dominant cost of the
+            // whole session, so we COUNT it and report it rather than let it be a mystery.
+            bp.evaluations.incrementAndGet();
             try {
                 Value verdict = new JdiEvaluator(thread, 0).evaluate(bp.condition);
                 if (verdict instanceof com.sun.jdi.BooleanValue decision) {
@@ -344,6 +426,11 @@ public final class DebugController implements AutoCloseable {
                 hit.put("newValue", JdiValues.summary(modified.valueToBe()));
             }
         }
+
+        // JOURNAL FIRST, then publish. A hit that a caller can already act on but which is
+        // not yet in the stream is a hit a file-watching agent would never be woken by —
+        // the same "published before it was recorded" race as marking the thread suspended.
+        appendToJournal(hit);
 
         fresh.offer(hit);
         history.add(hit);
