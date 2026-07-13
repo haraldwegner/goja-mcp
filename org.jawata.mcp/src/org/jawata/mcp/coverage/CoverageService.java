@@ -155,15 +155,80 @@ public final class CoverageService {
         }
     }
 
-    /** Analyzed model for an artifact (cached); null when the artifact is unknown. */
+    /**
+     * Stage 8 — import an EXTERNAL exec file (CI run) as a first-class
+     * artifact: provenance recorded against the CURRENT tree, acceptance
+     * gated by the class-id check at analysis time (mismatched bytes surface
+     * as stale-bytes REFUSALS, exactly like a local stale artifact).
+     */
+    public String importArtifact(LoadedProject project, Path execSource, String evidenceKind)
+            throws IOException {
+        if (!Files.isRegularFile(execSource)) {
+            throw new IOException("exec file not found: " + execSource);
+        }
+        String id = store.newArtifactId();
+        Path dir = store.createArtifactDir(id);
+        Files.copy(execSource, dir.resolve(CoverageStore.EXEC_FILE));
+        CoverageManifest m = new CoverageManifest();
+        m.artifactId = id;
+        m.createdAt = Instant.now().toString();
+        m.jacocoVersion = "0.8.15";
+        m.jdkVersion = System.getProperty("java.version");
+        m.environment = System.getProperty("os.name") + "/" + System.getProperty("os.arch");
+        m.projectKey = project.projectKey();
+        m.projectRoot = project.projectRoot().toString();
+        m.evidenceKind = evidenceKind == null || evidenceKind.isBlank() ? "imported" : evidenceKind;
+        m.framework = "imported";
+        collectRoots(project.javaProject(), m);
+        gitProvenance(project.projectRoot(), m);
+        m.runFinalized = true;
+        m.completionStatus = "IMPORTED";
+        store.writeManifest(id, m);
+        return id;
+    }
+
+    private final Map<String, Long> cacheFingerprints = new java.util.HashMap<>();
+
+    /**
+     * Analyzed model for an artifact (cached); null when the artifact is
+     * unknown. The cache is FRESHNESS-AWARE: a rebuild that touches the
+     * class roots invalidates the entry — a stale-bytes verdict must never
+     * be masked by a pre-rebuild analysis.
+     */
     public synchronized CoverageModel model(String artifactId) throws IOException {
-        CoverageModel cached = modelCache.get(artifactId);
-        if (cached != null) return cached;
         CoverageManifest manifest = store.readManifest(artifactId).orElse(null);
         if (manifest == null) return null;
+        long fingerprint = rootsFingerprint(manifest);
+        CoverageModel cached = modelCache.get(artifactId);
+        Long cachedFp = cacheFingerprints.get(artifactId);
+        if (cached != null && cachedFp != null && cachedFp == fingerprint) {
+            return cached;
+        }
         CoverageModel model = CoverageModel.analyze(store.execFile(artifactId), manifest);
         modelCache.put(artifactId, model);
+        cacheFingerprints.put(artifactId, fingerprint);
         return model;
+    }
+
+    /** Newest mtime across the class roots' class files — cheap rebuild signal. */
+    private static long rootsFingerprint(CoverageManifest manifest) {
+        long newest = 0;
+        for (String root : manifest.classRoots) {
+            Path rootPath = Path.of(root);
+            if (!Files.isDirectory(rootPath)) continue;
+            try (var walk = Files.walk(rootPath)) {
+                newest = Math.max(newest, walk
+                    .filter(p -> p.getFileName().toString().endsWith(".class"))
+                    .mapToLong(p -> {
+                        try {
+                            return Files.getLastModifiedTime(p).toMillis();
+                        } catch (IOException e) {
+                            return 0;
+                        }
+                    }).max().orElse(0));
+            } catch (IOException ignored) { }
+        }
+        return newest;
     }
 
     public synchronized void evict(String artifactId) {

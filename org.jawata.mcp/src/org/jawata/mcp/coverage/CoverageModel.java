@@ -71,6 +71,7 @@ public final class CoverageModel {
         public int branchesMissed;
         public List<Integer> uncoveredLines = new ArrayList<>();
         public List<Integer> partlyCoveredLines = new ArrayList<>();
+        public List<Integer> coveredLines = new ArrayList<>();
     }
 
     public static final class ClassCov {
@@ -187,6 +188,7 @@ public final class CoverageModel {
                 switch (l.getStatus()) {
                     case ICounter.NOT_COVERED -> m.uncoveredLines.add(line);
                     case ICounter.PARTLY_COVERED -> m.partlyCoveredLines.add(line);
+                    case ICounter.FULLY_COVERED -> m.coveredLines.add(line);
                     default -> { }
                 }
             }

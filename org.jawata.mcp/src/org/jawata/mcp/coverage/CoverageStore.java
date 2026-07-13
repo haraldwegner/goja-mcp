@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -134,5 +135,85 @@ public final class CoverageStore {
 
     public Path root() {
         return root;
+    }
+
+    // ---------------- Stage 8: baselines · threshold policy · unstable lines
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> readJsonMap(String fileName) {
+        Path file = root.resolve(fileName);
+        if (!Files.isRegularFile(file)) return new java.util.LinkedHashMap<>();
+        try {
+            return JSON.readValue(file.toFile(), Map.class);
+        } catch (IOException e) {
+            log.warn("unreadable {}: {}", file, e.getMessage());
+            return new java.util.LinkedHashMap<>();
+        }
+    }
+
+    private void writeJsonMap(String fileName, Map<String, Object> value) throws IOException {
+        Files.createDirectories(root);
+        JSON.writerWithDefaultPrettyPrinter().writeValue(root.resolve(fileName).toFile(), value);
+    }
+
+    /** Name a stored artifact as a baseline. */
+    public void setBaseline(String name, String artifactId) throws IOException {
+        Map<String, Object> baselines = readJsonMap("baselines.json");
+        baselines.put(name, artifactId);
+        writeJsonMap("baselines.json", baselines);
+    }
+
+    public Optional<String> baseline(String name) {
+        Object id = readJsonMap("baselines.json").get(name);
+        return id == null ? Optional.empty() : Optional.of(String.valueOf(id));
+    }
+
+    /**
+     * The threshold policy: explicit AND VERSIONED — every change bumps the
+     * version so a response can prove WHICH policy judged it. Waivers are
+     * part of the policy and always surface in responses.
+     */
+    public Map<String, Object> readPolicy() {
+        return readJsonMap("threshold-policy.json");
+    }
+
+    public Map<String, Object> setPolicy(double lineThresholdPercent,
+            List<Map<String, String>> waivers) throws IOException {
+        Map<String, Object> policy = readPolicy();
+        int version = policy.get("version") instanceof Number n ? n.intValue() : 0;
+        policy.put("version", version + 1);
+        policy.put("lineThresholdPercent", lineThresholdPercent);
+        policy.put("waivers", waivers == null ? List.of() : waivers);
+        writeJsonMap("threshold-policy.json", policy);
+        return policy;
+    }
+
+    /** Unstable-line registry: fqn → lines proven non-deterministic. */
+    @SuppressWarnings("unchecked")
+    public Map<String, List<Integer>> readUnstable() {
+        Map<String, Object> raw = readJsonMap("unstable.json");
+        Map<String, List<Integer>> out = new java.util.LinkedHashMap<>();
+        raw.forEach((k, v) -> {
+            if (v instanceof List<?> l) {
+                List<Integer> lines = new ArrayList<>();
+                l.forEach(x -> lines.add(((Number) x).intValue()));
+                out.put(k, lines);
+            }
+        });
+        return out;
+    }
+
+    public void addUnstable(Map<String, List<Integer>> more) throws IOException {
+        Map<String, List<Integer>> current = readUnstable();
+        more.forEach((fqn, lines) -> {
+            List<Integer> merged = new ArrayList<>(current.getOrDefault(fqn, List.of()));
+            for (Integer l : lines) {
+                if (!merged.contains(l)) merged.add(l);
+            }
+            current.put(fqn, merged);
+        });
+        Map<String, Object> raw = new java.util.LinkedHashMap<>();
+        current.forEach(raw::put);
+        writeJsonMap("unstable.json", raw);
     }
 }

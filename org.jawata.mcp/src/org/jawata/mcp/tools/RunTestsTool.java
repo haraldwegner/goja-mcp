@@ -209,14 +209,20 @@ public class RunTestsTool extends AbstractTool {
                 return handleSessionAction(action, arguments);
             }
             case "coverage_report", "coverage_uncovered", "coverage_artifacts",
-                 "coverage_delete" -> {
+                 "coverage_delete", "coverage_delta", "coverage_baseline_set",
+                 "coverage_baseline_compare", "coverage_threshold_set",
+                 "coverage_stability" -> {
                 return handleCoverageAction(action, arguments);
+            }
+            case "coverage_import" -> {
+                return handleCoverageImport(service, arguments);
             }
             case "run", "start" -> { /* fall through to launch */ }
             default -> {
                 return ToolResponse.invalidParameter("action",
-                    "Must be run, start, status, cancel, coverage_report, "
-                        + "coverage_uncovered, coverage_artifacts, or coverage_delete; got '"
+                    "Must be run, start, status, cancel, or one of the coverage_* actions "
+                        + "(report, uncovered, artifacts, delete, delta, baseline_set, "
+                        + "baseline_compare, threshold_set, stability, import); got '"
                         + action + "'.");
             }
         }
@@ -423,6 +429,25 @@ public class RunTestsTool extends AbstractTool {
                 return ToolResponse.success(data, ResponseMeta.builder()
                     .totalCount(items.size()).returnedCount(items.size()).build());
             }
+            if ("coverage_threshold_set".equals(action)) {
+                if (!arguments.has("lineThresholdPercent")) {
+                    return ToolResponse.invalidParameter("lineThresholdPercent",
+                        "lineThresholdPercent is required for coverage_threshold_set.");
+                }
+                double threshold = arguments.get("lineThresholdPercent").asDouble();
+                java.util.List<Map<String, String>> waivers = new ArrayList<>();
+                if (arguments.has("waivers") && arguments.get("waivers").isArray()) {
+                    arguments.get("waivers").forEach(w -> waivers.add(Map.of(
+                        "pattern", w.path("pattern").asText(""),
+                        "reason", w.path("reason").asText(""))));
+                }
+                Map<String, Object> policy = store.setPolicy(threshold, waivers);
+                Map<String, Object> data = new LinkedHashMap<>();
+                data.put("operation", "run_tests");
+                data.put("action", action);
+                data.put("policy", policy);
+                return ToolResponse.success(data, ResponseMeta.builder().build());
+            }
             if ("coverage_delete".equals(action)) {
                 String id = getStringParam(arguments, "artifactId");
                 if (id == null || id.isBlank()) {
@@ -460,6 +485,28 @@ public class RunTestsTool extends AbstractTool {
 
             if ("coverage_report".equals(action)) {
                 return coverageReport(id, model);
+            }
+            if ("coverage_delta".equals(action)) {
+                return coverageDelta(id, model, arguments);
+            }
+            if ("coverage_baseline_set".equals(action)) {
+                String name = getStringParam(arguments, "name");
+                if (name == null || name.isBlank()) {
+                    return ToolResponse.invalidParameter("name", "baseline name is required.");
+                }
+                store.setBaseline(name, id);
+                Map<String, Object> data = new LinkedHashMap<>();
+                data.put("operation", "run_tests");
+                data.put("action", action);
+                data.put("baseline", name);
+                data.put("artifactId", id);
+                return ToolResponse.success(data, ResponseMeta.builder().build());
+            }
+            if ("coverage_baseline_compare".equals(action)) {
+                return coverageBaselineCompare(id, model, arguments);
+            }
+            if ("coverage_stability".equals(action)) {
+                return coverageStability(id, model, arguments);
             }
             String target = getStringParam(arguments, "target");
             if (target == null || target.isBlank()) {
@@ -539,6 +586,8 @@ public class RunTestsTool extends AbstractTool {
                 + "from the measured bytes (class-id mismatch) — re-run with coverage "
                 + "to get truthful data.");
         }
+        int lineTotal = linesCovered + linesMissed;
+        attachPolicy(data, lineTotal == 0 ? null : 100.0 * linesCovered / lineTotal);
         return ToolResponse.success(data, ResponseMeta.builder()
             .totalCount(model.classes.size()).returnedCount(model.classes.size()).build());
     }
@@ -632,6 +681,288 @@ public class RunTestsTool extends AbstractTool {
             + " directly (see 'links.callers' for where it is exercised from), then re-run "
             + "with coverage=true and re-query this target.");
         return ToolResponse.success(data, ResponseMeta.builder().build());
+    }
+
+    /** Stage 8 — intersect the coverage model with a git diff (rename-aware). */
+    private ToolResponse coverageDelta(String id, org.jawata.mcp.coverage.CoverageModel model,
+            JsonNode arguments) throws Exception {
+        if (!model.manifest.runFinalized || model.instrumentationFailure) {
+            return ToolResponse.invalidParameter("artifactId",
+                "Artifact '" + id + "' carries no usable evidence ("
+                    + model.manifest.completionStatus + ") — no delta can be computed.");
+        }
+        String diffKind = getStringParam(arguments, "diff", "worktree");
+        String range = getStringParam(arguments, "range");
+        org.jawata.mcp.coverage.GitDiff diff = org.jawata.mcp.coverage.GitDiff.read(
+            Path.of(model.manifest.projectRoot), diffKind, range);
+        Map<String, java.util.List<Integer>> unstable = coverage.store().readUnstable();
+
+        java.util.List<Map<String, Object>> files = new ArrayList<>();
+        int changedExecutable = 0, coveredChanged = 0;
+        java.util.List<String> uncoveredAll = new ArrayList<>();
+        java.util.List<String> unstableAll = new ArrayList<>();
+        for (Map.Entry<String, java.util.Set<Integer>> e : diff.changedLinesByFile.entrySet()) {
+            String path = e.getKey();
+            if (!path.endsWith(".java") || e.getValue().isEmpty()) continue;
+            org.jawata.mcp.coverage.CoverageModel.ClassCov clazz = classForPath(model, path);
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("file", path);
+            if (clazz == null) {
+                row.put("note", "no analyzed class maps to this file (new/removed/non-main)");
+                files.add(row);
+                continue;
+            }
+            row.put("class", clazz.fqn);
+            if (clazz.state == org.jawata.mcp.coverage.CoverageModel.State.STALE_BYTES) {
+                row.put("state", "stale-bytes");
+                row.put("note", "REFUSED: the artifact predates the current bytes of this class.");
+                files.add(row);
+                continue;
+            }
+            java.util.List<Integer> unstableLines = unstable.getOrDefault(clazz.fqn, List.of());
+            java.util.List<Integer> covered = new ArrayList<>();
+            java.util.List<Integer> uncoveredL = new ArrayList<>();
+            java.util.List<Integer> unstableHit = new ArrayList<>();
+            for (org.jawata.mcp.coverage.CoverageModel.MethodCov m : clazz.methods) {
+                for (Integer line : e.getValue()) {
+                    if (line < m.firstLine || line > m.lastLine) continue;
+                    if (unstableLines.contains(line)) {
+                        // Proven non-deterministic: NEVER counts as covered.
+                        unstableHit.add(line);
+                    } else if (m.uncoveredLines.contains(line)
+                            || m.partlyCoveredLines.contains(line)) {
+                        uncoveredL.add(line);
+                    } else if (m.coveredLines.contains(line)) {
+                        covered.add(line);
+                    }
+                    // else: non-executable changed line — not counted
+                }
+            }
+            changedExecutable += covered.size() + uncoveredL.size() + unstableHit.size();
+            coveredChanged += covered.size();
+            if (!uncoveredL.isEmpty()) {
+                row.put("uncoveredChangedLines", uncoveredL);
+                uncoveredL.forEach(l -> uncoveredAll.add(clazz.fqn + ":" + l));
+            }
+            if (!unstableHit.isEmpty()) {
+                row.put("unstableChangedLines", unstableHit);
+                row.put("unstableNote", "proven non-deterministic across runs — NOT counted covered");
+                unstableHit.forEach(l -> unstableAll.add(clazz.fqn + ":" + l));
+            }
+            row.put("coveredChangedLines", covered.size());
+            files.add(row);
+        }
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("operation", "run_tests");
+        data.put("action", "coverage_delta");
+        data.put("artifactId", id);
+        data.put("diff", diffKind + (range == null ? "" : " " + range));
+        data.put("files", files);
+        Map<String, Object> totals = new LinkedHashMap<>();
+        totals.put("changedExecutableLines", changedExecutable);
+        totals.put("coveredChangedLines", coveredChanged);
+        totals.put("uncoveredChangedLines", uncoveredAll.size());
+        totals.put("unstableChangedLines", unstableAll.size());
+        totals.put("changedLinePercent", percent(coveredChanged,
+            changedExecutable - coveredChanged));
+        data.put("totals", totals);
+        attachPolicy(data, changedExecutable == 0 ? null
+            : 100.0 * coveredChanged / changedExecutable);
+        return ToolResponse.success(data, ResponseMeta.builder()
+            .totalCount(files.size()).returnedCount(files.size()).build());
+    }
+
+    /** Stage 8 — regression vs a named baseline, blind to a rising global %. */
+    private ToolResponse coverageBaselineCompare(String id,
+            org.jawata.mcp.coverage.CoverageModel current, JsonNode arguments) throws Exception {
+        String name = getStringParam(arguments, "name");
+        if (name == null || name.isBlank()) {
+            return ToolResponse.invalidParameter("name", "baseline name is required.");
+        }
+        String baseId = coverage.store().baseline(name).orElse(null);
+        if (baseId == null) {
+            return ToolResponse.invalidParameter("name", "Unknown baseline '" + name + "'.");
+        }
+        org.jawata.mcp.coverage.CoverageModel base = coverage.model(baseId);
+        if (base == null) {
+            return ToolResponse.invalidParameter("name",
+                "Baseline '" + name + "' points at a deleted artifact (" + baseId + ").");
+        }
+        java.util.List<Map<String, Object>> newlyMissed = new ArrayList<>();
+        java.util.List<String> newlyUncoveredSymbols = new ArrayList<>();
+        for (org.jawata.mcp.coverage.CoverageModel.ClassCov baseClass : base.classes) {
+            org.jawata.mcp.coverage.CoverageModel.ClassCov nowClass = current.classOf(baseClass.fqn);
+            if (nowClass == null) continue;
+            for (org.jawata.mcp.coverage.CoverageModel.MethodCov bm : baseClass.methods) {
+                org.jawata.mcp.coverage.CoverageModel.MethodCov nm = nowClass.methods.stream()
+                    .filter(x -> x.name.equals(bm.name) && x.desc.equals(bm.desc))
+                    .findFirst().orElse(null);
+                if (nm == null) continue;
+                java.util.List<Integer> lost = new ArrayList<>();
+                for (Integer line : bm.coveredLines) {
+                    if (nm.uncoveredLines.contains(line)) lost.add(line);
+                }
+                if (!lost.isEmpty()) {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("symbol", baseClass.fqn + "#" + bm.name);
+                    row.put("newlyMissedLines", lost);
+                    newlyMissed.add(row);
+                }
+                boolean wasCovered = bm.linesCovered > 0;
+                boolean nowMissed = nm.linesCovered == 0 && nm.linesMissed > 0;
+                if (wasCovered && nowMissed) {
+                    newlyUncoveredSymbols.add(baseClass.fqn + "#" + bm.name);
+                }
+            }
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("operation", "run_tests");
+        data.put("action", "coverage_baseline_compare");
+        data.put("baseline", name);
+        data.put("baselineArtifactId", baseId);
+        data.put("artifactId", id);
+        data.put("globalLinePercentBefore", globalLinePercent(base));
+        data.put("globalLinePercentAfter", globalLinePercent(current));
+        data.put("newlyMissed", newlyMissed);
+        data.put("newlyUncoveredSymbols", newlyUncoveredSymbols);
+        boolean regression = !newlyMissed.isEmpty() || !newlyUncoveredSymbols.isEmpty();
+        data.put("regression", regression);
+        if (regression) {
+            data.put("note", "Regression is judged per SYMBOL/LINE — a rising global "
+                + "percentage does not excuse newly-uncovered code.");
+        }
+        return ToolResponse.success(data, ResponseMeta.builder().build());
+    }
+
+    /** Stage 8 — two same-selection artifacts → unstable lines, registered. */
+    private ToolResponse coverageStability(String id,
+            org.jawata.mcp.coverage.CoverageModel a, JsonNode arguments) throws Exception {
+        String otherId = getStringParam(arguments, "otherArtifactId");
+        if (otherId == null || otherId.isBlank()) {
+            return ToolResponse.invalidParameter("otherArtifactId",
+                "otherArtifactId is required for coverage_stability.");
+        }
+        org.jawata.mcp.coverage.CoverageModel b = coverage.model(otherId);
+        if (b == null) {
+            return ToolResponse.invalidParameter("otherArtifactId",
+                "Unknown coverage artifact '" + otherId + "'.");
+        }
+        if (!selectionSummary(a.manifest).equals(selectionSummary(b.manifest))) {
+            return ToolResponse.invalidParameter("otherArtifactId",
+                "Stability needs TWO runs of the SAME selection; got '"
+                    + selectionSummary(a.manifest) + "' vs '" + selectionSummary(b.manifest) + "'.");
+        }
+        Map<String, java.util.List<Integer>> unstable = new LinkedHashMap<>();
+        for (org.jawata.mcp.coverage.CoverageModel.ClassCov ca : a.classes) {
+            org.jawata.mcp.coverage.CoverageModel.ClassCov cb = b.classOf(ca.fqn);
+            if (cb == null) continue;
+            java.util.List<Integer> lines = new ArrayList<>();
+            for (org.jawata.mcp.coverage.CoverageModel.MethodCov ma : ca.methods) {
+                org.jawata.mcp.coverage.CoverageModel.MethodCov mb = cb.methods.stream()
+                    .filter(x -> x.name.equals(ma.name) && x.desc.equals(ma.desc))
+                    .findFirst().orElse(null);
+                if (mb == null) continue;
+                for (Integer line : ma.coveredLines) {
+                    if (mb.uncoveredLines.contains(line) && !lines.contains(line)) lines.add(line);
+                }
+                for (Integer line : mb.coveredLines) {
+                    if (ma.uncoveredLines.contains(line) && !lines.contains(line)) lines.add(line);
+                }
+            }
+            if (!lines.isEmpty()) unstable.put(ca.fqn, lines);
+        }
+        if (!unstable.isEmpty()) {
+            coverage.store().addUnstable(unstable);
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("operation", "run_tests");
+        data.put("action", "coverage_stability");
+        data.put("artifactId", id);
+        data.put("otherArtifactId", otherId);
+        data.put("unstable", unstable);
+        data.put("gateNote", unstable.isEmpty()
+            ? "No unstable lines between the two runs."
+            : "These lines are REGISTERED as unstable — they never count as covered "
+                + "in gate/delta answers until proven stable again.");
+        return ToolResponse.success(data, ResponseMeta.builder().build());
+    }
+
+    /** Stage 8 — import an external exec file; class-id gate applies at analysis. */
+    private ToolResponse handleCoverageImport(IJdtService service, JsonNode arguments) {
+        try {
+            String execFile = getStringParam(arguments, "execFile");
+            if (execFile == null || execFile.isBlank()) {
+                return ToolResponse.invalidParameter("execFile",
+                    "execFile is required for coverage_import.");
+            }
+            String projectKey = getStringParam(arguments, "projectKey");
+            LoadedProject project;
+            if (projectKey != null && !projectKey.isBlank()) {
+                Optional<LoadedProject> scoped = service.getProject(projectKey);
+                if (scoped.isEmpty()) {
+                    return ToolResponse.invalidParameter("projectKey",
+                        "Unknown projectKey '" + projectKey + "'.");
+                }
+                project = scoped.get();
+            } else {
+                project = service.allProjects().stream().findFirst().orElse(null);
+                if (project == null) return ToolResponse.projectNotLoaded();
+            }
+            String evidenceKind = getStringParam(arguments, "evidenceKind", "imported");
+            String id = coverage.importArtifact(project,
+                Path.of(execFile), evidenceKind);
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("operation", "run_tests");
+            data.put("action", "coverage_import");
+            data.put("artifactId", id);
+            data.put("note", "Imported. The class-id check gates every query: classes whose "
+                + "CURRENT bytes differ from the imported measurement surface as "
+                + "stale-bytes REFUSALS.");
+            return ToolResponse.success(data, ResponseMeta.builder().build());
+        } catch (Exception e) {
+            log.warn("coverage_import failed: {}", e.getMessage(), e);
+            return ToolResponse.internalError(e);
+        }
+    }
+
+    private void attachPolicy(Map<String, Object> data, Double achievedPercent) {
+        Map<String, Object> policy = coverage.store().readPolicy();
+        if (policy.isEmpty()) return;
+        Map<String, Object> threshold = new LinkedHashMap<>();
+        threshold.put("lineThresholdPercent", policy.get("lineThresholdPercent"));
+        threshold.put("policyVersion", policy.get("version"));
+        threshold.put("waivers", policy.getOrDefault("waivers", List.of()));
+        if (achievedPercent != null && policy.get("lineThresholdPercent") instanceof Number n) {
+            threshold.put("verdict", achievedPercent >= n.doubleValue() ? "PASS" : "BELOW_THRESHOLD");
+            threshold.put("achievedPercent", String.format(java.util.Locale.ROOT,
+                "%.1f%%", achievedPercent));
+        }
+        data.put("threshold", threshold);
+    }
+
+    private static String globalLinePercent(org.jawata.mcp.coverage.CoverageModel model) {
+        int covered = 0, missed = 0;
+        for (org.jawata.mcp.coverage.CoverageModel.ClassCov c : model.classes) {
+            if (c.state == org.jawata.mcp.coverage.CoverageModel.State.STALE_BYTES) continue;
+            covered += c.linesCovered;
+            missed += c.linesMissed;
+        }
+        return percent(covered, missed);
+    }
+
+    /** Map a repo-relative changed path to the analyzed class whose source it is. */
+    private static org.jawata.mcp.coverage.CoverageModel.ClassCov classForPath(
+            org.jawata.mcp.coverage.CoverageModel model, String path) {
+        for (org.jawata.mcp.coverage.CoverageModel.ClassCov c : model.classes) {
+            if (c.sourceFile == null) continue;
+            int lastDot = c.fqn.lastIndexOf('.');
+            String pkgPath = lastDot < 0 ? "" : c.fqn.substring(0, lastDot).replace('.', '/') + "/";
+            if (path.endsWith(pkgPath + c.sourceFile)) {
+                return c;
+            }
+        }
+        return null;
     }
 
     private static Map<String, Object> methodDetail(

@@ -15,5 +15,6 @@ public class CoveredTest {
         assertEquals("yes", c.branchy(true));
         assertNotNull(c.lambdaHolder()); // obtained, deliberately NOT run
         assertEquals("alpha", CovEnum.ALPHA.tag());
+        assertEquals("helped", CovHelper.help()); // covered — the rename-proof target
     }
 }

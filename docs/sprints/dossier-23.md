@@ -377,3 +377,46 @@ diff the REPO (releases + README), never the marketplace listing.
 ### C7 exit status
 
 - **GREEN.**
+
+## C8 — Delta · baselines · thresholds · stability · CI import (2026-07-13)
+
+### What shipped
+
+- `GitDiff` (rename-aware `git diff -U0 -M` parser: worktree/staged/range →
+  new-side changed lines); `coverage_delta` intersects it with the per-line
+  model (covered/uncovered/UNSTABLE/non-executable classification per changed
+  line; stale classes refused inline; totals + changed-line percent).
+- `coverage_baseline_set` / `coverage_baseline_compare`: named baselines in
+  the store; regression = newly-missed lines + newly-uncovered symbols,
+  judged per symbol/line — explicitly blind to a rising global percentage.
+- `coverage_threshold_set`: the policy is a stored, VERSIONED document
+  (every change bumps the version); report + delta responses under an active
+  policy carry value + policyVersion + waivers + verdict.
+- `coverage_stability`: two same-selection artifacts → line-level XOR →
+  unstable registry; unstable lines NEVER count as covered in delta/gate
+  answers.
+- `coverage_import`: external exec → first-class artifact with fresh
+  provenance; acceptance gated by the class-id check at analysis (mismatch =
+  stale-bytes refusal). Model cache made FRESHNESS-AWARE (class-root mtime
+  fingerprint) so a rebuild can never mask a stale verdict.
+
+### Verification (expected vs actual) — CoverageDeltaTest 5/5, first run
+
+- Delta EXACT across worktree/staged/range: exactly the 2 new uncovered body
+  lines; a 3-line comment insertion SHIFTS all covered code without creating
+  gaps; a `git mv` pure rename (non-public class file, content unchanged)
+  yields no false gap ✓.
+- Baseline: branchy's dropped then-arm is NAMED as newly-missed while the
+  global line percentage RISES (asserted numerically) ✓.
+- Threshold: value 80 + policyVersion 1 + the waiver text visible in the
+  report; re-set → version 2 visibly ✓.
+- Stability: the flip-dependent line lands in the unstable registry; after
+  touching that line and covering it in a fresh run, delta still reports it
+  UNSTABLE, not covered ✓.
+- Import: matching bytes → real totals, no refusals; after modify+rebuild the
+  SAME import surfaces Covered as stale-REFUSED ✓.
+- Regression: CoverageCoreTest 6/6, runner family green ✓.
+
+### C8 exit status
+
+- **GREEN.**
