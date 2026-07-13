@@ -368,3 +368,51 @@ Both compile with `-g` (locals must be visible or the frame reads nothing).
 |---|---|---|
 | Layer chosen on breakpoint evidence | proof on both candidates, or a documented disqualification | JDK JDI proven end-to-end; java-debug disqualified on structure ✓ |
 | Fixtures compile | in-suite | both compile; replay determinism verified by running it ✓ |
+
+## C7 — D5: the runtime session spine (2026-07-13)
+
+### What shipped
+
+`org.jawata.mcp.runtime`: **DevSimPreset** (the one host-controlled switch —
+loopback JDWP, bounded continuous JFR, local JMX, NMT summary, profiler
+readiness, quiet console), **JvmTargets** (discover / launch / attach /
+capability read), **RuntimeSession** (knows how it began, because teardown
+differs), **RuntimeSessionRegistry** (bounded, with a shutdown hook — a launched
+JVM with nobody left to reap it is an orphan). Front door #1: **`debug`**
+(discover / launch / attach / status / detach / cancel). **toolCount 43 → 44.**
+
+### THE FINDING — debuggability cannot be retrofitted
+
+`loadAgentLibrary("jdwp", …)` fails: *"Agent_OnAttach is not available in jdwp"*.
+OpenJDK's debug agent has **no attach entry point**, so a JVM that started
+without `-agentlib:jdwp` can NEVER be debugged, for as long as it lives. (Harald,
+on being told: *"jvm starts with debug harness. This I could have told you
+upfront."* — noted; ask him about JVM/runtime realities before deriving them.)
+
+This does not weaken the design; it **completes** it:
+
+- The preset is not a convenience — it is the ONLY way a JVM becomes debuggable.
+- **The safety model becomes structural, not policy.** The spec claims the
+  dangerous action is "unrepresentable, not refused". That was an architectural
+  aspiration; it is now literally true at the JVM level — a production JVM,
+  started without the preset, cannot be debugged by anyone, with any tool.
+- The API got better: `discover` flags every JVM `debuggable: true|false` **with
+  the reason**, so nobody learns this by failing; `attach` refuses an unprepared
+  target with `JVM_NOT_DEBUGGABLE` and says what to do instead, rather than
+  returning an internal error.
+
+Recorded in the experience store (dbb91ef3), incl. the contrast that JMX
+*can* be loaded dynamically — so phase 3's live-state reads do not share this
+restriction.
+
+### Verification (expected vs actual)
+
+| Gate | Expected | Actual |
+|---|---|---|
+| Preset capabilities discovered | ALL SIX | all six, read FROM the JVM, never assumed ✓ |
+| Launched JVM: detach | terminated, no orphan | pid gone, session forgotten ✓ |
+| Foreign PREPARED JVM: detach | released, keeps running | still alive after detach ✓ |
+| Unprepared JVM | honest refusal + reason | `JVM_NOT_DEBUGGABLE` + how to fix ✓ |
+| discover | never offers the debugger itself | self excluded ✓ |
+| DebugSessionSpineTest | green | **6/6** ✓ |
+| Full suite | 1258 | **1258/1258** after one contention-flake rerun (RenameSymbolToolTest; 10/10 ×3 focused) ✓ |

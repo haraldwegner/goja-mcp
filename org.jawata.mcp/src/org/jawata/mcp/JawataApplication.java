@@ -22,6 +22,7 @@ import org.jawata.mcp.tools.ApplyCleanupTool;
 import org.jawata.mcp.tools.ApplyNullAnnotationsTool;
 import org.jawata.mcp.tools.ChangeMethodSignatureTool;
 import org.jawata.mcp.tools.CompileWorkspaceTool;
+import org.jawata.mcp.tools.DebugTool;
 import org.jawata.mcp.tools.ConvertAnonymousToLambdaTool;
 import org.jawata.mcp.tools.EncapsulateFieldTool;
 import org.jawata.mcp.tools.ExperienceTool;
@@ -86,6 +87,14 @@ public class JawataApplication implements IApplication {
     // Sprint 14b: session-scoped cache backing the refactoring apply/undo
     // contract (staged Changes + undo handles, TTL + LRU bounded).
     private final RefactoringChangeCache refactoringChangeCache = new RefactoringChangeCache();
+
+    /**
+     * Sprint 24 (D5): the live debug sessions. One registry for the server, so a
+     * session outlives the tool call that made it but never the server itself —
+     * a launched JVM with nobody left to reap it is an orphan.
+     */
+    private final org.jawata.mcp.runtime.RuntimeSessionRegistry runtimeSessions =
+        new org.jawata.mcp.runtime.RuntimeSessionRegistry();
     private ToolRegistry toolRegistry;
     // Sprint 21 (v2.0): the local experience/knowledge store — workspace-scoped H2,
     // opened at start()/closed at stop(). Backs the ExperienceAdvisor + store tools.
@@ -614,6 +623,10 @@ public class JawataApplication implements IApplication {
         // Sprint 12 (v1.6.0): Ring 1 workspace verification tools.
         toolRegistry.register(new CompileWorkspaceTool(() -> jdtService));
         toolRegistry.register(new RunTestsTool(() -> jdtService));
+
+        // Sprint 24 (D5): the interactive debugger's front door. Dev/sim only —
+        // production runs no agent and exposes no debug channel.
+        toolRegistry.register(new DebugTool(() -> jdtService, runtimeSessions));
 
         // Sprint 14 Phase B.1 (v1.8.0): consolidated lifecycle tool.
         toolRegistry.register(new RefreshWorkspaceTool(() -> jdtService));
