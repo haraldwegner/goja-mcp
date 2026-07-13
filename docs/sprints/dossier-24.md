@@ -295,3 +295,19 @@ overload at once), the constructor is dropped (it is not addressable as
 `Type#member`), and the list is bounded at 30 — with a trailing `…` when it
 truncates, because a bounded list presented as a complete one is the same lie as
 a capped count presented as an exact one.
+
+### F4 disposition (Harald, 2026-07-13)
+
+Cosmetic — a noisy correction message, not a wrong one. **Folded into v2.12.0**
+rather than cutting a release for a list dedupe. The fix is on main (e70d2a3),
+green, and ships at the end of Phase 2. Carried forward so it cannot be lost:
+**v2.12.0's release notes must mention it.**
+
+### C5 exit — PHASE 1 COMPLETE
+
+| Gate | Actual |
+|---|---|
+| v2.11.0 released | ✓ CI green, 5 assets, suite artifact-verified 1249/1249 |
+| Dogfood-in-anger → findings fixed | ✓ 3 findings → **v2.11.1 released** (CI green, 1251/1251) |
+| Second dogfood round on the patch | ✓ both fixes hold; 1 cosmetic finding (F4) → deferred to v2.12.0 by decision |
+| Spec D1–D4 | ✓ as-built |
