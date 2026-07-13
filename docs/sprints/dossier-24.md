@@ -181,6 +181,22 @@ reuse must verify that name resolves through the same path the agent will use.
 Release notes: `docs/release-notes/v2.11.0.md`. Commits: 48ea12e (C0) ·
 f88a2e9 (C1/D1) · b70bad6 (C2/D2) · 112b0cf (C3/D3+D4) · f5cd144 (release bump).
 
-⏸ **Awaiting Harald's release word.** On the word: push + tag → CI → fleet flip
-→ the release-day battery (live stream-1 probes on the resident) → Stage 5's
-dogfood-in-anger.
+**RELEASED 2026-07-13** on the word: pushed + tagged v2.11.0 → CI green (244
+test classes / **1249 tests / 0 skipped**, verified from the downloaded run
+artifact, not just the step status) → GitHub Release published with 5 platform
+assets.
+
+⏸ Next: fleet flip (Harald) → the release-day battery (live stream-1 probes on
+the resident) → Stage 5's dogfood-in-anger.
+
+### Security note (found while releasing, unrelated to the code)
+
+Three cold emails hit Harald's business address right after the project gained
+visibility. The vector was NOT the website: **all 201 commits in the public repo
+carried `harald@quantefakt.de` as author + committer**, which the GitHub API
+serves unauthenticated for every commit — one of the most industrially scraped
+sources there is. GitHub's "keep my email private" profile setting does not
+touch commit metadata. Fixed forward: the git identity is now the
+`…@users.noreply.github.com` alias (all three repos inherit it; no local
+overrides). History is deliberately NOT rewritten — it would break every SHA,
+tag and release for an address already harvested.
