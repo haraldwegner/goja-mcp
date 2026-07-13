@@ -727,8 +727,9 @@ to ground rather than waved off:
 | ComposeMethodToolTest soak | 20/20 (pre-fix ~3/8) ✓ |
 | Clean-clone build (6ca22fb) | exit 0, enforcer-complete dist, testrunner-2.10.0.jar ✓ |
 
-⏸ Awaiting Harald's release word (push + tag v2.10.0 → CI → fleet flip →
-resident dogfood battery → close-out questions).
+Released v2.10.0 (2026-07-13): pushed + tagged → CI green (241 classes /
+1230 tests / 0 skipped, 7m21s) → GitHub Release with 5 platform assets →
+fleet flipped → dogfood battery green (below).
 
 ## C14 — Resident dogfood battery (2026-07-13, live on 2.10.0 fleet)
 
