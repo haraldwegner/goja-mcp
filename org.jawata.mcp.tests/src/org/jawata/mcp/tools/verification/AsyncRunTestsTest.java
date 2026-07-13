@@ -31,10 +31,11 @@ class AsyncRunTestsTest {
 
     private RunTestsTool tool;
     private ObjectMapper objectMapper;
+    private JdtServiceImpl service;
 
     @BeforeEach
     void setUp() throws Exception {
-        JdtServiceImpl service = helper.loadProjectCopy("runner-pathological");
+        service = helper.loadProjectCopy("runner-pathological");
         tool = new RunTestsTool(() -> service);
         objectMapper = new ObjectMapper();
     }
@@ -133,11 +134,26 @@ class AsyncRunTestsTest {
         assertEquals(Boolean.FALSE, summary.get("evidenceFinalized"), "summary: " + summary);
         assertEquals(Boolean.TRUE, summary.get("cancelled"), "summary: " + summary);
 
-        List<String> orphans = ProcessHandle.allProcesses()
-            .filter(ProcessHandle::isAlive)
-            .map(p -> p.info().commandLine().orElse(""))
-            .filter(cmd -> cmd.contains("org.jawata.testrunner.Main"))
-            .toList();
+        // Orphan check, hardened after two shard-load false positives (Stage 14):
+        // (a) scope to THIS test's fixture copy — a machine-wide testrunner.Main
+        // scan catches LEGITIMATE runners forked concurrently by sibling suite
+        // shards; (b) reaping is asynchronous (destroyForcibly + descendants),
+        // so poll bounded instead of asserting the instant after cancel returns.
+        String projectMarker = service.getProjectRoot().toString();
+        List<String> orphans = List.of();
+        long reapDeadline = System.currentTimeMillis() + 15_000;
+        while (System.currentTimeMillis() < reapDeadline) {
+            orphans = ProcessHandle.allProcesses()
+                .filter(ProcessHandle::isAlive)
+                .map(p -> p.info().commandLine().orElse(""))
+                .filter(cmd -> cmd.contains("org.jawata.testrunner.Main")
+                    && cmd.contains(projectMarker))
+                .toList();
+            if (orphans.isEmpty()) {
+                break;
+            }
+            Thread.sleep(250);
+        }
         assertTrue(orphans.isEmpty(), "orphan runner JVM(s) survived the cancel: " + orphans);
     }
 
