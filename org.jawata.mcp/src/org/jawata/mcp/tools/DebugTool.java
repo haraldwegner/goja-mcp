@@ -190,9 +190,15 @@ public class DebugTool extends AbstractTool {
             THE ONE HONEST CATCH: a JDI event carries only what the JVM puts in it. A field's
             value and a method's return value are FREE — they ride in the event, and nothing
             stops. But LOCALS can only be read from a stopped thread, so a logpoint with
-            `capture` DOES stop the thread — briefly, resuming itself at once. Such a probe
-            reports `perturbs: true`. If you are hunting a race, that matters: use
-            field_watch or method_trace, which never stop anything.
+            `capture` DOES stop the thread on every pass, reads the frame, and lets it go.
+            Such a probe reports `perturbs: true`.
+
+            AND IT IS NOT CHEAP. Each captured expression is a round trip to the JVM, and an
+            expression that CALLS A METHOD costs a real method invocation in the target. On a
+            hot path the thread can end up stopped for a large fraction of its time — that is
+            not "a few microseconds", it is a different program. If you are hunting a race or
+            a timing bug, this will hide it or invent it: use field_watch or method_trace,
+            which stop nothing at all.
 
             ONCE YOU MUTATE, IT IS NOT THE SAME PROGRAM. A conclusion drawn after a mutation
             is a conclusion about a program you edited. `mutations` is how you (and whoever

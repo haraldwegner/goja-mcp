@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: JAWATA Core
 Bundle-SymbolicName: org.jawata.core
-Bundle-Version: 2.11.1
+Bundle-Version: 2.12.0
 Bundle-Vendor: JAWATA
 Bundle-RequiredExecutionEnvironment: JavaSE-21
 Bundle-ActivationPolicy: lazy

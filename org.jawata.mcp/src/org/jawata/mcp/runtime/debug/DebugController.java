@@ -1083,11 +1083,17 @@ public final class DebugController implements AutoCloseable {
      *
      * <p>The catch, stated rather than hidden: a JDI event only carries what the JVM puts
      * in it. A field watch carries the value, and a method exit carries the return value —
-     * those are FREE. But reading a frame's locals requires the thread to be stopped, so a
-     * logpoint that captures expressions DOES stop the thread — for microseconds, and it
-     * resumes itself immediately, but it perturbs. Such a probe declares
-     * {@code perturbs: true}, because a probe that quietly changed the timing of a race
-     * you were hunting would be worse than no probe at all.</p>
+     * those are FREE. But reading a frame's locals requires the thread to be STOPPED, so a
+     * logpoint that captures expressions stops it on every pass, reads, and lets it go. Such
+     * a probe declares {@code perturbs: true}.</p>
+     *
+     * <p><b>And it is not cheap.</b> Each captured expression is a round trip, and one that
+     * invokes a method costs a real invocation in the target. On a hot path the thread can be
+     * stopped for a large fraction of its time — measured, not guessed: a capture containing a
+     * method call, on a 25 ms loop, kept the thread suspended so much that a 50 ms poll rarely
+     * caught it running. That is not "a few microseconds"; it is a different program. A probe
+     * that quietly changed the timing of the race you were hunting would be worse than no
+     * probe at all, so we say so.</p>
      */
     private static final class Probe {
         final String id;

@@ -275,10 +275,35 @@ class DevProbeTest {
             ((Number) captured.get("iteration * 2 + offset()")).intValue(),
             "a real expression, evaluated in the live frame: " + captured);
 
-        // And it RESUMES ITSELF: the program is not left stopped.
+        // THE PROGRAM KEEPS MAKING PROGRESS, on its own, with nobody resuming it.
+        int before = eventsOf(probeId).size();
+        Thread.sleep(600);
+        assertTrue(eventsOf(probeId).size() > before,
+            "the program must keep running under a capturing logpoint — the probe stops the "
+                + "thread, reads the frame, and lets it go, and nobody has to resume it");
+
+        // WHAT THIS DELIBERATELY DOES NOT ASSERT: that the thread is never *observed*
+        // suspended. It genuinely is suspended during each capture — that is precisely what
+        // perturbs:true means — and this probe evaluates an expression that INVOKES A METHOD
+        // in the target, which is not cheap. On a 25ms loop the thread can therefore be
+        // stopped for a large fraction of its time, and a poll will keep landing inside a
+        // capture. (It did, in a serial run: 10s of polling never saw it running.) Asserting
+        // "never suspended" would be asserting something we have already declared false.
+        //
+        // The guarantee that actually matters: REMOVE THE PROBE AND THE PROGRAM IS WHOLE. It
+        // is not left suspended, and nothing has to rescue it.
+        ObjectNode clear = onSession("probe_clear");
+        clear.put("probeId", probeId);
+        assertTrue(tool.execute(clear).isSuccess());
+
+        long deadline = System.currentTimeMillis() + 15_000;
+        while (Boolean.TRUE.equals(mainThread().get("suspended"))
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50);
+        }
         assertEquals(Boolean.FALSE, mainThread().get("suspended"),
-            "a logpoint stops the thread for microseconds and lets it go — it must never "
-                + "leave the program suspended");
+            "with the probe gone the program runs free again — a probe must never leave the "
+                + "target suspended behind it");
     }
 
     @Test
