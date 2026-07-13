@@ -1,7 +1,11 @@
 package org.jawata.mcp.refactoring;
 
+import org.eclipse.core.resources.IFile;
+import org.eclipse.jdt.core.ICompilationUnit;
+import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.ltk.core.refactoring.Change;
 import org.eclipse.ltk.core.refactoring.CompositeChange;
+import org.eclipse.ltk.core.refactoring.TextFileChange;
 import org.jawata.core.IJdtService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,12 +70,48 @@ public final class RecipeEngine {
                 undos.add(outcome.undoChange());
             }
             modified.addAll(outcome.modifiedFilePaths());
+            // Stale-buffer race (Sprint 23 Stage 14): perform() writes through the
+            // LTK file buffer, but the JDT Openable buffer of the modified unit is
+            // only invalidated when the workspace delta is processed — which can
+            // lose the race against the NEXT step's prepare. A stale parse then
+            // computes insertion offsets against the pre-step document and lands
+            // mid-token in the new one (~1-in-3 on compose_method). Close the
+            // modified units so the next step re-reads current content.
+            closeModifiedUnits(change);
         }
         CompositeChange compositeUndo = new CompositeChange(name + " (undo)");
         for (int i = undos.size() - 1; i >= 0; i--) {
             compositeUndo.add(undos.get(i));
         }
         return new Result(true, new ArrayList<>(modified), compositeUndo, null);
+    }
+
+    /** Discard the JDT buffers of every compilation unit the change touched. */
+    private static void closeModifiedUnits(Change change) {
+        IFile file = null;
+        if (change instanceof TextFileChange tfc) {
+            file = tfc.getFile();
+        } else if (change.getModifiedElement() instanceof IFile f) {
+            file = f;
+        } else if (change.getModifiedElement() instanceof ICompilationUnit cu
+                && cu.getResource() instanceof IFile f) {
+            file = f;
+        }
+        if (file != null) {
+            try {
+                ICompilationUnit cu = JavaCore.createCompilationUnitFrom(file);
+                if (cu != null && cu.isOpen() && !cu.isWorkingCopy()) {
+                    cu.close();
+                }
+            } catch (Exception e) {
+                log.debug("Buffer close after recipe step failed for {}: {}", file, e.getMessage());
+            }
+        }
+        if (change instanceof CompositeChange composite) {
+            for (Change child : composite.getChildren()) {
+                closeModifiedUnits(child);
+            }
+        }
     }
 
     /** Best-effort restore: perform the captured undos in reverse application order. */
