@@ -2,7 +2,7 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: JAWATA JDT Patch Fragment (eclipse.jdt.core#5188)
 Bundle-SymbolicName: org.jawata.jdtpatch
-Bundle-Version: 2.10.0
+Bundle-Version: 2.11.0
 Bundle-Vendor: JAWATA
 Fragment-Host: org.eclipse.jdt.core.compiler.batch;bundle-version="[3.46.0,3.47.0)"
 Eclipse-PatchFragment: true
