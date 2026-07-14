@@ -84,6 +84,8 @@ public abstract class AbstractAstDetector implements Detector {
         int examined = 0;
         List<String> unreadable = new ArrayList<>();
         List<String> unparseable = new ArrayList<>();
+        List<String> bindingsDead = new ArrayList<>();
+        ScanDegradation degraded = new ScanDegradation();
 
         try {
             List<Path> files = scopedSourceFiles(service, arguments);
@@ -101,24 +103,57 @@ public abstract class AbstractAstDetector implements Detector {
                     unparseable.add(String.valueOf(path));
                     continue;
                 }
+                if (!ast.getAST().hasResolvedBindings()) {
+                    // The parse "succeeded" but produced an AST WITHOUT bindings — the
+                    // contract of analyze() (and every resolveBinding() call inside a
+                    // detector) is void. A detector walking this AST finds nothing, about
+                    // anything, and that nothing is not an absence. Count it as missed.
+                    bindingsDead.add(String.valueOf(path));
+                    continue;
+                }
                 examined++;
                 String formatted = service.getPathUtils().formatPath(path);
-                analyze(ast, formatted, service, threshold, findings);
+                analyze(ast, formatted, service, threshold, findings, degraded);
             }
+        } catch (org.jawata.core.SourceListingException e) {
+            // The LISTING itself failed — we do not even know what we did not read.
+            return ToolResponse.error("SCAN_LISTING_FAILED",
+                "This scan could not LIST the source files (project '" + e.projectName()
+                    + "'): " + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage())
+                    + ". No verdict about " + kind + " is possible — not even a partial one.",
+                org.jawata.mcp.tools.shared.SourceScan.AGENT_CONTRACT);
         } catch (Exception e) {
             return ToolResponse.internalError(e);
         }
 
-        int missed = unreadable.size() + unparseable.size();
+        int missed = unreadable.size() + unparseable.size() + bindingsDead.size();
 
         // NOTHING WAS EXAMINED. Whatever we return, it is not a verdict on this code.
         if (examined == 0 && listed > 0) {
             return ToolResponse.error("SCAN_EXAMINED_NOTHING",
                 "This scan listed " + listed + " source file(s) and could not read a single one"
                     + " (" + unreadable.size() + " unresolvable, " + unparseable.size()
-                    + " unparseable). A result of 'no " + kind + " found' would be a statement "
-                    + "about code we never opened. Examples: " + firstFew(unreadable, unparseable),
+                    + " unparseable, " + bindingsDead.size() + " without resolvable bindings). "
+                    + "A result of 'no " + kind + " found' would be a statement "
+                    + "about code we never opened. Examples: "
+                    + firstFew(unreadable, unparseable, bindingsDead),
                 org.jawata.mcp.tools.shared.SourceScan.AGENT_CONTRACT);
+        }
+
+        // The listing returned NOTHING for a workspace that had source files on disk
+        // when it was loaded. That is a failed listing wearing an empty project's
+        // clothes — refuse, do not certify an absence over it.
+        if (listed == 0 && readString(arguments, "filePath") == null) {
+            int knownAtLoad = service.allProjects().stream()
+                .mapToInt(p -> Math.max(p.sourceFileCount(), 0)).sum();
+            if (knownAtLoad > 0) {
+                return ToolResponse.error("SCAN_LISTING_FAILED",
+                    "This scan listed ZERO source files, but the workspace knew of "
+                        + knownAtLoad + " .java file(s) when its project(s) were loaded. The "
+                        + "listing failed (or every source root became unreadable); an answer of "
+                        + "'no " + kind + " found' would be a verdict about files we never saw.",
+                    org.jawata.mcp.tools.shared.SourceScan.AGENT_CONTRACT);
+            }
         }
 
         findings.sort(Comparator.comparingInt(
@@ -136,11 +171,19 @@ public abstract class AbstractAstDetector implements Detector {
             if (!unparseable.isEmpty()) {
                 scan.put("unparseable", cap(unparseable));
             }
+            if (!bindingsDead.isEmpty()) {
+                scan.put("bindingsUnresolved", cap(bindingsDead));
+            }
         }
-        return Findings.toResponse(findings, scan, steeringFor(findings.size(), examined, missed));
+        if (!degraded.isEmpty()) {
+            scan.put("scanDegraded", true);
+            scan.put("lookupFailures", degraded.notes());
+        }
+        return Findings.toResponse(findings, scan,
+            steeringFor(findings.size(), examined, missed, degraded));
     }
 
-    private String steeringFor(int found, int examined, int missed) {
+    private String steeringFor(int found, int examined, int missed, ScanDegradation degraded) {
         if (missed > 0) {
             return "PARTIAL SCAN: " + missed + " file(s) could not be read, so these findings are "
                 + "what survived — not what exists. " + (found == 0
@@ -148,9 +191,17 @@ public abstract class AbstractAstDetector implements Detector {
                     : "There may be more in the files we could not open.")
                 + " Run refresh_workspace and re-run to get a complete answer.";
         }
+        if (!degraded.isEmpty()) {
+            return "DEGRADED SCAN: every file was read, but " + degraded.count()
+                + " lookup(s) the detector depends on FAILED (see lookupFailures), and a finding "
+                + "whose lookup fails is suppressed, never guessed. " + (found == 0
+                    ? "'None found' here is NOT a clean bill of health."
+                    : "There may be more findings than these.")
+                + " Run refresh_workspace and re-run to get a complete answer.";
+        }
         if (found == 0) {
-            return "None found — and the scan was COMPLETE (" + examined + " file(s) examined), "
-                + "so this is a real absence, not a failure to look.";
+            return "None found — and the scan was COMPLETE (" + examined + " file(s) examined, "
+                + "every lookup answered), so this is a real absence, not a failure to look.";
         }
         return null;
     }
@@ -159,10 +210,48 @@ public abstract class AbstractAstDetector implements Detector {
         return paths.size() <= 10 ? paths : new ArrayList<>(paths.subList(0, 10));
     }
 
-    private static String firstFew(List<String> a, List<String> b) {
+    private static String firstFew(List<String> a, List<String> b, List<String> c) {
         List<String> all = new ArrayList<>(a);
         all.addAll(b);
+        all.addAll(c);
         return String.valueOf(cap(all));
+    }
+
+    /**
+     * Collects "a lookup this detector depends on FAILED" notes from one
+     * {@link #analyze} pass — the channel by which a detector tells the scan
+     * report that a finding may have been <em>suppressed by a failure</em>
+     * rather than genuinely absent (fan-in search died, a binding it needed
+     * was null). Without this channel the suppression is silent, and a
+     * detector whose every lookup failed reports "none found" — the exact
+     * empty-result-on-failure lie, one level below file reading.
+     */
+    public static final class ScanDegradation {
+        private static final int MAX_NOTES = 25;
+        private final List<String> notes = new ArrayList<>();
+        private int count;
+
+        /** Record one failed lookup (note capped; the count never is). */
+        public void report(String note) {
+            count++;
+            if (notes.size() < MAX_NOTES) {
+                notes.add(note);
+            } else if (notes.size() == MAX_NOTES) {
+                notes.add("... (further lookup failures elided; see the count)");
+            }
+        }
+
+        public boolean isEmpty() {
+            return count == 0;
+        }
+
+        public int count() {
+            return count;
+        }
+
+        List<String> notes() {
+            return notes;
+        }
     }
 
     /**
@@ -207,6 +296,20 @@ public abstract class AbstractAstDetector implements Detector {
      */
     protected abstract void analyze(CompilationUnit ast, String filePath,
                                     IJdtService service, int threshold, List<Finding> out);
+
+    /**
+     * Degradation-aware variant: detectors whose heuristic depends on lookups
+     * that can FAIL (a reference search, a binding they must resolve) override
+     * this one and {@link ScanDegradation#report report} every failed lookup —
+     * a failed lookup suppresses the finding, and the suppression must reach
+     * the scan report instead of masquerading as an absence. The default
+     * delegates to the 5-arg form for the many detectors whose analysis is
+     * purely structural.
+     */
+    protected void analyze(CompilationUnit ast, String filePath, IJdtService service,
+                           int threshold, List<Finding> out, ScanDegradation degraded) {
+        analyze(ast, filePath, service, threshold, out);
+    }
 
     /**
      * Parse a compilation unit with binding resolution; null on failure.

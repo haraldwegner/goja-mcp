@@ -37,6 +37,12 @@ public final class ShotgunSurgeryDetector extends AbstractAstDetector {
     @Override
     protected void analyze(CompilationUnit ast, String filePath, IJdtService service,
                            int threshold, List<Finding> out) {
+        analyze(ast, filePath, service, threshold, out, new ScanDegradation());
+    }
+
+    @Override
+    protected void analyze(CompilationUnit ast, String filePath, IJdtService service,
+                           int threshold, List<Finding> out, ScanDegradation degraded) {
         ast.accept(new ASTVisitor() {
             @Override
             public boolean visit(TypeDeclaration node) {
@@ -45,9 +51,15 @@ public final class ShotgunSurgeryDetector extends AbstractAstDetector {
                 }
                 ITypeBinding binding = node.resolveBinding();
                 if (binding == null || !(binding.getJavaElement() instanceof IType type)) {
+                    degraded.report("shotgun_surgery candidate '" + node.getName() + "' (" + filePath
+                        + ") skipped: " + (binding == null
+                            ? "its type binding did not resolve"
+                            : "binding has no IType in the Java model"));
                     return true;
                 }
-                int spread = SmellSearch.referencingTypeCount(type, service);
+                // -1 (lookup failed) never exceeds the threshold, so the finding is
+                // SUPPRESSED — which is why the failure must land in `degraded`.
+                int spread = SmellSearch.referencingTypeCount(type, service, degraded);
                 if (spread > threshold) {
                     int line = ast.getLineNumber(node.getStartPosition());
                     String name = node.getName().getIdentifier();

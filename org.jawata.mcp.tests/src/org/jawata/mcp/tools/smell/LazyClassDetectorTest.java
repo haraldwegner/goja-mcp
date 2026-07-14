@@ -40,7 +40,9 @@ class LazyClassDetectorTest {
         ObjectNode args = mapper.createObjectNode();
         args.put("kind", "lazy_class");
         ToolResponse r = tool.execute(args);
-        assertTrue(r.isSuccess(), "lazy_class must dispatch");
+        assertTrue(r.isSuccess(), "lazy_class must dispatch — refused with: "
+            + (r.getError() != null ? r.getError().getCode() + " / " + r.getError().getMessage()
+                                    : "(no error info)"));
         Map<String, Object> data = (Map<String, Object>) r.getData();
         List<Map<String, Object>> findings = (List<Map<String, Object>>) data.get("findings");
         return findings.stream().map(f -> String.valueOf(f.get("symbol"))).collect(Collectors.toSet());

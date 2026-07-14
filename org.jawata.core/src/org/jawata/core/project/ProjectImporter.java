@@ -374,7 +374,16 @@ public class ProjectImporter {
                     new IPath[0], SOURCE_EXCLUSIONS, null));
                 log.debug("Added linked source folder: {} -> {}", linkedName, srcPath);
             } catch (Exception e) {
-                log.warn("Failed to create linked folder for {}: {}", srcPath, e.getMessage());
+                // Swallowing this loaded a project with a MISSING SOURCE ROOT —
+                // its files silently absent from every listing and scan ("no
+                // findings" about code that was never on the classpath). A
+                // project that cannot mount its source folders must not load.
+                throw new CoreException(new org.eclipse.core.runtime.Status(
+                    org.eclipse.core.runtime.IStatus.ERROR, "org.jawata.core",
+                    "Creating the linked source folder for " + srcPath + " FAILED while loading "
+                        + projectPath + " — the project would silently lack that source root, and"
+                        + " every listing/scan over it would be incomplete. Run refresh_workspace"
+                        + " and reload; if it persists, the workspace is unhealthy.", e));
             }
         }
 
@@ -611,7 +620,7 @@ public class ProjectImporter {
         }
     }
 
-    private List<String> getMavenDependencies(java.nio.file.Path projectPath) {
+    List<String> getMavenDependencies(java.nio.file.Path projectPath) {
         // v2.9.1 (dogfood D1): the output file is RELATIVE — it resolves against each
         // module's basedir, so a multi-module reactor writes one file per module.
         // (An absolute path made every module OVERWRITE the same file and the last,
@@ -619,12 +628,22 @@ public class ProjectImporter {
         // whole workspace; -Dmdep.appendOutput proved a no-op in plugin 3.7.1.)
         // The per-module files are merged + deduped by parseClasspathOutput and
         // deleted after reading; they live under target/, never in source dirs.
-        List<String> jars = new ArrayList<>();
+        //
+        // FAILURE IS LOUD. Every failure path here used to return an EMPTY list
+        // (warn-logged into a NOP in the test harness), which loaded the project
+        // WITHOUT its declared dependencies — and the first symptom was a tool
+        // answering "Type not found" about a type sitting in the local repo
+        // (reproduced under 4-way suite-shard load: resolved classpath of 3
+        // entries, junit jar absent). A transient failure gets ONE retry; a
+        // persistent one fails the LOAD, with the cause, instead of poisoning it.
         java.nio.file.Path mvnCmd = resolveMavenCommand(projectPath);
         if (mvnCmd == null) {
-            log.warn("No Maven executable found (checked project mvnw, PATH, MAVEN_HOME, known "
-                + "install dirs) — dependency classpath will be EMPTY and imports will not resolve");
-            return jars;
+            throw new DependencyResolutionException(
+                "No Maven executable found (checked project mvnw, PATH, MAVEN_HOME, known install"
+                    + " dirs) while loading " + projectPath + ". Its Maven dependencies cannot be"
+                    + " resolved, and loading it anyway would produce a project whose classpath"
+                    + " silently lacks them — every compile/type/search answer would be wrong."
+                    + " Make Maven reachable, then reload the project.");
         }
         String cacheKey = pomTreeHash(projectPath);
         if (cacheKey != null) {
@@ -634,11 +653,45 @@ public class ProjectImporter {
                 return new ArrayList<>(cached);
             }
         }
+        DependencyResolutionException firstFailure = null;
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                List<String> jars = runMavenBuildClasspath(mvnCmd, projectPath);
+                if (cacheKey != null && MAVEN_CLASSPATH_CACHE.size() < MAVEN_CLASSPATH_CACHE_MAX) {
+                    MAVEN_CLASSPATH_CACHE.put(cacheKey, List.copyOf(jars));
+                }
+                return jars; // may be genuinely empty: a pom with no dependencies
+            } catch (DependencyResolutionException e) {
+                log.warn("Maven dependency resolution attempt {}/2 failed for {}: {}",
+                    attempt, projectPath, e.getMessage());
+                if (firstFailure == null) {
+                    firstFailure = e;
+                }
+            }
+        }
+        throw firstFailure;
+    }
+
+    /**
+     * One {@code mvn dependency:build-classpath} run; throws instead of returning partial truth.
+     *
+     * <p>The output filename carries a per-invocation NONCE. With a fixed name, concurrent
+     * resolutions of the SAME directory (four suite-shard JVMs all loading the in-place
+     * {@code simple-maven} fixture as their first test) wrote, read and DELETED one shared
+     * file — and the loser read nothing from a Maven run that exited 0, parsed zero jars,
+     * and cached the empty classpath for the JVM's lifetime. Proven live: 3 of 24 staggered
+     * concurrent runs lost their file exactly that way. The name must stay RELATIVE
+     * (v2.9.1: an absolute path makes every reactor module overwrite one file).</p>
+     */
+    private List<String> runMavenBuildClasspath(java.nio.file.Path mvnCmd,
+            java.nio.file.Path projectPath) {
+        String cpFileName = "jawata-classpath-" + ProcessHandle.current().pid() + "-"
+            + Long.toHexString(System.nanoTime()) + ".txt";
         try {
             ProcessBuilder pb = new ProcessBuilder(
                 mvnCmd.toString(),
                 "dependency:build-classpath",
-                "-Dmdep.outputFile=target/" + CP_FILE_NAME,
+                "-Dmdep.outputFile=target/" + cpFileName,
                 "-q"
             );
             pb.directory(projectPath.toFile());
@@ -647,44 +700,67 @@ public class ProjectImporter {
             log.info("Running Maven ({}) to get classpath...", mvnCmd);
             Process process = pb.start();
 
-            // Consume output to prevent blocking
+            // Consume output to prevent blocking — keep a bounded tail so a
+            // failure can SAY what Maven said instead of discarding it.
+            java.util.ArrayDeque<String> tail = new java.util.ArrayDeque<>();
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                while (reader.readLine() != null) { /* discard */ }
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (tail.size() >= 15) {
+                        tail.pollFirst();
+                    }
+                    tail.addLast(line);
+                }
             }
 
             boolean completed = process.waitFor(120, TimeUnit.SECONDS);
             if (!completed) {
                 process.destroyForcibly();
-                log.warn("Maven classpath command timed out");
-                return jars;
+                throw new DependencyResolutionException(
+                    "Maven dependency resolution timed out after 120s for " + projectPath + ".");
             }
 
-            if (process.exitValue() == 0) {
-                StringBuilder merged = new StringBuilder();
-                try (Stream<java.nio.file.Path> walk = Files.walk(projectPath, 8)) {
-                    for (java.nio.file.Path f : walk
-                            .filter(pth -> CP_FILE_NAME.equals(pth.getFileName().toString()))
-                            .filter(pth -> pth.getParent() != null
-                                && "target".equals(pth.getParent().getFileName().toString()))
-                            .toList()) {
-                        merged.append(Files.readString(f)).append('\n');
-                        Files.deleteIfExists(f);
-                    }
-                }
-                jars.addAll(parseClasspathOutput(merged.toString()));
-                log.info("Got {} classpath entries from Maven", jars.size());
-                if (cacheKey != null && MAVEN_CLASSPATH_CACHE.size() < MAVEN_CLASSPATH_CACHE_MAX) {
-                    MAVEN_CLASSPATH_CACHE.put(cacheKey, List.copyOf(jars));
-                }
-            } else {
-                log.warn("Maven classpath command failed with exit code: {}", process.exitValue());
+            if (process.exitValue() != 0) {
+                throw new DependencyResolutionException(
+                    "Maven dependency resolution failed (exit " + process.exitValue() + ") for "
+                        + projectPath + ". Last output: " + String.join(" | ", tail));
             }
 
+            List<String> jars = new ArrayList<>();
+            StringBuilder merged = new StringBuilder();
+            int filesFound = 0;
+            try (Stream<java.nio.file.Path> walk = Files.walk(projectPath, 8)) {
+                for (java.nio.file.Path f : walk
+                        .filter(pth -> cpFileName.equals(pth.getFileName().toString()))
+                        .filter(pth -> pth.getParent() != null
+                            && "target".equals(pth.getParent().getFileName().toString()))
+                        .toList()) {
+                    merged.append(Files.readString(f)).append('\n');
+                    Files.deleteIfExists(f);
+                    filesFound++;
+                }
+            }
+            if (filesFound == 0) {
+                // Even a dependency-less module writes its (empty) file — zero FILES from
+                // an exit-0 run is an anomaly (historically: a sibling process stole the
+                // shared file), and answering "no dependencies" over it poisons the project.
+                throw new DependencyResolutionException(
+                    "Maven exited 0 for " + projectPath + " but wrote no classpath output file"
+                        + " (target/" + cpFileName + "). Refusing to treat that as 'no"
+                        + " dependencies'.");
+            }
+            jars.addAll(parseClasspathOutput(merged.toString()));
+            log.info("Got {} classpath entries from Maven ({} module file(s))",
+                jars.size(), filesFound);
+            return jars;
+        } catch (DependencyResolutionException e) {
+            throw e;
         } catch (Exception e) {
-            log.error("Failed to get Maven classpath", e);
+            throw new DependencyResolutionException(
+                "Maven dependency resolution failed for " + projectPath + ": "
+                    + e.getClass().getSimpleName()
+                    + (e.getMessage() != null ? ": " + e.getMessage() : ""), e);
         }
-
-        return jars;
     }
 
     /**

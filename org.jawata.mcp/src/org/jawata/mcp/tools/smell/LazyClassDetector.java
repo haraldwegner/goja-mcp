@@ -31,6 +31,12 @@ public final class LazyClassDetector extends AbstractAstDetector {
     @Override
     protected void analyze(CompilationUnit ast, String filePath, IJdtService service,
                            int threshold, List<Finding> out) {
+        analyze(ast, filePath, service, threshold, out, new ScanDegradation());
+    }
+
+    @Override
+    protected void analyze(CompilationUnit ast, String filePath, IJdtService service,
+                           int threshold, List<Finding> out, ScanDegradation degraded) {
         ast.accept(new ASTVisitor() {
             @Override
             public boolean visit(TypeDeclaration node) {
@@ -44,11 +50,18 @@ public final class LazyClassDetector extends AbstractAstDetector {
                     return true;
                 }
                 ITypeBinding binding = node.resolveBinding();
-                if (binding == null || binding.isEnum()) {
+                if (binding == null) {
+                    // The verdict on this type depends on a binding we did not get —
+                    // that is a suppressed candidate, not a non-finding.
+                    degraded.report("lazy_class candidate '" + node.getName() + "' (" + filePath
+                        + ") skipped: its type binding did not resolve");
                     return true;
                 }
-                // -1 = search failed → do not flag (preserves the prior MAX_VALUE behaviour).
-                int fanIn = SmellSearch.referencingTypeCount(binding, service);
+                if (binding.isEnum()) {
+                    return true;
+                }
+                // -1 = search failed → do not flag; the failure is in `degraded`.
+                int fanIn = SmellSearch.referencingTypeCount(binding, service, degraded);
                 if (fanIn >= 0 && fanIn <= 1) {
                     int line = ast.getLineNumber(node.getStartPosition());
                     String name = node.getName().getIdentifier();

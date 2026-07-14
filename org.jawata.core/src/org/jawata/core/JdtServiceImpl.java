@@ -5,6 +5,7 @@ import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
+import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaProject;
@@ -131,6 +132,17 @@ public class JdtServiceImpl implements IJdtService {
 
         // Clear the multi-project map — load_project semantics are
         // "wipe and load one", per Sprint 10 ADR Q6.
+        //
+        // AND DELETE the replaced projects from the Eclipse workspace. They
+        // used to be dropped from the map only, leaving live, indexed, linked
+        // IProjects behind on EVERY load — an unbounded leak on a long-lived
+        // resident, and in the test suite the churn factory behind the
+        // load-dependent lookup failures (dozens of dead projects, all linking
+        // the same fixture dirs, kept the indexer and delta broadcaster busy
+        // while live tests queried the model).
+        for (LoadedProject stale : projectsByKey.values()) {
+            deleteWorkspaceProject(stale);
+        }
         projectsByKey.clear();
         defaultProjectKey = null;
         workspaceSearchService = null;
@@ -220,6 +232,9 @@ public class JdtServiceImpl implements IJdtService {
         workspaceSearchService = null;  // scope changed — rebuild on next access
         // Sprint 11 Phase B: drop bundle registrations contributed by this project.
         workspaceManager.unregisterBundlesForProject(removed.javaProject().getProject());
+        // And actually delete it from the Eclipse workspace — "removed" used to
+        // mean "forgotten by the service but still alive in the model".
+        deleteWorkspaceProject(removed);
         log.info("Removed project '{}' from workspace", projectKey);
         if (projectKey.equals(defaultProjectKey)) {
             // Pick a new default deterministically: the first remaining key
@@ -276,6 +291,45 @@ public class JdtServiceImpl implements IJdtService {
         );
         projectsByKey.put(key, loaded);
         return loaded;
+    }
+
+    /**
+     * Delete a project this service created from the shared Eclipse workspace.
+     * Content-preserving ({@code deleteContent=false}): the project is a thin
+     * container of LINKED folders pointing at the user's real source tree —
+     * only the workspace-side metadata goes, never the linked-to files.
+     *
+     * <p>A deletion failure is logged and swallowed deliberately: the project
+     * is already gone from this service's map, and failing the caller's
+     * load/remove over cleanup would trade a leak for an outage. The leak is
+     * bounded (one project) and visible in the log.</p>
+     */
+    private void deleteWorkspaceProject(LoadedProject lp) {
+        try {
+            lp.javaProject().getProject().delete(false, true, new NullProgressMonitor());
+            log.debug("Deleted workspace project for key '{}'", lp.projectKey());
+        } catch (Exception e) {
+            log.warn("Could not delete workspace project for key '{}': {}",
+                lp.projectKey(), e.getMessage());
+        }
+    }
+
+    /**
+     * Dispose this service: delete every workspace project it created and
+     * clear all state. Test harnesses MUST call this per test — without it,
+     * every test leaks its linked projects into the JVM-shared workspace,
+     * and the accumulated pile keeps the JDT indexer and delta broadcaster
+     * churning underneath every later test in the same JVM.
+     */
+    public void dispose() {
+        for (LoadedProject lp : projectsByKey.values()) {
+            deleteWorkspaceProject(lp);
+        }
+        projectsByKey.clear();
+        droppedKeyTimestamps.clear();
+        defaultProjectKey = null;
+        workspaceSearchService = null;
+        clearLegacyFields();
     }
 
     /** Mirror a LoadedProject into the legacy single-project fields. */
@@ -549,41 +603,63 @@ public class JdtServiceImpl implements IJdtService {
     @Override
     public IType findType(String typeName) {
         if (typeName == null || typeName.isBlank()) return null;
+        // Track lookup FAILURES separately from misses: null may only mean
+        // "the model answered: no such type". If any probed project failed to
+        // answer and none produced the type, reporting null would let the
+        // caller claim an absence over a lookup that never completed (the
+        // "Type not found: org.junit.jupiter.api.Test" lie).
+        JavaModelException failed = null;
         // Default project first, then the rest of the workspace.
         if (javaProject != null) {
-            IType type = lookupType(javaProject, typeName);
-            if (type != null) return type;
+            try {
+                IType type = lookupType(javaProject, typeName);
+                if (type != null) return type;
+            } catch (JavaModelException e) {
+                failed = e;
+            }
         }
         for (LoadedProject other : projectsByKey.values()) {
             if (other.javaProject() == javaProject) continue;
-            IType type = lookupType(other.javaProject(), typeName);
-            if (type != null) return type;
+            try {
+                IType type = lookupType(other.javaProject(), typeName);
+                if (type != null) return type;
+            } catch (JavaModelException e) {
+                if (failed == null) failed = e;
+            }
+        }
+        if (failed != null) {
+            throw new TypeLookupException(typeName, failed);
         }
         return null;
     }
 
-    private static IType lookupType(IJavaProject jp, String typeName) {
+    /**
+     * Look a type up in one project. Returns null ONLY for a genuine miss —
+     * a model failure PROPAGATES, because "the lookup failed" and "the type
+     * does not exist" are different answers and the caller must not merge them.
+     */
+    private static IType lookupType(IJavaProject jp, String typeName) throws JavaModelException {
         if (jp == null) return null;
-        try {
-            IType type = jp.findType(typeName);
-            if (type != null) return type;
-            for (IPackageFragmentRoot root : jp.getPackageFragmentRoots()) {
-                if (root.getKind() == IPackageFragmentRoot.K_SOURCE) {
-                    for (IJavaElement child : root.getChildren()) {
-                        if (child instanceof IPackageFragment pkg) {
-                            for (ICompilationUnit cu : pkg.getCompilationUnits()) {
-                                for (IType t : cu.getTypes()) {
-                                    if (t.getElementName().equals(typeName)) return t;
-                                }
+        // A CLOSED project is deliberately out of scope — a miss, not a failure
+        // (asking a closed project anything throws; that must not read as
+        // "the model could not answer").
+        if (jp.getProject() != null && !jp.getProject().isOpen()) return null;
+        IType type = jp.findType(typeName);
+        if (type != null) return type;
+        for (IPackageFragmentRoot root : jp.getPackageFragmentRoots()) {
+            if (root.getKind() == IPackageFragmentRoot.K_SOURCE) {
+                for (IJavaElement child : root.getChildren()) {
+                    if (child instanceof IPackageFragment pkg) {
+                        for (ICompilationUnit cu : pkg.getCompilationUnits()) {
+                            for (IType t : cu.getTypes()) {
+                                if (t.getElementName().equals(typeName)) return t;
                             }
                         }
                     }
                 }
             }
-            return null;
-        } catch (JavaModelException e) {
-            return null;
         }
+        return null;
     }
 
     @Override
@@ -706,6 +782,12 @@ public class JdtServiceImpl implements IJdtService {
 
     private void collectFilesFrom(IJavaProject jp, List<Path> files) {
         if (jp == null) return;
+        // A CLOSED project is deliberately out of scope — a SKIP, not a failure
+        // (JDT reports a closed project as non-existent, and asking it for
+        // package roots throws). Same decision as FindDuplicateCodeTool.
+        if (jp.getProject() != null && !jp.getProject().isOpen()) {
+            return;
+        }
         try {
             for (IPackageFragmentRoot root : jp.getPackageFragmentRoots()) {
                 if (root.getKind() == IPackageFragmentRoot.K_SOURCE) {
@@ -713,7 +795,12 @@ public class JdtServiceImpl implements IJdtService {
                 }
             }
         } catch (JavaModelException e) {
-            log.warn("Error getting Java files for {}: {}", jp.getElementName(), e.getMessage());
+            // Do NOT return the partial list — a partial listing is
+            // indistinguishable from a complete one at the call site, and it
+            // has already produced a "0 findings" verdict over files that were
+            // never enumerated (the LazyClassDetector flake). Fail LOUDLY.
+            log.warn("Listing Java files of {} failed: {}", jp.getElementName(), e.getMessage());
+            throw new SourceListingException(jp.getElementName(), e);
         }
     }
 

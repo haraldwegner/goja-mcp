@@ -32,6 +32,12 @@ public final class GodClassDetector extends AbstractAstDetector {
     @Override
     protected void analyze(CompilationUnit ast, String filePath, IJdtService service,
                            int threshold, List<Finding> out) {
+        analyze(ast, filePath, service, threshold, out, new ScanDegradation());
+    }
+
+    @Override
+    protected void analyze(CompilationUnit ast, String filePath, IJdtService service,
+                           int threshold, List<Finding> out, ScanDegradation degraded) {
         ast.accept(new ASTVisitor() {
             @Override
             public boolean visit(TypeDeclaration node) {
@@ -42,7 +48,9 @@ public final class GodClassDetector extends AbstractAstDetector {
                 if (members <= threshold) {
                     return true;
                 }
-                int fanIn = SmellSearch.referencingTypeCount(node.resolveBinding(), service);
+                // -1 (lookup failed) never reaches FANIN_TRIGGER, so the finding is
+                // SUPPRESSED — which is why the failure must land in `degraded`.
+                int fanIn = SmellSearch.referencingTypeCount(node.resolveBinding(), service, degraded);
                 if (fanIn >= FANIN_TRIGGER) {
                     int line = ast.getLineNumber(node.getStartPosition());
                     String name = node.getName().getIdentifier();

@@ -44,6 +44,15 @@ public class TestProjectHelper implements BeforeEachCallback, AfterEachCallback 
 
     @Override
     public void afterEach(ExtensionContext context) throws Exception {
+        // Dispose the service FIRST: its linked projects live in the
+        // JVM-shared Eclipse workspace, and leaking them (hundreds per suite
+        // shard, all linking the same fixture dirs) kept the JDT indexer and
+        // delta broadcaster churning underneath every later test — the
+        // substrate of the load-dependent lookup-failure "flakes".
+        if (loadedService != null) {
+            loadedService.dispose();
+            loadedService = null;
+        }
         // Clean up temp directory if created
         if (tempDirectory != null && Files.exists(tempDirectory)) {
             try {

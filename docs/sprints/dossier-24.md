@@ -793,3 +793,105 @@ We have been calling that CPU contention and re-running until green. It may inst
 same honesty bug in several detectors: **a swallowed failure served as an absence.** If so,
 the flakes are not noise — they are the tools lying under load, and they would lie the same
 way on a big real workspace. **Flagged for Harald's decision.**
+
+## C13-c — THE SHARDED FAILURE FAMILY: root cause proven, plus a method lesson (2026-07-14, Harald: "The fix has absolute priority. So fix and don't come back until it is fixed!")
+
+### The reproduction
+
+The failing shard's own 46-class prefix, run as 4 lockstep JVMs, reproduced the family in
+round 1–2 on the broken code — **four times out of four attempts** — and caught a
+DIFFERENT member than the one we chased: not `LazyClassDetectorTest []` but
+`FieldsProjectionTest` → `SYMBOL_NOT_FOUND: Type not found: org.junit.jupiter.api.Test`,
+a classpath type that exists, reported absent. A probe in `findType` dumped the project's
+resolved classpath at the moment of the miss: **3 entries, no junit jar, persistent at
++650 ms** — the project had been LOADED without its dependencies. Not a lookup race; a
+mis-built project.
+
+### The root cause (grounded link by link, each read from the code)
+
+1. `getMavenDependencies` spawned `mvn dependency:build-classpath` writing a
+   **fixed-name** scratch file (`target/jawata-classpath.txt`) INTO the project
+   directory, read it, then **deleted** it.
+2. Test JVMs load the `simple-maven` fixture **in place** — the SAME directory in every
+   shard JVM — and the failing list's very first class does exactly that, so all four
+   JVMs ran Maven in one directory within seconds of each other.
+3. The loser of the write→read→delete interleaving got **exit 0 + no file**, parsed the
+   empty string into **zero jars**, and **cached** it (static JVM-wide map keyed by pom
+   CONTENT hash — which the temp copies also hash to). Every later load of that fixture
+   in that JVM was silently dependency-less.
+4. Direct experiment with the real commands: **3 of 24 staggered concurrent runs lost
+   their file exactly this way** (`exit=0, FILE MISSING`).
+
+Every failure path of that function — and its siblings (source-folder mount, listing,
+findType) — swallowed the failure into an empty answer logged to a NOP logger. **An
+empty result from a lookup that failed is a lie**; this was the load-time instance.
+
+### What was fixed (all in this change set)
+
+| Fix | Mechanism |
+|---|---|
+| The scratch-file race | per-invocation NONCE filename — nothing shared to race on (structural) |
+| "exit 0 but no output file" | `DependencyResolutionException` — refused, never "no dependencies", never cached |
+| Real Maven failures (exit≠0 / timeout / no executable) | ONE retry, then the LOAD fails with Maven's own last output lines |
+| A source folder that cannot mount | fails the load (was: silently missing source root) |
+| `findType` model failure | `TypeLookupException` — "lookup failed" ≠ "type does not exist" (~20 tools no longer convert it to SYMBOL_NOT_FOUND) |
+| Source-listing failure | `SourceListingException` + detector refusals (`SCAN_LISTING_FAILED`, `listed==0` cross-checked against load-time file counts) |
+| Bindings that did not resolve | counted `bindingsUnresolved`, file never analyzed |
+| Fan-in lookup failures | `ScanDegradation` → `lookupFailures[]` in the response; "none found" steering never claims a clean bill over suppressed candidates |
+| The workspace project LEAK | `loadProject`/`removeProject` now DELETE the Eclipse project (content-preserving); `dispose()` in both TestProjectHelpers — was unbounded on the resident, hundreds per shard JVM |
+| The incomplete v2.12.0 version sweep | build/ tree (8 poms + 2 manifests) was still 2.11.1 — the release commit e4e63ff claimed "across poms + manifests"; the "v2.12.0" dist carried 2.11.1-named jars, and both versions sat in dist/bundles until a `clean install` |
+
+Deterministic proof of the contract (no statistics): 3 new `ProjectImporterTest` cases
+drive the failure paths via a fake project-local `mvnw` — no-file → refusal naming the
+anomaly; exit 1 → refusal after exactly ONE retry, carrying Maven's own words; success →
+parsed, cached, ZERO scratch residue left in the tree. Red-then-green in seconds, every time.
+
+### PROVEN vs INFERRED (stated, not implied)
+
+- PROVEN: the mechanism exists and fires under the suite's conditions (experiment); the
+  failing run's project WAS dependency-less (its own probe dump); every link of the
+  data flow (code). INFERRED: that the race — not a sibling failure path of the same
+  function — fired in the one observed run (its exit code was not captured). All
+  siblings flow into the same swallowed-empty and are closed by the same change.
+- **The original `LazyClassDetectorTest []` is NOT explained by this mechanism** (a
+  dependency-less classpath does not empty the source-file LISTING). Empirically
+  consistent: in ~20 prefix-loop JVM-runs, LazyClass passed even inside Maven-poisoned
+  JVMs. Targeted experiment (30 fresh JVMs looping the test under continuous scratch-file
+  churn in the fixture dir): **clean — disk mutation alone is EXCLUDED as the cause.**
+  Status: not pinned; every path that could have produced it silently now either cannot
+  happen or fails naming itself (incl. in the test's own assert message). Harald's
+  ruling: it will turn up and must be RECOGNIZABLE — it now is; no further chase.
+
+### Method lesson (Harald, recorded to memory + experience store, → Sprint 32, impacts 25/26)
+
+Two stock explanations were asserted before grounding ("CPU starvation" — killed by a
+hardware fact; "race condition" — later proven, but the assertion preceded the
+evidence), and a blanket-instrumentation reflex was stopped by Harald. The discipline
+now recorded: localize the bad value → READ the producing path, enumerate its exits →
+rank against known facts (ask Harald for runtime realities) → ONE cheapest
+discriminating observation → proven-vs-inferred stated unprompted → discuss before
+resuming motion. (`feedback-diagnosis-discipline-no-stock-explanations`, store 9ba98b4b.)
+
+### Production consequence (Harald's requirement → Sprint 28)
+
+The trigger is CONCURRENT WORKSPACE ACCESS, which is a real production case (two
+residents on one tree after boot; a resident racing the user's own `mvn clean`; scratch
+files in the user's source tree at all). Requirement added to the Sprint-28 marketing
+spec: before launch, jawata is either process-concurrency-safe per workspace or the
+limitation is a documented, user-visible contract with a runtime guard.
+
+### Disclosed, not fixed (Harald's ranking)
+
+- Gradle dependency resolution returns empty-on-any-failure BY DOCUMENTED DESIGN
+  (offline/CI fallback) — same disease class, arguably intentional semantics.
+- Bazel's jar scan swallows an IO failure into a partial list.
+
+### Gates
+
+| Gate | Expected | Actual |
+|---|---|---|
+| ProjectImporterTest (incl. 3 new refusal-contract tests) | green | **44/44** ✓ |
+| Focused batteries (smell/honesty + findType consumers) | green | **47/47 + 53/53** ✓ |
+| Targeted LazyClass churn experiment | pins or excludes | **30/30 clean — stimulus excluded** |
+| Suite SERIAL | 1311/1311 | **1311/1311** ✓ |
+| Suite SHARDED ×3 | clean ×3 | **1311/1311 · 1311/1311 · 1311/1311** ✓ (wall 260s/334s/267s) |

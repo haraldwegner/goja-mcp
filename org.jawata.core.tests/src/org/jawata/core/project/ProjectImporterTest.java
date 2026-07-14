@@ -552,6 +552,83 @@ class ProjectImporterTest {
             ProjectImporter.parseClasspathOutput(content));
     }
 
+    // ========== C13-c: no failure path may load a dependency-less project ==========
+    //
+    // The contract under test: a Maven dependency resolution that FAILS — or that
+    // "succeeds" without producing its output file (historically: a concurrent
+    // sibling process consumed the shared fixed-name file) — must REFUSE the load
+    // (DependencyResolutionException), never answer "no dependencies", and never
+    // cache anything. Deterministic via a fake project-local mvnw, which
+    // resolveMavenCommand prefers over PATH.
+
+    private static Path fakeMavenProject(Path dir, String mvnwScript) throws IOException {
+        // Unique pom content per test so the static pom-hash classpath cache
+        // can never leak results between these tests (or into others).
+        Files.writeString(dir.resolve("pom.xml"),
+            "<project><!-- " + java.util.UUID.randomUUID() + " -->\n"
+                + "<modelVersion>4.0.0</modelVersion>"
+                + "<groupId>t</groupId><artifactId>t</artifactId><version>1</version>"
+                + "</project>\n");
+        Path wrapper = dir.resolve("mvnw");
+        Files.writeString(wrapper, mvnwScript);
+        assertTrue(wrapper.toFile().setExecutable(true));
+        return dir;
+    }
+
+    @Test
+    @DisplayName("Maven exit 0 without an output file (the stolen-scratch-file shape) REFUSES the load — never 'no dependencies'")
+    void mavenResolution_noOutputFile_refuses(@TempDir Path dir) throws IOException {
+        fakeMavenProject(dir, "#!/bin/sh\nexit 0\n");
+        ProjectImporter importer = new ProjectImporter();
+        org.jawata.core.project.DependencyResolutionException ex = org.junit.jupiter.api.Assertions.assertThrows(
+            org.jawata.core.project.DependencyResolutionException.class,
+            () -> importer.getMavenDependencies(dir));
+        assertTrue(ex.getMessage().contains("no classpath output file"),
+            "the refusal must NAME the anomaly: " + ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("Maven exit != 0 REFUSES the load after one retry, carrying Maven's own output")
+    void mavenResolution_failure_refusesWithCause(@TempDir Path dir) throws IOException {
+        Path marker = dir.resolve("attempts.log");
+        fakeMavenProject(dir, "#!/bin/sh\necho BOOM-a-dependency-broke\necho x >> attempts.log\nexit 1\n");
+        ProjectImporter importer = new ProjectImporter();
+        org.jawata.core.project.DependencyResolutionException ex = org.junit.jupiter.api.Assertions.assertThrows(
+            org.jawata.core.project.DependencyResolutionException.class,
+            () -> importer.getMavenDependencies(dir));
+        assertTrue(ex.getMessage().contains("exit 1"), "exit code named: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("BOOM-a-dependency-broke"),
+            "Maven's own words carried: " + ex.getMessage());
+        assertEquals(2, Files.readAllLines(marker).size(),
+            "a transient failure gets exactly ONE retry before refusing");
+    }
+
+    @Test
+    @DisplayName("a successful resolution parses the per-invocation nonce file, leaves no scratch residue, and caches")
+    void mavenResolution_success_isCleanAndCached(@TempDir Path dir) throws IOException {
+        Path marker = dir.resolve("attempts.log");
+        // The fake writes the classpath file to the exact per-invocation name
+        // it is given (argument 2 = -Dmdep.outputFile=target/<nonce>.txt).
+        fakeMavenProject(dir, "#!/bin/sh\n"
+            + "out=$(printf '%s' \"$2\" | sed 's/^-Dmdep.outputFile=//')\n"
+            + "mkdir -p target\n"
+            + "printf '/repo/fake-a.jar" + java.io.File.pathSeparator + "/repo/fake-b.jar' > \"$out\"\n"
+            + "echo x >> attempts.log\nexit 0\n");
+        ProjectImporter importer = new ProjectImporter();
+        assertEquals(List.of("/repo/fake-a.jar", "/repo/fake-b.jar"),
+            importer.getMavenDependencies(dir));
+        try (var walk = Files.walk(dir)) {
+            assertTrue(walk.noneMatch(p -> p.getFileName().toString().startsWith("jawata-classpath")),
+                "no scratch residue may remain in the project tree");
+        }
+        // Second resolution of the same pom tree: served from the cache — the
+        // wrapper must NOT run again.
+        assertEquals(List.of("/repo/fake-a.jar", "/repo/fake-b.jar"),
+            importer.getMavenDependencies(dir));
+        assertEquals(1, Files.readAllLines(marker).size(),
+            "success is cached; failures (previous tests) never are");
+    }
+
     // ========== v2.9.2 (dogfood D4): Maven executable resolution ==========
 
     @Test
