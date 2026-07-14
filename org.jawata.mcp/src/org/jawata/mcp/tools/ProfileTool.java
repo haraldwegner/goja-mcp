@@ -8,6 +8,7 @@ import org.jawata.mcp.runtime.RuntimeArtifactStore;
 import org.jawata.mcp.runtime.RuntimeSession;
 import org.jawata.mcp.runtime.RuntimeSessionRegistry;
 import org.jawata.mcp.runtime.profile.Jcmd;
+import org.jawata.mcp.runtime.profile.JfrParser;
 import org.jawata.mcp.runtime.profile.ProfileParsers;
 
 import java.nio.file.Files;
@@ -42,11 +43,21 @@ public class ProfileTool extends AbstractTool {
 
     private static final List<String> ACTIONS = List.of(
         "threads", "deadlock", "histogram", "gc", "nmt", "heap_dump",
+        "sample", "jfr_dump", "hotspots",
         "artifacts", "artifact_delete");
 
     private static final int DEFAULT_STACK_FRAMES = 20;
     private static final int DEFAULT_HISTOGRAM_LIMIT = 20;
     private static final int MAX_HISTOGRAM_LIMIT = 200;
+
+    private static final int DEFAULT_SAMPLE_SECONDS = 5;
+    private static final int MAX_SAMPLE_SECONDS = 30;
+    /** How long past the recording's own duration we wait for its auto-dump to land. */
+    private static final int SAMPLE_MARGIN_MILLIS = 2_000;
+    private static final int DEFAULT_HOTSPOT_LIMIT = 20;
+    private static final int MAX_HOTSPOT_LIMIT = 200;
+    /** The continuous recording DevSimPreset starts on every dev/sim launch. */
+    private static final String CONTINUOUS_RECORDING_NAME = "jawata";
 
     private final RuntimeSessionRegistry sessions;
     private final RuntimeArtifactStore artifacts;
@@ -100,10 +111,37 @@ public class ProfileTool extends AbstractTool {
                            actually retained"; `live: false` includes unreachable
                            garbage too, for the rare case that matters.
 
-            ARTIFACTS: artifacts / artifact_delete — heap dumps (and anything debug
-            produced) with provenance and an expiry; explicit delete, because these
-            get large. Shares the store with `debug` — one place either front door
-            can find what a session left behind.
+            PROFILES THAT NAME SYMBOLS — Java Flight Recorder, parsed and ranked:
+            - sample     — a BOUNDED, targeted recording: `durationSeconds` (default 5,
+                           max 30) of CPU/allocation/lock sampling at the "profile" JFC
+                           template's rate, artifact-stored when it completes. BLOCKS
+                           for the duration — the call that waits is the call that
+                           returns the data, same as debug(action=wait).
+            - jfr_dump   — dump the CONTINUOUS recording the dev/sim preset already
+                           runs (name "jawata"), ON DEMAND, mid-run — no new sampling
+                           window, whatever it already captured. Refused, honestly, if
+                           the target has no such recording (not preset-launched, or
+                           Flight Recorder is disabled — `enabled: false` + why, same
+                           shape as `nmt`'s capability-absent report).
+            - hotspots   — rank a JFR artifact's methods for `dimension` = cpu | alloc
+                           | lock | gc. cpu/alloc/lock are PER-METHOD rankings (the top
+                           stack frame of each sample) — symbol-named
+                           (`ClassName#methodName`, the same key get_call_hierarchy and
+                           find_references take), paginated (`offset`/`limit`, default
+                           20 max 200), with the TRUE total sample and method counts
+                           reported alongside so a capped page never reads as the whole
+                           picture. `samples` on each row is a SAMPLE count — how often
+                           this method was caught on top of the stack — not an
+                           instrumented call count; said plainly, not implied. `gc` has
+                           no Java stack to rank a method BY (a GC pause is a fact about
+                           the collector), so it reports pauseCount/totalPauseMillis/
+                           maxPauseMillis instead of inventing an attribution JFR does
+                           not provide.
+
+            ARTIFACTS: artifacts / artifact_delete — heap dumps, JFR recordings (and
+            anything debug produced) with provenance and an expiry; explicit delete,
+            because these get large. Shares the store with `debug` — one place either
+            front door can find what a session left behind.
 
             RARE OR LONG-RUNNING WATCHES: hand the sessionId to a SUBAGENT — the same
             handle debug(action=wait) hands off, so one session serves both doors
@@ -130,13 +168,23 @@ public class ProfileTool extends AbstractTool {
             "description", "threads: max stack frames per thread (default "
                 + DEFAULT_STACK_FRAMES + ")."));
         properties.put("limit", Map.of("type", "integer",
-            "description", "histogram: max rows returned (default " + DEFAULT_HISTOGRAM_LIMIT
-                + ", max " + MAX_HISTOGRAM_LIMIT + "). totalClasses is always the true count."));
+            "description", "histogram: max rows (default " + DEFAULT_HISTOGRAM_LIMIT + ", max "
+                + MAX_HISTOGRAM_LIMIT + "). hotspots: max rows (default " + DEFAULT_HOTSPOT_LIMIT
+                + ", max " + MAX_HOTSPOT_LIMIT + "). The true total is always reported too."));
         properties.put("live", Map.of("type", "boolean",
             "description", "heap_dump: reachable objects only after a full GC (default "
                 + "true, smaller); false includes unreachable garbage too."));
         properties.put("artifactId", Map.of("type", "string",
-            "description", "artifact_delete: which artifact to remove."));
+            "description", "artifact_delete: which artifact to remove. hotspots: which "
+                + "JFR artifact to rank (from action=sample or action=jfr_dump)."));
+        properties.put("durationSeconds", Map.of("type", "integer",
+            "description", "sample: how long to record (default " + DEFAULT_SAMPLE_SECONDS
+                + ", max " + MAX_SAMPLE_SECONDS + "). The call BLOCKS for this long."));
+        properties.put("dimension", Map.of("type", "string",
+            "enum", List.of("cpu", "alloc", "lock", "gc"),
+            "description", "hotspots: which profile to rank by (default cpu)."));
+        properties.put("offset", Map.of("type", "integer",
+            "description", "hotspots: pagination offset (default 0)."));
 
         schema.put("properties", properties);
         schema.put("required", List.of("action"));
@@ -157,6 +205,9 @@ public class ProfileTool extends AbstractTool {
                 case "gc" -> gc(arguments);
                 case "nmt" -> nmt(arguments);
                 case "heap_dump" -> heapDump(arguments);
+                case "sample" -> sample(arguments);
+                case "jfr_dump" -> jfrDump(arguments);
+                case "hotspots" -> hotspots(arguments);
                 case "artifacts" -> listArtifacts();
                 case "artifact_delete" -> deleteArtifact(arguments);
                 default -> ToolResponse.invalidParameter("action",
@@ -293,6 +344,166 @@ public class ProfileTool extends AbstractTool {
                 + "or debug(action=artifacts); delete it explicitly, it will not expire itself "
                 + "for a week.")
             .build());
+    }
+
+    /** Both jfr_dump and hotspots look for the recording under this name in an artifact's dir. */
+    private static final String JFR_FILE_NAME = "recording.jfr";
+
+    private ToolResponse sample(JsonNode arguments) throws Exception {
+        RuntimeSession session = sessionOf(arguments);
+        int durationSeconds = Math.min(MAX_SAMPLE_SECONDS,
+            Math.max(1, getIntParam(arguments, "durationSeconds", DEFAULT_SAMPLE_SECONDS)));
+
+        String artifactId = artifacts.newArtifactId("jfr-sample");
+        Path dir = artifacts.createArtifactDir(artifactId);
+        Path jfrFile = dir.resolve(JFR_FILE_NAME);
+
+        String recordingName = artifactId;
+        String started = Jcmd.run(session.pid(), "JFR.start", "name=" + recordingName,
+            "settings=profile", "duration=" + durationSeconds + "s", "filename=" + jfrFile);
+        Map<String, Object> capabilityAbsent = flightRecorderAbsentReport(started);
+        if (capabilityAbsent != null) {
+            return ToolResponse.success(capabilityAbsent, ResponseMeta.builder()
+                .steering("Capability absent, not empty data — see `why`.")
+                .build());
+        }
+
+        // JFR.start returns immediately; the file exists (empty) from the moment the
+        // recording starts and gets its real content only once `duration` elapses and
+        // the recording auto-dumps. BLOCKING here — same principle as debug(action=wait):
+        // the call that waits is the call that returns real data, not a placeholder.
+        try {
+            Thread.sleep(durationSeconds * 1000L + SAMPLE_MARGIN_MILLIS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw e;
+        }
+
+        long bytes = Files.exists(jfrFile) ? Files.size(jfrFile) : 0;
+        artifacts.writeManifest(artifactId, Map.of(
+            "kind", "jfr-sample",
+            "sessionId", session.id,
+            "durationSeconds", durationSeconds,
+            "settings", "profile",
+            "files", List.of(JFR_FILE_NAME),
+            "bytes", bytes));
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("sessionId", session.id);
+        data.put("artifactId", artifactId);
+        data.put("durationSeconds", durationSeconds);
+        data.put("bytes", bytes);
+        return ToolResponse.success(data, ResponseMeta.builder()
+            .steering("Rank it with profile(action=hotspots, artifactId=\"" + artifactId + "\").")
+            .build());
+    }
+
+    private ToolResponse jfrDump(JsonNode arguments) throws Exception {
+        RuntimeSession session = sessionOf(arguments);
+
+        String artifactId = artifacts.newArtifactId("jfr-dump");
+        Path dir = artifacts.createArtifactDir(artifactId);
+        Path jfrFile = dir.resolve(JFR_FILE_NAME);
+
+        String result = Jcmd.run(session.pid(), "JFR.dump",
+            "name=" + CONTINUOUS_RECORDING_NAME, "filename=" + jfrFile);
+        Map<String, Object> capabilityAbsent = flightRecorderAbsentReport(result);
+        if (capabilityAbsent != null) {
+            return ToolResponse.success(capabilityAbsent, ResponseMeta.builder()
+                .steering("Capability absent, not empty data — see `why`.")
+                .build());
+        }
+        if (result.toLowerCase(java.util.Locale.ROOT).contains("no recordings")) {
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("sessionId", session.id);
+            data.put("enabled", false);
+            data.put("why", "No recording named '" + CONTINUOUS_RECORDING_NAME + "' is running "
+                + "on this target — it was not launched under the dev/sim preset (which starts "
+                + "one continuously). Use profile(action=sample) for a fresh, targeted capture "
+                + "instead of dumping a continuous recording that does not exist here.");
+            return ToolResponse.success(data, ResponseMeta.builder()
+                .steering("Capability absent, not empty data — see `why`.")
+                .build());
+        }
+
+        long bytes = Files.exists(jfrFile) ? Files.size(jfrFile) : 0;
+        artifacts.writeManifest(artifactId, Map.of(
+            "kind", "jfr-dump",
+            "sessionId", session.id,
+            "recordingName", CONTINUOUS_RECORDING_NAME,
+            "files", List.of(JFR_FILE_NAME),
+            "bytes", bytes));
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("sessionId", session.id);
+        data.put("artifactId", artifactId);
+        data.put("bytes", bytes);
+        return ToolResponse.success(data, ResponseMeta.builder()
+            .steering("Rank it with profile(action=hotspots, artifactId=\"" + artifactId + "\").")
+            .build());
+    }
+
+    private ToolResponse hotspots(JsonNode arguments) throws Exception {
+        String artifactId = getStringParam(arguments, "artifactId");
+        if (artifactId == null || artifactId.isBlank()) {
+            return ToolResponse.invalidParameter("artifactId",
+                "hotspots needs an artifactId (from action=sample or action=jfr_dump).");
+        }
+        if (!artifacts.exists(artifactId)) {
+            return ToolResponse.symbolNotFound("No artifact '" + artifactId + "'.");
+        }
+        Path jfrFile = artifacts.root().resolve(artifactId).resolve(JFR_FILE_NAME);
+        if (!Files.exists(jfrFile)) {
+            return ToolResponse.error("NOT_A_JFR_ARTIFACT",
+                "Artifact '" + artifactId + "' has no " + JFR_FILE_NAME + " — it was not "
+                    + "produced by action=sample or action=jfr_dump.",
+                "Use action=artifacts to see what kind each artifact is.");
+        }
+
+        String dimension = getStringParam(arguments, "dimension", "cpu");
+        int limit = Math.min(MAX_HOTSPOT_LIMIT,
+            Math.max(1, getIntParam(arguments, "limit", DEFAULT_HOTSPOT_LIMIT)));
+        int offset = Math.max(0, getIntParam(arguments, "offset", 0));
+
+        Map<String, Object> data;
+        if ("gc".equals(dimension)) {
+            data = new LinkedHashMap<>(JfrParser.gcPauses(jfrFile));
+            data.put("dimension", "gc");
+        } else if (JfrParser.DIMENSION_EVENTS.containsKey(dimension)) {
+            data = new LinkedHashMap<>(JfrParser.hotspots(jfrFile, dimension, offset, limit));
+        } else {
+            return ToolResponse.invalidParameter("dimension",
+                "Unknown dimension '" + dimension + "'. One of cpu, alloc, lock, gc.");
+        }
+        data.put("artifactId", artifactId);
+
+        boolean truncated = Boolean.TRUE.equals(data.get("truncated"));
+        return ToolResponse.success(data, ResponseMeta.builder()
+            .totalCount(data.get("totalMethods") instanceof Number n ? n.intValue() : 0)
+            .returnedCount(data.get("returnedRows") instanceof Number n ? n.intValue() : 0)
+            .steering(truncated
+                ? "Capped at " + limit + " of " + data.get("totalMethods") + " methods — raise "
+                    + "`limit` or page with `offset`; totalSamples above covers ALL of them, "
+                    + "not just the returned rows."
+                : null)
+            .build());
+    }
+
+    /**
+     * jcmd's JFR commands answer "Flight Recorder is disabled." with exit 0 — a soft
+     * failure in the text, not a process error. Null when the target answered normally;
+     * a ready-to-return capability-absent payload otherwise.
+     */
+    private Map<String, Object> flightRecorderAbsentReport(String jcmdOutput) {
+        if (!jcmdOutput.toLowerCase(java.util.Locale.ROOT).contains("flight recorder is disabled")) {
+            return null;
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("enabled", false);
+        data.put("why", "This JVM was started with -XX:-FlightRecorder — Flight Recorder cannot "
+            + "be turned on after launch. Relaunch it without that flag (the dev/sim preset "
+            + "enables it by default).");
+        return data;
     }
 
     private ToolResponse listArtifacts() {

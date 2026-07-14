@@ -1058,3 +1058,63 @@ removed once identified) — not guessed at. Stable across 3 repeated runs after
 | toolCount | **45 EXACT** | verified live over the raw MCP endpoint: **45**, `debug` + `profile` both present ✓ |
 | Suite SERIAL | green | **1328/1328** ✓ |
 | Suite SHARDED | green | **1328/1328** ✓ (wall 305s) |
+
+## C16 — D11: profiles that name symbols (2026-07-14)
+
+### What shipped
+
+**JFR actions on `profile`**: `sample` (a bounded, targeted recording —
+`durationSeconds`, default 5/max 30, `settings=profile`; BLOCKS for the duration,
+same "the call that waits returns the data" principle as `debug(action=wait)`),
+`jfr_dump` (dump the CONTINUOUS recording the dev/sim preset already runs,
+ON DEMAND, mid-run — no new sampling window), and `hotspots` (rank a JFR
+artifact's methods for `dimension` = cpu | alloc | lock | gc).
+
+- **`JfrParser`** (`runtime/profile/`): `jdk.jfr.consumer.RecordingFile` → ranked
+  rows. CPU/alloc/lock are per-method rankings (top stack frame of each sample,
+  symbol = `ClassName#methodName` — the SAME key `get_call_hierarchy` and
+  `find_references` take, per D15's closure contract). `gc` has no Java stack to
+  attribute a pause TO — it reports `pauseCount`/`totalPauseMillis`/`maxPauseMillis`
+  instead of inventing a fake per-method breakdown.
+- **Call counts**: each hotspot row's `samples` field IS the call-frequency
+  signal — explicitly documented as sample-based (how often this method was
+  caught on top of the stack), not an instrumented invocation count.
+- **Pagination discipline** matches `histogram`: capped rows, TRUE
+  `totalMethods`/`totalSamples` reported alongside so a capped page never reads
+  as the whole recording.
+- **Capability honesty (R4)**: jcmd's JFR commands answer *"Flight Recorder is
+  disabled."* with exit 0 (a soft failure IN THE TEXT — verified empirically) —
+  detected and reported as `enabled: false` + `why`, the same shape as `nmt`'s
+  capability-absent report, never a silently empty result. R4's decision
+  ("accept capability reporting with flight-recorder fallback") is satisfied by
+  construction: JFR IS the fallback here, so no async-profiler integration was
+  needed for this stage.
+- **New fixture**: `HotLoopTarget.java` — a method that burns CPU with NO
+  sleeping (unlike `DebugTarget#spin`, which sleeps between short bursts and
+  would rarely be sampled), so a short window reliably ranks it #1.
+
+### A real bug, found by reading the actual jcmd text (twice now)
+
+Two parsing bugs in the FIRST implementation, both root-caused from the raw
+tool output rather than guessed at — same discipline as C15:
+
+1. `DEADLOCK_HEADER`-style trap avoided this time by testing empirically FIRST:
+   confirmed `JFR.start`'s `duration=Ns` + `filename=` writes an EMPTY file the
+   instant the recording starts, and only gets real content once the duration
+   elapses — a naive "file exists" check would have raced the recording. Fixed
+   by design: `sample` sleeps the full duration + a margin before reading.
+2. `JFR.dump name=jawata` on a target with no such recording answers *"No
+   recordings to dump from."* (exit 0) — verified empirically before writing the
+   detection, not assumed from the NMT precedent's phrasing.
+
+### Gates
+
+| Gate | Expected | Actual |
+|---|---|---|
+| HotspotTest | hot method #1, symbol-named, paginated, call counts present | **8/8** ✓ (stable ×3) |
+| Focused battery (+ Stage 15 + sibling debug tests) | green | **44/44** ✓ |
+| On-demand dump mid-run | succeeds | ✓ (`jfrDumpMidRunSucceeds`) |
+| Capability-report honesty (profiler-less env) | `enabled:false` + why | ✓ (2 cases: FlightRecorder disabled; no continuous recording) |
+| toolCount | 45 (unchanged — new actions on an existing tool) | **45** ✓ (verified live over the raw MCP endpoint) |
+| Suite SERIAL | green | **1336/1336** ✓ |
+| Suite SHARDED | green | **1336/1336** ✓ (wall 286s) |
