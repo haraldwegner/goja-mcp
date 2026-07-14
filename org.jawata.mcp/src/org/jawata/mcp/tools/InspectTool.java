@@ -118,12 +118,15 @@ public class InspectTool extends AbstractTool {
             return ToolResponse.invalidParameter("kind", "kind is required; one of " + KINDS);
         }
         return switch (kind) {
-            case "type_hierarchy"    -> typeHierarchy.executeWithService(service, arguments);
+            case "type_hierarchy"    -> relocatingType(service, arguments,
+                                            typeHierarchy.executeWithService(service, arguments));
             case "document_symbols"  -> documentSymbols.executeWithService(service, arguments);
-            case "type_members"      -> typeMembers.executeWithService(service, arguments);
+            case "type_members"      -> relocatingType(service, arguments,
+                                            typeMembers.executeWithService(service, arguments));
             case "classpath"         -> classpath.executeWithService(service, arguments);
             case "project_structure" -> projectStructure.executeWithService(service, arguments);
-            case "type_usage"        -> typeUsage.executeWithService(service, arguments);
+            case "type_usage"        -> relocatingType(service, arguments,
+                                            typeUsage.executeWithService(service, arguments));
             case "complexity"        -> complexity.executeWithService(service, arguments);
             case "dependency_graph"  -> dependencyGraph.executeWithService(service, arguments);
             case "di_registrations"  -> diRegistrations.executeWithService(service, arguments);
@@ -132,6 +135,39 @@ public class InspectTool extends AbstractTool {
             default -> ToolResponse.invalidParameter("kind",
                 "Unknown kind '" + kind + "'. Allowed: " + KINDS);
         };
+    }
+
+    /**
+     * Sprint 24 (D2) — a stale {@code typeName} on a type-kind inspection repairs itself.
+     *
+     * <p>The plan's Stage-2 wiring list named "inspect type kinds" among the sites that must
+     * answer a moved-or-renamed name with the correction in the SAME response, not a dead-end
+     * "Type not found". They were the one listed group left unwired in v2.13.0 — an agent
+     * whose memory of a type was one move stale got a bare miss from exactly the tools D4's
+     * landmarks steer it toward, and paid the second search D2 exists to eliminate. Sprint-24
+     * audit (T2.4).</p>
+     *
+     * <p>Only upgrades a genuine not-found — any other outcome (a real hierarchy, a different
+     * error) passes through untouched — and, like every relocate site, the correction is
+     * reported, never acted on.</p>
+     */
+    private ToolResponse relocatingType(IJdtService service, JsonNode arguments, ToolResponse result) {
+        if (result.isSuccess() || result.getError() == null
+                || !"SYMBOL_NOT_FOUND".equals(result.getError().getCode())) {
+            return result;
+        }
+        String typeName = getStringParam(arguments, "typeName");
+        if (typeName == null || typeName.isBlank()) {
+            return result;
+        }
+        ToolResponse relocated = org.jawata.mcp.tools.shared.ResolveOrRelocate.miss(
+            service, typeName, "workspace");
+        // Prefer the relocation ONLY when it actually found the type elsewhere; a plain
+        // not-found from the relocator is no better than the one we already have.
+        boolean isRelocation = relocated.getError() != null
+            && org.jawata.mcp.tools.shared.ResolveOrRelocate.RELOCATED
+                .equals(relocated.getError().getCode());
+        return isRelocation ? relocated : result;
     }
 
     /**

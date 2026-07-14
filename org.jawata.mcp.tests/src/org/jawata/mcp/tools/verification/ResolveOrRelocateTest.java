@@ -232,4 +232,49 @@ class ResolveOrRelocateTest {
             ResolveOrRelocate.relocate(service, "com.example.Calculator#add");
         assertEquals("com.example.math.Calculator#add", withMember.get(0), "got: " + withMember);
     }
+
+    @Test
+    @DisplayName("D2: inspect(kind=type_members) on a MOVED type relocates too — the plan-listed miss-site")
+    void inspectTypeMembersRelocatesAStaleTypeName() {
+        // Sprint-24 audit T2.4: the plan's Stage-2 wiring list named "inspect type kinds"
+        // among the miss-sites that must answer a moved name with the correction in the same
+        // response. They were left unwired in v2.13.0 — inspect(kind=type_members) on a stale
+        // name returned a bare "Type not found", the second-search dead-end D2 exists to
+        // remove, from exactly the tools D4's landmarks steer an agent toward.
+        MoveTool move = new MoveTool(() -> service, cache);
+        ObjectNode moveArgs = om.createObjectNode();
+        moveArgs.put("kind", "class");
+        moveArgs.put("typeName", "com.example.Calculator");
+        moveArgs.put("targetPackage", "com.example.math");
+        assertTrue(move.execute(moveArgs).isSuccess(), "the move must land");
+
+        org.jawata.mcp.tools.InspectTool inspect = new org.jawata.mcp.tools.InspectTool(() -> service);
+
+        // The corrected name works (proves the move + settle), so the stale one must now RELOCATE.
+        ObjectNode fresh = om.createObjectNode();
+        fresh.put("kind", "type_members");
+        fresh.put("typeName", "com.example.math.Calculator");
+        assertTrue(settles(() -> inspect.execute(fresh)),
+            "the moved type resolves under its new name once the model settles");
+
+        ObjectNode stale = om.createObjectNode();
+        stale.put("kind", "type_members");
+        stale.put("typeName", "com.example.Calculator");
+        ToolResponse r = inspect.execute(stale);
+
+        assertFalse(r.isSuccess(), "a stale type name must not silently resolve to something else");
+        assertEquals(ResolveOrRelocate.RELOCATED, r.getError().getCode(),
+            "inspect must relocate, not dead-end on 'Type not found': " + r.getError());
+        assertTrue(r.getError().getMessage().contains("com.example.math.Calculator"),
+            "and name the new location: " + r.getError().getMessage());
+
+        // A genuinely absent type still gets an honest not-found from inspect, not a fake relocation.
+        ObjectNode gone = om.createObjectNode();
+        gone.put("kind", "type_hierarchy");
+        gone.put("typeName", "com.example.NeverExistedAnywhere");
+        ToolResponse goneR = inspect.execute(gone);
+        assertFalse(goneR.isSuccess());
+        assertEquals("SYMBOL_NOT_FOUND", goneR.getError().getCode(),
+            "nothing to relocate to — the miss passes through honestly: " + goneR.getError());
+    }
 }
