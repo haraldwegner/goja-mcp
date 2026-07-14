@@ -14,6 +14,7 @@ import org.jawata.mcp.models.ToolResponse;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -28,6 +29,9 @@ import java.util.Map;
  * <p>Findings use 1-based line/column (JDT convention), matching {@link Finding}.</p>
  */
 public abstract class AbstractAstDetector implements Detector {
+
+    private static final org.slf4j.Logger LOG =
+        org.slf4j.LoggerFactory.getLogger(AbstractAstDetector.class);
 
     private static final Map<String, Integer> SEVERITY_RANK = Map.of(
         "error", 3, "warning", 2, "info", 1);
@@ -57,29 +61,109 @@ public abstract class AbstractAstDetector implements Detector {
         return defaultThreshold;
     }
 
+    /**
+     * Run the detector — and <b>report what it actually managed to look at</b>.
+     *
+     * <p>This used to skip, in silence, every file it could not resolve or parse. So a
+     * detector could examine ZERO files and answer {@code count: 0} — "no smells found" —
+     * which is not an absence but a <b>failure to look</b>. It happened for real: a
+     * {@code JavaModelException} while the Java model rebuilds makes
+     * {@code getCompilationUnit} return null (the core swallows it), the file is skipped,
+     * and the tool cheerfully declares the code clean. It surfaced as a "flaky" test that
+     * went green on a re-run — which is exactly how a lying tool stays hidden.</p>
+     *
+     * <p>We LISTED the files ourselves. So if we listed N and read fewer, that gap IS the
+     * failure, whatever caused it — and the caller is told.</p>
+     */
     @Override
     public ToolResponse detect(IJdtService service, JsonNode arguments) {
         int threshold = readInt(arguments, "threshold", defaultThreshold);
         List<Finding> findings = new ArrayList<>();
+
+        int listed = 0;
+        int examined = 0;
+        List<String> unreadable = new ArrayList<>();
+        List<String> unparseable = new ArrayList<>();
+
         try {
-            for (Path path : scopedSourceFiles(service, arguments)) {
+            List<Path> files = scopedSourceFiles(service, arguments);
+            listed = files.size();
+            for (Path path : files) {
                 ICompilationUnit cu = service.getCompilationUnit(path);
                 if (cu == null) {
+                    // We listed this file, and now we cannot resolve it. That is not "it has
+                    // no smells"; it is "we could not open it".
+                    unreadable.add(String.valueOf(path));
                     continue;
                 }
                 CompilationUnit ast = parse(cu);
                 if (ast == null) {
+                    unparseable.add(String.valueOf(path));
                     continue;
                 }
+                examined++;
                 String formatted = service.getPathUtils().formatPath(path);
                 analyze(ast, formatted, service, threshold, findings);
             }
         } catch (Exception e) {
             return ToolResponse.internalError(e);
         }
+
+        int missed = unreadable.size() + unparseable.size();
+
+        // NOTHING WAS EXAMINED. Whatever we return, it is not a verdict on this code.
+        if (examined == 0 && listed > 0) {
+            return ToolResponse.error("SCAN_EXAMINED_NOTHING",
+                "This scan listed " + listed + " source file(s) and could not read a single one"
+                    + " (" + unreadable.size() + " unresolvable, " + unparseable.size()
+                    + " unparseable). A result of 'no " + kind + " found' would be a statement "
+                    + "about code we never opened. Examples: " + firstFew(unreadable, unparseable),
+                "The Java model may still be rebuilding, or the project's classpath is broken. "
+                    + "Run refresh_workspace (or compile_workspace) and try again.");
+        }
+
         findings.sort(Comparator.comparingInt(
             (Finding f) -> SEVERITY_RANK.getOrDefault(f.severity(), 0)).reversed());
-        return Findings.toResponse(findings);
+
+        Map<String, Object> scan = new LinkedHashMap<>();
+        scan.put("filesListed", listed);
+        scan.put("filesExamined", examined);
+        if (missed > 0) {
+            scan.put("filesMissed", missed);
+            scan.put("scanIncomplete", true);
+            if (!unreadable.isEmpty()) {
+                scan.put("unresolvable", cap(unreadable));
+            }
+            if (!unparseable.isEmpty()) {
+                scan.put("unparseable", cap(unparseable));
+            }
+        }
+        return Findings.toResponse(findings, scan, steeringFor(findings.size(), examined, missed));
+    }
+
+    private String steeringFor(int found, int examined, int missed) {
+        if (missed > 0) {
+            return "PARTIAL SCAN: " + missed + " file(s) could not be read, so these findings are "
+                + "what survived — not what exists. " + (found == 0
+                    ? "In particular, 'none found' here is NOT a clean bill of health."
+                    : "There may be more in the files we could not open.")
+                + " Run refresh_workspace and re-run to get a complete answer.";
+        }
+        if (found == 0) {
+            return "None found — and the scan was COMPLETE (" + examined + " file(s) examined), "
+                + "so this is a real absence, not a failure to look.";
+        }
+        return null;
+    }
+
+    private static List<String> cap(List<String> paths) {
+        return paths.size() <= 10 ? paths : new ArrayList<>(paths.subList(0, 10));
+    }
+
+    private static String firstFew(List<String> a, List<String> b) {
+        List<String> all = new ArrayList<>(a);
+        all.addAll(b);
+        return String.valueOf(cap(all));
     }
 
     /**
@@ -125,7 +209,14 @@ public abstract class AbstractAstDetector implements Detector {
     protected abstract void analyze(CompilationUnit ast, String filePath,
                                     IJdtService service, int threshold, List<Finding> out);
 
-    /** Parse a compilation unit with binding resolution; null on failure. */
+    /**
+     * Parse a compilation unit with binding resolution; null on failure.
+     *
+     * <p>The failure is LOGGED at warn. It used to vanish entirely, which meant a file that
+     * could not be parsed was indistinguishable from a file with nothing wrong in it — and
+     * the caller was never told either had happened. The caller now counts these
+     * ({@code unparseable}); the log is how you find out WHY.</p>
+     */
     protected static CompilationUnit parse(ICompilationUnit cu) {
         try {
             ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
@@ -133,6 +224,8 @@ public abstract class AbstractAstDetector implements Detector {
             parser.setResolveBindings(true);
             return (CompilationUnit) parser.createAST(null);
         } catch (Exception e) {
+            LOG.warn("Parsing {} FAILED, so it was not scanned: {}: {}",
+                cu.getElementName(), e.getClass().getSimpleName(), e.getMessage());
             return null;
         }
     }

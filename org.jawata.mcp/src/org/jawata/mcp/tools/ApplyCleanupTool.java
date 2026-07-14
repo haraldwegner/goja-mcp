@@ -27,6 +27,9 @@ import org.eclipse.text.edits.TextEdit;
 import org.jawata.core.IJdtService;
 import org.jawata.mcp.models.ResponseMeta;
 import org.jawata.mcp.models.ToolResponse;
+import org.jawata.mcp.tools.shared.SourceScan;
+
+import java.util.Optional;
 import org.jawata.mcp.refactoring.ChangeEngine;
 import org.jawata.mcp.refactoring.RefactoringChangeCache;
 import org.slf4j.Logger;
@@ -153,17 +156,21 @@ public class ApplyCleanupTool extends AbstractApplyingRefactoringTool {
 
         Map<IFile, List<TextEdit>> editsByFile = new LinkedHashMap<>();
         int totalEdits = 0;
-        for (Path path : targets) {
-            ICompilationUnit cu = service.getCompilationUnit(path);
+        // A cleanup SWEEP that silently skips the files it cannot read, and then reports
+        // "filesScanned: <every file we listed>", tells you the project is clean when it has
+        // not looked at parts of it. For a tool that CHANGES your code, that is the worst
+        // version of this bug: you believe the sweep is done.
+        SourceScan scan = SourceScan.of(targets);
+        for (Path path : scan.files()) {
+            ICompilationUnit cu = scan.resolve(service, path);
             if (cu == null) {
+                continue;   // RECORDED — reported below, never silently dropped
+            }
+            CompilationUnit ast = scan.parse(cu, path, true);
+            if (ast == null) {
                 continue;
             }
-            ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
-            parser.setSource(cu);
-            parser.setKind(ASTParser.K_COMPILATION_UNIT);
-            parser.setResolveBindings(true);
-            parser.setBindingsRecovery(true);
-            CompilationUnit ast = (CompilationUnit) parser.createAST(null);
+            scan.examined();
 
             ASTRewrite rewrite = ASTRewrite.create(ast.getAST());
             int edits = "add_final".equals(kind)
@@ -182,14 +189,24 @@ public class ApplyCleanupTool extends AbstractApplyingRefactoringTool {
             totalEdits += edits;
         }
 
+        // "Nothing to clean up" is only sayable if we managed to read the code.
+        Optional<ToolResponse> blind = scan.refuseIfBlind("code to clean up");
+        if (blind.isPresent()) {
+            return Preparation.fail(blind.get());
+        }
+
         if (editsByFile.isEmpty()) {
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("operation", getName());
             data.put("applied", false);
             data.put("hasChanges", false);
             data.put("kind", kind);
-            data.put("filesScanned", targets.size());
+            // filesScanned USED TO BE targets.size() — the number of files we LISTED, which
+            // claimed we had scanned files we skipped. It is now the number we actually read.
+            data.put("filesScanned", scan.examinedCount());
+            data.putAll(scan.describe());
             return Preparation.fail(ToolResponse.success(data, ResponseMeta.builder()
+                .steering(scan.steering(0, "code to clean up"))
                 .suggestedNextTools(List.of("get_diagnostics to check for remaining issues"))
                 .build()));
         }
@@ -200,6 +217,15 @@ public class ApplyCleanupTool extends AbstractApplyingRefactoringTool {
         extras.put("hasChanges", true);
         extras.put("filesChanged", editsByFile.size());
         extras.put("editCount", totalEdits);
+        extras.putAll(scan.describe());
+        if (scan.incomplete()) {
+            // The sweep is going ahead — the edits it DID find are real and safe. But the
+            // caller must not walk away believing the project has been swept.
+            extras.put("sweepIncomplete", true);
+            extras.put("warning", scan.missed() + " file(s) could not be read and were NOT "
+                + "cleaned. This cleanup is PARTIAL — run refresh_workspace and repeat to "
+                + "finish the job.");
+        }
         String summary = "apply_cleanup " + kind + " (" + totalEdits + " edit(s) across "
             + editsByFile.size() + " file(s))";
         return Preparation.of(change, summary, extras);

@@ -2,20 +2,20 @@ package org.jawata.mcp.tools;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.eclipse.jdt.core.ICompilationUnit;
-import org.eclipse.jdt.core.dom.AST;
-import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.ASTVisitor;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.StringLiteral;
 import org.jawata.core.IJdtService;
 import org.jawata.mcp.models.ResponseMeta;
 import org.jawata.mcp.models.ToolResponse;
+import org.jawata.mcp.tools.shared.SourceScan;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -96,20 +96,21 @@ public class FindStringLiteralsTool extends AbstractTool {
         final Pattern fp = pattern;
 
         List<Map<String, Object>> matches = new ArrayList<>();
+        SourceScan scan = SourceScan.of((filePath != null && !filePath.isBlank())
+            ? List.of(Path.of(filePath))
+            : service.getAllJavaFiles());
         try {
-            List<Path> files = (filePath != null && !filePath.isBlank())
-                ? List.of(Path.of(filePath))
-                : service.getAllJavaFiles();
             outer:
-            for (Path path : files) {
-                ICompilationUnit cu = service.getCompilationUnit(path);
+            for (Path path : scan.files()) {
+                ICompilationUnit cu = scan.resolve(service, path);
                 if (cu == null) {
-                    continue;
+                    continue;   // RECORDED, not swallowed — see SourceScan
                 }
-                CompilationUnit ast = parse(cu);
+                CompilationUnit ast = scan.parse(cu, path, false);
                 if (ast == null) {
                     continue;
                 }
+                scan.examined();
                 String formatted = service.getPathUtils().formatPath(path);
                 List<StringLiteral> literals = new ArrayList<>();
                 ast.accept(new ASTVisitor() {
@@ -145,23 +146,21 @@ public class FindStringLiteralsTool extends AbstractTool {
             return ToolResponse.internalError(e);
         }
 
+        // "No matching literal" is only sayable if we managed to read the source.
+        Optional<ToolResponse> blind = scan.refuseIfBlind("matching string literals");
+        if (blind.isPresent()) {
+            return blind.get();
+        }
+
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("query", query);
         data.put("regex", regex);
         data.put("totalMatches", matches.size());
         data.put("matches", matches);
+        data.putAll(scan.describe());
         return ToolResponse.success(data, ResponseMeta.builder()
-            .totalCount(matches.size()).returnedCount(matches.size()).build());
-    }
-
-    private static CompilationUnit parse(ICompilationUnit cu) {
-        try {
-            ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
-            parser.setSource(cu);
-            parser.setResolveBindings(false);   // literals are syntactic
-            return (CompilationUnit) parser.createAST(null);
-        } catch (Exception e) {
-            return null;
-        }
+            .totalCount(matches.size()).returnedCount(matches.size())
+            .steering(scan.steering(matches.size(), "matching string literals"))
+            .build());
     }
 }

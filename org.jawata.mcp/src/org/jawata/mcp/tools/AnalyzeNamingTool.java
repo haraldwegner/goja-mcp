@@ -2,8 +2,6 @@ package org.jawata.mcp.tools;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.eclipse.jdt.core.ICompilationUnit;
-import org.eclipse.jdt.core.dom.AST;
-import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.ASTVisitor;
 import org.eclipse.jdt.core.dom.AbstractTypeDeclaration;
 import org.eclipse.jdt.core.dom.ASTNode;
@@ -17,6 +15,7 @@ import org.jawata.mcp.knowledge.Confidence;
 import org.jawata.mcp.knowledge.SymbolFact;
 import org.jawata.mcp.models.ResponseMeta;
 import org.jawata.mcp.models.ToolResponse;
+import org.jawata.mcp.tools.shared.SourceScan;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,6 +24,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Supplier;
@@ -150,7 +150,8 @@ public class AnalyzeNamingTool extends AbstractTool {
             if ("check".equals(kind)) {
                 return check(service, arguments);
             }
-            List<Convention> conventions = inferConventions(service);
+            SourceScan scan = SourceScan.of(service.getAllJavaFiles());
+            List<Convention> conventions = inferConventions(service, scan);
             if ("get".equals(kind)) {
                 String category = getStringParam(arguments, "category");
                 if (category != null && !category.isBlank()) {
@@ -159,6 +160,13 @@ public class AnalyzeNamingTool extends AbstractTool {
                         .toList();
                 }
             }
+
+            // "No conventions" is only sayable if we managed to read the names.
+            Optional<ToolResponse> blind = scan.refuseIfBlind("naming conventions");
+            if (blind.isPresent()) {
+                return blind.get();
+            }
+
             List<Map<String, Object>> rendered = new ArrayList<>();
             for (Convention c : conventions) {
                 rendered.add(c.toMap());
@@ -168,9 +176,11 @@ public class AnalyzeNamingTool extends AbstractTool {
             data.put("kind", kind);
             data.put("conventionCount", rendered.size());
             data.put("conventions", rendered);
+            data.putAll(scan.describe());
             return ToolResponse.success(data, ResponseMeta.builder()
                 .totalCount(rendered.size())
                 .returnedCount(rendered.size())
+                .steering(scan.steering(rendered.size(), "naming conventions"))
                 .suggestedNextTools(List.of(
                     "analyze_naming(kind=check) to validate a proposed name"))
                 .build());
@@ -207,7 +217,7 @@ public class AnalyzeNamingTool extends AbstractTool {
         data.put("needsIntent", false);
         data.put("candidates", List.of(candidate));
         // Exemplars from the inferred convention for this category, when present.
-        for (Convention c : inferConventions(service)) {
+        for (Convention c : inferConventions(service, SourceScan.of(service.getAllJavaFiles()))) {
             if (c.category.equals(category) && c.fact.get("evidence") != null) {
                 data.put("exemplars", c.fact.get("evidence"));
                 break;
@@ -333,7 +343,7 @@ public class AnalyzeNamingTool extends AbstractTool {
     }
 
     private String inferTestSuffix(IJdtService service) throws Exception {
-        for (Convention c : inferConventions(service)) {
+        for (Convention c : inferConventions(service, SourceScan.of(service.getAllJavaFiles()))) {
             if ("test".equals(c.category)) {
                 String summary = String.valueOf(c.fact.get("summary"));
                 int star = summary.indexOf('*');
@@ -356,7 +366,11 @@ public class AnalyzeNamingTool extends AbstractTool {
         }
     }
 
-    private List<Convention> inferConventions(IJdtService service) throws Exception {
+    /**
+     * Infer the project's conventions, recording into {@code scan} what the walk actually
+     * managed to open — a convention list is only as honest as the names it was able to read.
+     */
+    private List<Convention> inferConventions(IJdtService service, SourceScan scan) throws Exception {
         Set<String> typeNames = new TreeSet<>();
         Set<String> methodNames = new TreeSet<>();
         Set<String> fieldNames = new TreeSet<>();
@@ -364,17 +378,18 @@ public class AnalyzeNamingTool extends AbstractTool {
         Set<String> packageNames = new TreeSet<>();
         Set<String> testTypeNames = new TreeSet<>();
 
-        for (Path path : service.getAllJavaFiles()) {
-            ICompilationUnit cu = service.getCompilationUnit(path);
+        for (Path path : scan.files()) {
+            ICompilationUnit cu = scan.resolve(service, path);
             if (cu == null) {
-                continue;
+                continue;   // RECORDED, not swallowed — see SourceScan
             }
             boolean inTestRoot = path.toString().contains("/src/test/")
                 || path.toString().contains("/test/java/");
-            ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
-            parser.setSource(cu);
-            parser.setKind(ASTParser.K_COMPILATION_UNIT);
-            CompilationUnit ast = (CompilationUnit) parser.createAST(null);
+            CompilationUnit ast = scan.parse(cu, path, false);
+            if (ast == null) {
+                continue;
+            }
+            scan.examined();
             if (ast.getPackage() != null) {
                 packageNames.add(ast.getPackage().getName().getFullyQualifiedName());
             }

@@ -11,12 +11,14 @@ import org.jawata.mcp.domain.Detector;
 import org.jawata.mcp.domain.Finding;
 import org.jawata.mcp.domain.Findings;
 import org.jawata.mcp.models.ToolResponse;
+import org.jawata.mcp.tools.shared.SourceScan;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -52,27 +54,42 @@ public final class DataClumpsDetector implements Detector {
         String filePath = AbstractAstDetector.readString(arguments, "filePath");
         boolean includeTests = AbstractAstDetector.includeTests(arguments);
         Map<String, List<Occurrence>> byTuple = new LinkedHashMap<>();
+
+        // The files we intend to read — the test-source filter is part of the LISTING, so a
+        // deliberately-skipped test file never counts as one we failed to open.
+        List<Path> candidates = (filePath != null && !filePath.isBlank())
+            ? List.of(Path.of(filePath))
+            : service.getAllJavaFiles();
+        List<Path> inScope = new ArrayList<>();
+        for (Path path : candidates) {
+            if (includeTests || !AbstractAstDetector.isTestSource(path, service)) {
+                inScope.add(path);
+            }
+        }
+
+        SourceScan scan = SourceScan.of(inScope);
         try {
-            List<Path> files = (filePath != null && !filePath.isBlank())
-                ? List.of(Path.of(filePath))
-                : service.getAllJavaFiles();
-            for (Path path : files) {
-                if (!includeTests && AbstractAstDetector.isTestSource(path, service)) {
-                    continue;
-                }
-                ICompilationUnit cu = service.getCompilationUnit(path);
+            for (Path path : scan.files()) {
+                ICompilationUnit cu = scan.resolve(service, path);
                 if (cu == null) {
-                    continue;
+                    continue;   // RECORDED, not swallowed — see SourceScan
                 }
-                CompilationUnit ast = AbstractAstDetector.parse(cu);
+                CompilationUnit ast = scan.parse(cu, path, false);
                 if (ast == null) {
                     continue;
                 }
+                scan.examined();
                 String formatted = service.getPathUtils().formatPath(path);
                 collectTuples(ast, formatted, byTuple);
             }
         } catch (Exception e) {
             return ToolResponse.internalError(e);
+        }
+
+        // A clump is an aggregate over the WHOLE project; "none" is only sayable if we read it.
+        Optional<ToolResponse> blind = scan.refuseIfBlind("data clumps");
+        if (blind.isPresent()) {
+            return blind.get();
         }
 
         List<Finding> out = new ArrayList<>();
@@ -89,7 +106,8 @@ public final class DataClumpsDetector implements Detector {
                 }
             }
         }
-        return Findings.toResponse(out);
+        return Findings.toResponse(out, scan.describe(),
+            scan.steering(out.size(), "data clumps"));
     }
 
     private void collectTuples(CompilationUnit ast, String filePath,

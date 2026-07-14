@@ -14,12 +14,14 @@ import org.jawata.mcp.domain.Detector;
 import org.jawata.mcp.domain.Finding;
 import org.jawata.mcp.domain.Findings;
 import org.jawata.mcp.models.ToolResponse;
+import org.jawata.mcp.tools.shared.SourceScan;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Sprint 17 (Fowler) — <b>Inappropriate Intimacy</b>. Two classes that each
@@ -52,24 +54,40 @@ public final class InappropriateIntimacyDetector implements Detector {
         // accessor type -> (target type -> count of field accesses)
         Map<String, Map<String, Integer>> access = new HashMap<>();
         Map<String, Loc> typeLoc = new HashMap<>();
+
+        // The files we intend to read — the test-source filter is part of the LISTING, so a
+        // deliberately-skipped test file never counts as one we failed to open.
+        List<Path> inScope = new ArrayList<>();
+        for (Path path : service.getAllJavaFiles()) {
+            if (includeTests || !AbstractAstDetector.isTestSource(path, service)) {
+                inScope.add(path);
+            }
+        }
+
+        SourceScan scan = SourceScan.of(inScope);
         try {
-            for (Path path : service.getAllJavaFiles()) {
-                if (!includeTests && AbstractAstDetector.isTestSource(path, service)) {
-                    continue;
-                }
-                ICompilationUnit cu = service.getCompilationUnit(path);
+            for (Path path : scan.files()) {
+                ICompilationUnit cu = scan.resolve(service, path);
                 if (cu == null) {
-                    continue;
+                    continue;   // RECORDED, not swallowed — see SourceScan
                 }
-                CompilationUnit ast = AbstractAstDetector.parse(cu);
+                CompilationUnit ast = scan.parse(cu, path, false);
                 if (ast == null) {
                     continue;
                 }
+                scan.examined();
                 String formatted = service.getPathUtils().formatPath(path);
                 scan(ast, formatted, access, typeLoc);
             }
         } catch (Exception e) {
             return ToolResponse.internalError(e);
+        }
+
+        // Intimacy is a PAIRWISE verdict: an unread file is a class whose half of the
+        // relationship we never saw. "None" is not sayable without it.
+        Optional<ToolResponse> blind = scan.refuseIfBlind("inappropriate intimacy");
+        if (blind.isPresent()) {
+            return blind.get();
         }
 
         List<Finding> out = new ArrayList<>();
@@ -86,7 +104,8 @@ public final class InappropriateIntimacyDetector implements Detector {
                 }
             }
         }
-        return Findings.toResponse(out);
+        return Findings.toResponse(out, scan.describe(),
+            scan.steering(out.size(), "inappropriate intimacy"));
     }
 
     private Finding intimacyFinding(String self, String other, int outward, int inward, Loc loc) {

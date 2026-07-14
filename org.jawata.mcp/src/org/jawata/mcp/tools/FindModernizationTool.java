@@ -20,6 +20,7 @@ import org.jawata.core.IJdtService;
 import org.jawata.mcp.tools.lombok.LombokDetector;
 import org.jawata.mcp.models.ResponseMeta;
 import org.jawata.mcp.models.ToolResponse;
+import org.jawata.mcp.tools.shared.SourceScan;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,6 +29,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -128,20 +130,21 @@ public class FindModernizationTool extends AbstractTool {
         int maxResults = getIntParam(arguments, "maxResults", 200);
 
         List<Map<String, Object>> candidates = new ArrayList<>();
+        SourceScan scan = SourceScan.of(service.getAllJavaFiles());
         try {
-            for (Path filePath : service.getAllJavaFiles()) {
+            for (Path filePath : scan.files()) {
                 if (candidates.size() >= maxResults) {
                     break;
                 }
-                ICompilationUnit cu = service.getCompilationUnit(filePath);
+                ICompilationUnit cu = scan.resolve(service, filePath);
                 if (cu == null) {
+                    continue;   // RECORDED, not swallowed — see SourceScan
+                }
+                CompilationUnit ast = scan.parse(cu, filePath, true);
+                if (ast == null) {
                     continue;
                 }
-                ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
-                parser.setSource(cu);
-                parser.setResolveBindings(true);
-                parser.setBindingsRecovery(true);
-                CompilationUnit ast = (CompilationUnit) parser.createAST(null);
+                scan.examined();
                 String rel = service.getPathUtils().formatPath(filePath);
                 collect(kind, ast, rel, candidates, maxResults);
             }
@@ -150,12 +153,20 @@ public class FindModernizationTool extends AbstractTool {
             return ToolResponse.internalError(e);
         }
 
+        // "Nothing to modernize" is only sayable if we managed to read the code.
+        Optional<ToolResponse> blind = scan.refuseIfBlind(kind + " candidates");
+        if (blind.isPresent()) {
+            return blind.get();
+        }
+
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("operation", "find_modernization");
         data.put("kind", kind);
         data.put("candidateCount", candidates.size());
         data.put("candidates", candidates);
+        data.putAll(scan.describe());
         return ToolResponse.success(data, ResponseMeta.builder()
+            .steering(scan.steering(candidates.size(), kind + " candidates"))
             .suggestedNextTools(List.of(
                 "convert_anonymous_to_lambda / the matching refactoring tool to apply a candidate",
                 "analyze_type to inspect a candidate's enclosing type"))

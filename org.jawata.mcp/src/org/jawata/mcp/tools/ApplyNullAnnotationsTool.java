@@ -177,15 +177,22 @@ public class ApplyNullAnnotationsTool extends AbstractApplyingRefactoringTool {
 
         Map<IFile, List<TextEdit>> editsByFile = new LinkedHashMap<>();
         int filesChanged = 0;
-        for (java.nio.file.Path path : targets) {
-            ICompilationUnit cu = service.getCompilationUnit(path);
+        // A MIGRATION that silently skips the files it cannot read leaves them on the old
+        // annotation family — and reports success. You would walk away believing the codebase
+        // had been migrated, with two families quietly coexisting in it. So this scan is
+        // counted, and an incomplete one is REFUSED below rather than half-applied.
+        org.jawata.mcp.tools.shared.SourceScan scan =
+            org.jawata.mcp.tools.shared.SourceScan.of(targets);
+        for (java.nio.file.Path path : scan.files()) {
+            ICompilationUnit cu = scan.resolve(service, path);
             if (cu == null) {
+                continue;   // RECORDED — and fatal for a migration; see the guard below
+            }
+            CompilationUnit ast = scan.parse(cu, path, false);
+            if (ast == null) {
                 continue;
             }
-            ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
-            parser.setSource(cu);
-            parser.setKind(ASTParser.K_COMPILATION_UNIT);
-            CompilationUnit ast = (CompilationUnit) parser.createAST(null);
+            scan.examined();
 
             // Ambiguity gate: refuse anything beyond the simple Nullable/NonNull pair.
             boolean usesFrom = false;
@@ -268,13 +275,31 @@ public class ApplyNullAnnotationsTool extends AbstractApplyingRefactoringTool {
             filesChanged++;
         }
 
+        // A PARTIAL migration is not a migration. If any file in scope could not be read, we
+        // do not know whether it carries the old annotations — so applying now would leave the
+        // codebase in two families at once, and report success. Refuse, and say why.
+        if (scan.incomplete()) {
+            return Preparation.fail(ToolResponse.error("SCAN_INCOMPLETE",
+                scan.missed() + " of " + scan.listed() + " file(s) in scope could not be read, so "
+                    + "we cannot tell whether they still use @" + from.name() + ". Migrating now "
+                    + "would leave the codebase in TWO annotation families and report success. "
+                    + "Not applied.",
+                "Run refresh_workspace (or compile_workspace) so the Java model is complete, then "
+                    + "run the migration again."));
+        }
+
         if (editsByFile.isEmpty()) {
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("operation", getName());
             data.put("applied", false);
             data.put("hasChanges", false);
             data.put("reason", "no " + from.name() + " nullness usages in scope");
-            return Preparation.fail(ToolResponse.success(data, org.jawata.mcp.models.ResponseMeta.builder().build()));
+            // The scan was COMPLETE, so this really is an absence — say so with the numbers.
+            data.putAll(scan.describe());
+            return Preparation.fail(ToolResponse.success(data,
+                org.jawata.mcp.models.ResponseMeta.builder()
+                    .steering(scan.steering(0, "@" + from.name() + " nullness usages"))
+                    .build()));
         }
 
         Change change = ChangeEngine.fromFileEdits("migrate nullness " + from.name() + "→" + to.name(),
@@ -327,7 +352,14 @@ public class ApplyNullAnnotationsTool extends AbstractApplyingRefactoringTool {
                 "Pass allowPublicApi:true to proceed intentionally."));
         }
 
-        NullnessStyle style = resolveStyle(service, getStringParam(arguments, "style"));
+        NullnessStyle style;
+        try {
+            style = resolveStyle(service, getStringParam(arguments, "style"));
+        } catch (StyleUndetectable e) {
+            return Preparation.fail(ToolResponse.error("SCAN_EXAMINED_NOTHING", e.getMessage(),
+                "Run refresh_workspace (or compile_workspace) so the project can be read, or "
+                    + "pass style= explicitly to say which family you want."));
+        }
         String annFqn = "nullable".equals(nullness) ? style.nullableFqn() : style.nonnullFqn();
 
         ICompilationUnit cu = member.getCompilationUnit();
@@ -430,22 +462,37 @@ public class ApplyNullAnnotationsTool extends AbstractApplyingRefactoringTool {
                 // fall through to detection
             }
         }
+        // THIS IS A VOTE, and a file we cannot read is a vote that never gets counted. Skip
+        // enough of them and the "detected" family is simply the wrong one — after which we
+        // would annotate the code with an annotation family the project does not use, and
+        // never mention that we had guessed.
         Map<NullnessStyle, Integer> totals = new java.util.EnumMap<>(NullnessStyle.class);
-        for (java.nio.file.Path path : service.getAllJavaFiles()) {
-            ICompilationUnit cu = service.getCompilationUnit(path);
+        org.jawata.mcp.tools.shared.SourceScan scan =
+            org.jawata.mcp.tools.shared.SourceScan.of(service.getAllJavaFiles());
+        for (java.nio.file.Path path : scan.files()) {
+            ICompilationUnit cu = scan.resolve(service, path);
             if (cu == null) {
                 continue;
             }
-            ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
-            parser.setSource(cu);
-            parser.setKind(ASTParser.K_COMPILATION_UNIT);
-            CompilationUnit ast = (CompilationUnit) parser.createAST(null);
+            CompilationUnit ast = scan.parse(cu, path, false);
+            if (ast == null) {
+                continue;
+            }
+            scan.examined();
             List<String> imports = new ArrayList<>();
             for (Object o : ast.imports()) {
                 imports.add(((org.eclipse.jdt.core.dom.ImportDeclaration) o).getName().getFullyQualifiedName());
             }
             NullnessStyle.tally(imports).forEach((s, n) -> totals.merge(s, n, Integer::sum));
         }
+
+        // We could not read a single file, so we have not DETECTED anything. Falling back to
+        // the default here would mean annotating the code with a family we merely assumed —
+        // silently. Refuse, and let the caller either fix the model or state the style.
+        if (scan.examinedCount() == 0 && scan.listed() > 0) {
+            throw new StyleUndetectable(scan.listed());
+        }
+
         NullnessStyle dominant = NullnessStyle.DEFAULT;
         int best = 0;
         for (Map.Entry<NullnessStyle, Integer> e : totals.entrySet()) {
@@ -455,5 +502,16 @@ public class ApplyNullAnnotationsTool extends AbstractApplyingRefactoringTool {
             }
         }
         return dominant;
+    }
+
+    /** We were asked to DETECT the project's annotation family and could not read the project. */
+    static final class StyleUndetectable extends Exception {
+        private static final long serialVersionUID = 1L;
+
+        StyleUndetectable(int listed) {
+            super("Cannot detect this project's nullness annotation family: none of the " + listed
+                + " source file(s) could be read. Defaulting to " + NullnessStyle.DEFAULT.name()
+                + " here would mean annotating your code with a family we merely assumed.");
+        }
     }
 }

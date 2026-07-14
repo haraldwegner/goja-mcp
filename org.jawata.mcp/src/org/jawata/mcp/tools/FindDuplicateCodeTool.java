@@ -349,6 +349,17 @@ public class FindDuplicateCodeTool extends AbstractTool {
         int methodsExamined;
         /** Methods whose source could not be read — silently dropped, until now. */
         int methodsUnreadable;
+        /**
+         * Projects that are no longer OPEN or no longer EXIST.
+         *
+         * <p>These are a legitimate SKIP, not a failure: there is nothing there to read, and
+         * a project that has been closed or removed is not part of the scan. Counting them as
+         * failures would make every whole-workspace scan cry "incomplete" for ever after
+         * somebody closed a project — which is its own kind of false alarm. But they are still
+         * NAMED, because "I did not look in there" is a fact the caller is entitled to.</p>
+         */
+        final List<String> projectsSkipped = new ArrayList<>();
+        /** Projects that ARE there and could not be read. This is a real failure. */
         final List<Map<String, Object>> failures = new ArrayList<>();
 
         boolean incomplete() {
@@ -361,6 +372,11 @@ public class FindDuplicateCodeTool extends AbstractTool {
             described.put("methodsExamined", methodsExamined);
             if (methodsUnreadable > 0) {
                 described.put("methodsUnreadable", methodsUnreadable);
+            }
+            if (!projectsSkipped.isEmpty()) {
+                described.put("projectsSkipped", projectsSkipped);
+                described.put("projectsSkippedReason",
+                    "closed or no longer present in the workspace — nothing there to scan");
             }
             if (incomplete()) {
                 described.put("scanIncomplete", true);
@@ -397,6 +413,22 @@ public class FindDuplicateCodeTool extends AbstractTool {
                                             int minTokens,
                                             ScanReport report) {
         IJavaProject jp = lp.javaProject();
+
+        // A project that has been closed or removed is not a failed scan — it is nothing to
+        // scan. `allProjects()` keeps handing out its handle, and walking it throws, so
+        // without this check ONE stale project poisons the whole workspace sweep. (That is
+        // exactly what it was doing: intermittently, invisibly, for months.)
+        try {
+            if (!jp.exists() || jp.getProject() == null || !jp.getProject().isOpen()) {
+                log.debug("Project '{}' is closed or gone — not scanned", lp.projectKey());
+                report.projectsSkipped.add(String.valueOf(lp.projectKey()));
+                return;
+            }
+        } catch (Exception e) {
+            report.projectsSkipped.add(String.valueOf(lp.projectKey()));
+            return;
+        }
+
         try {
             for (IPackageFragmentRoot root : jp.getPackageFragmentRoots()) {
                 if (root.getKind() != IPackageFragmentRoot.K_SOURCE) continue;

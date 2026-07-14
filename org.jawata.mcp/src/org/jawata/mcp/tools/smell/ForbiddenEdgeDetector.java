@@ -2,8 +2,6 @@ package org.jawata.mcp.tools.smell;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.eclipse.jdt.core.ICompilationUnit;
-import org.eclipse.jdt.core.dom.AST;
-import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.ImportDeclaration;
 import org.eclipse.jdt.core.dom.PackageDeclaration;
@@ -12,10 +10,12 @@ import org.jawata.mcp.domain.Detector;
 import org.jawata.mcp.domain.Finding;
 import org.jawata.mcp.domain.Findings;
 import org.jawata.mcp.models.ToolResponse;
+import org.jawata.mcp.tools.shared.SourceScan;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Sprint 22a P1-d — forbidden dependency-direction rule (layering / clean
@@ -49,16 +49,18 @@ public class ForbiddenEdgeDetector implements Detector {
         if (from == null || from.isBlank() || forbidden == null || forbidden.isBlank()) {
             return Findings.toResponse(out);   // no rule → no violations
         }
+        SourceScan scan = SourceScan.of(service.getAllJavaFiles());
         try {
-            for (Path path : service.getAllJavaFiles()) {
-                ICompilationUnit cu = service.getCompilationUnit(path);
+            for (Path path : scan.files()) {
+                ICompilationUnit cu = scan.resolve(service, path);
                 if (cu == null) {
-                    continue;
+                    continue;   // RECORDED, not swallowed — see SourceScan
                 }
-                CompilationUnit ast = parse(cu);
+                CompilationUnit ast = scan.parse(cu, path, false);
                 if (ast == null) {
                     continue;
                 }
+                scan.examined();
                 PackageDeclaration pkg = ast.getPackage();
                 String pkgName = pkg != null ? pkg.getName().getFullyQualifiedName() : "";
                 if (!pkgMatches(pkgName, from)) {
@@ -81,18 +83,14 @@ public class ForbiddenEdgeDetector implements Detector {
         } catch (Exception e) {
             return ToolResponse.internalError(e);
         }
-        return Findings.toResponse(out);
-    }
 
-    private static CompilationUnit parse(ICompilationUnit cu) {
-        try {
-            ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
-            parser.setSource(cu);
-            parser.setResolveBindings(false);   // imports are syntactic — no bindings needed
-            return (CompilationUnit) parser.createAST(null);
-        } catch (Exception e) {
-            return null;
+        // "No forbidden edges" is only sayable if we managed to read the imports.
+        Optional<ToolResponse> blind = scan.refuseIfBlind("forbidden dependency edges");
+        if (blind.isPresent()) {
+            return blind.get();
         }
+        return Findings.toResponse(out, scan.describe(),
+            scan.steering(out.size(), "forbidden dependency edges"));
     }
 
     /** True iff {@code pkg} equals {@code prefix} or is a sub-package of it. */

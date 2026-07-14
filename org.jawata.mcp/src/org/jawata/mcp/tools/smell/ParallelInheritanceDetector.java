@@ -11,6 +11,7 @@ import org.jawata.mcp.domain.Detector;
 import org.jawata.mcp.domain.Finding;
 import org.jawata.mcp.domain.Findings;
 import org.jawata.mcp.models.ToolResponse;
+import org.jawata.mcp.tools.shared.SourceScan;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -18,6 +19,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -56,23 +58,39 @@ public final class ParallelInheritanceDetector implements Detector {
         Map<String, Map<String, Loc>> byBase = new HashMap<>();
         // base simple name -> (variant token -> subclass simple name)
         Map<String, Map<String, String>> subName = new HashMap<>();
+
+        // The files we intend to read — the test-source filter is part of the LISTING, so a
+        // deliberately-skipped test file never counts as one we failed to open.
+        List<Path> inScope = new ArrayList<>();
+        for (Path path : service.getAllJavaFiles()) {
+            if (includeTests || !AbstractAstDetector.isTestSource(path, service)) {
+                inScope.add(path);
+            }
+        }
+
+        SourceScan scan = SourceScan.of(inScope);
         try {
-            for (Path path : service.getAllJavaFiles()) {
-                if (!includeTests && AbstractAstDetector.isTestSource(path, service)) {
-                    continue;
-                }
-                ICompilationUnit cu = service.getCompilationUnit(path);
+            for (Path path : scan.files()) {
+                ICompilationUnit cu = scan.resolve(service, path);
                 if (cu == null) {
-                    continue;
+                    continue;   // RECORDED, not swallowed — see SourceScan
                 }
-                CompilationUnit ast = AbstractAstDetector.parse(cu);
+                CompilationUnit ast = scan.parse(cu, path, false);
                 if (ast == null) {
                     continue;
                 }
+                scan.examined();
                 collect(ast, service.getPathUtils().formatPath(path), byBase, subName);
             }
         } catch (Exception e) {
             return ToolResponse.internalError(e);
+        }
+
+        // A hierarchy we never read is a hierarchy that cannot pair with anything — a missed
+        // file silently REMOVES parallels. "None" is not sayable without the whole set.
+        Optional<ToolResponse> blind = scan.refuseIfBlind("parallel inheritance hierarchies");
+        if (blind.isPresent()) {
+            return blind.get();
         }
 
         List<Finding> out = new ArrayList<>();
@@ -91,7 +109,8 @@ public final class ParallelInheritanceDetector implements Detector {
                 }
             }
         }
-        return Findings.toResponse(out);
+        return Findings.toResponse(out, scan.describe(),
+            scan.steering(out.size(), "parallel inheritance hierarchies"));
     }
 
     private Finding parallelFinding(String base, String otherBase, String variant,

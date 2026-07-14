@@ -29,6 +29,7 @@ import org.jawata.mcp.knowledge.Confidence;
 import org.jawata.mcp.knowledge.SymbolFact;
 import org.jawata.mcp.models.ResponseMeta;
 import org.jawata.mcp.models.ToolResponse;
+import org.jawata.mcp.tools.shared.SourceScan;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,6 +38,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -343,18 +345,21 @@ public class AnalyzeJavadocsTool extends AbstractTool {
         }
 
         List<Map<String, Object>> findings = new ArrayList<>();
+        SourceScan scan = SourceScan.of(targets);
         try {
-            for (Path path : targets) {
+            for (Path path : scan.files()) {
                 if (findings.size() >= maxResults) {
                     break;
                 }
-                ICompilationUnit cu = service.getCompilationUnit(path);
+                ICompilationUnit cu = scan.resolve(service, path);
                 if (cu == null) {
-                    continue;
+                    continue;   // RECORDED, not swallowed — see SourceScan
                 }
                 // Doc-comment problem detection via parser options ONLY — no project
                 // mutation, so there is nothing to restore and no global side effect.
                 // (cu.reconcile(FORCE_PROBLEM_DETECTION) only works in working-copy mode.)
+                // Parsed here rather than via SourceScan.parse because the doc-comment
+                // compiler options ARE the analysis — SourceScan has no overlay for them.
                 Map<String, String> opts = new java.util.HashMap<>(cu.getJavaProject().getOptions(true));
                 opts.putAll(DOC_OPTIONS);
 
@@ -368,6 +373,7 @@ public class AnalyzeJavadocsTool extends AbstractTool {
                 if (ast == null) {
                     continue;
                 }
+                scan.examined();
                 String rel = service.getPathUtils().formatPath(path);
                 for (org.eclipse.jdt.core.compiler.IProblem problem : ast.getProblems()) {
                     if (findings.size() >= maxResults) {
@@ -392,14 +398,22 @@ public class AnalyzeJavadocsTool extends AbstractTool {
             return ToolResponse.internalError(e);
         }
 
+        // "No Javadoc problems" is only sayable if we managed to read the code.
+        Optional<ToolResponse> blind = scan.refuseIfBlind("Javadoc problems");
+        if (blind.isPresent()) {
+            return blind.get();
+        }
+
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("operation", "analyze_javadocs");
         data.put("kind", "validate");
         data.put("findingCount", findings.size());
         data.put("findings", findings);
+        data.putAll(scan.describe());
         return ToolResponse.success(data, ResponseMeta.builder()
             .totalCount(findings.size())
             .returnedCount(findings.size())
+            .steering(scan.steering(findings.size(), "Javadoc problems"))
             .suggestedNextTools(List.of(
                 "analyze_javadocs(kind=generate) for a doclint-correct skeleton to fix a gap"))
             .build());
@@ -422,22 +436,28 @@ public class AnalyzeJavadocsTool extends AbstractTool {
             }
 
             List<Map<String, Object>> facts = new ArrayList<>();
-            for (Path path : targets) {
+            SourceScan scan = SourceScan.of(targets);
+            for (Path path : scan.files()) {
                 if (facts.size() >= maxResults) {
                     break;
                 }
-                ICompilationUnit cu = service.getCompilationUnit(path);
+                ICompilationUnit cu = scan.resolve(service, path);
                 if (cu == null) {
+                    continue;   // RECORDED, not swallowed — see SourceScan
+                }
+                CompilationUnit ast = scan.parse(cu, path, true);
+                if (ast == null) {
                     continue;
                 }
-                ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
-                parser.setSource(cu);
-                parser.setKind(ASTParser.K_COMPILATION_UNIT);
-                parser.setResolveBindings(true);
-                parser.setBindingsRecovery(true);
-                CompilationUnit ast = (CompilationUnit) parser.createAST(null);
+                scan.examined();
                 String rel = service.getPathUtils().formatPath(path);
                 collectFacts(ast, rel, facts, maxResults);
+            }
+
+            // "No documented symbols" is only sayable if we managed to read the code.
+            Optional<ToolResponse> blind = scan.refuseIfBlind("Javadoc facts");
+            if (blind.isPresent()) {
+                return blind.get();
             }
 
             Map<String, Object> data = new LinkedHashMap<>();
@@ -445,9 +465,11 @@ public class AnalyzeJavadocsTool extends AbstractTool {
             data.put("kind", "ingest");
             data.put("factCount", facts.size());
             data.put("facts", facts);
+            data.putAll(scan.describe());
             return ToolResponse.success(data, ResponseMeta.builder()
                 .totalCount(facts.size())
                 .returnedCount(facts.size())
+                .steering(scan.steering(facts.size(), "Javadoc facts"))
                 .suggestedNextTools(List.of(
                     "analyze_type to inspect a documented type",
                     "find_references to see who depends on a documented contract"))

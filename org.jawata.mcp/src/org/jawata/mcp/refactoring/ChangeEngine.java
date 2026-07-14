@@ -187,11 +187,66 @@ public final class ChangeEngine {
                     validation.getMessageMatchingSeverity(validation.getSeverity()));
             }
 
+            // THE CHANGE TREE IS THE TRUTH, not the event stream.
+            //
+            // modifiedFilePaths above is fed by an IResourceChangeListener — i.e. we were
+            // learning what WE had just done by waiting for Eclipse to tell us. When the
+            // workspace batches or defers the POST_CHANGE delta, the listener has not fired
+            // by the time we read the set, and a refactor that HAS written the file reports
+            // "filesModified: []". The work happened; the report said nothing happened. (It
+            // did exactly that, intermittently, and was written off as a flaky test.)
+            //
+            // The change we just performed knows perfectly well which files it targets. Ask
+            // it. The listener is kept, but only to ADD anything the tree does not name
+            // (generated files, moves) — never as the sole source of truth.
+            Set<String> modified = new LinkedHashSet<>(filesTargetedBy(change, service));
+            modified.addAll(modifiedFilePaths);
+
             Change undoChange = operation.getUndoChange();
-            return new ApplyOutcome(undoChange, new ArrayList<>(modifiedFilePaths), null);
+            return new ApplyOutcome(undoChange, new ArrayList<>(modified), null);
         } catch (CoreException e) {
             log.warn("Change.perform failed for '{}': {}", change.getName(), e.getMessage(), e);
             return new ApplyOutcome(null, List.of(), e.getMessage());
+        }
+    }
+
+    /**
+     * The files this change tree targets — read from the change itself.
+     *
+     * <p>Deterministic, and available the instant the change has been performed. This is what
+     * a refactoring should report as "what I modified": the thing it did, not the thing it
+     * overheard.</p>
+     */
+    private static Set<String> filesTargetedBy(Change change, IJdtService service) {
+        Set<String> paths = new LinkedHashSet<>();
+        collectTargets(change, service, paths);
+        return paths;
+    }
+
+    private static void collectTargets(Change change, IJdtService service, Set<String> into) {
+        if (change == null) {
+            return;
+        }
+        if (change instanceof CompositeChange composite) {
+            for (Change child : composite.getChildren()) {
+                collectTargets(child, service, into);
+            }
+            return;
+        }
+        if (change instanceof TextChange textChange) {
+            String path = diffPathOf(textChange, service);
+            if (path != null) {
+                into.add(path);
+            }
+            return;
+        }
+        // A non-text change (a file move, a rename, a delete) still names what it acts on.
+        Object modified = change.getModifiedElement();
+        if (modified instanceof IFile file) {
+            into.add(formatPath(file, service));
+        } else if (modified instanceof ICompilationUnit cu
+                && cu.getResource() instanceof IFile file) {
+            into.add(formatPath(file, service));
         }
     }
 

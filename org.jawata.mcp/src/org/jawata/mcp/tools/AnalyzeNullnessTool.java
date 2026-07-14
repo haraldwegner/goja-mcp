@@ -22,6 +22,7 @@ import org.jawata.mcp.knowledge.SymbolFact;
 import org.jawata.mcp.models.ResponseMeta;
 import org.jawata.mcp.models.ToolResponse;
 import org.jawata.mcp.tools.nullness.NullnessStyle;
+import org.jawata.mcp.tools.shared.SourceScan;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,6 +32,7 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -178,15 +180,23 @@ public class AnalyzeNullnessTool extends AbstractTool {
             NullnessStyle family = dominantStyle(service);
 
             List<Map<String, Object>> findings = new ArrayList<>();
-            for (Path path : targets) {
+            SourceScan scan = SourceScan.of(targets);
+            for (Path path : scan.files()) {
                 if (findings.size() >= maxResults) {
                     break;
                 }
-                ICompilationUnit cu = service.getCompilationUnit(path);
+                ICompilationUnit cu = scan.resolve(service, path);
                 if (cu == null) {
-                    continue;
+                    continue;   // RECORDED, not swallowed — see SourceScan
                 }
+                scan.examined();
                 collectFileViolations(service, cu, family, findings, maxResults);
+            }
+
+            // "No null violations" is only sayable if we managed to read the code.
+            Optional<ToolResponse> blind = scan.refuseIfBlind("null violations");
+            if (blind.isPresent()) {
+                return blind.get();
             }
 
             Map<String, Object> data = new LinkedHashMap<>();
@@ -195,9 +205,11 @@ public class AnalyzeNullnessTool extends AbstractTool {
             data.put("nullnessStyle", family.name());
             data.put("violationCount", findings.size());
             data.put("violations", findings);
+            data.putAll(scan.describe());
             return ToolResponse.success(data, ResponseMeta.builder()
                 .totalCount(findings.size())
                 .returnedCount(findings.size())
+                .steering(scan.steering(findings.size(), "null violations"))
                 .suggestedNextTools(List.of(
                     "apply_null_annotations(kind=add) to record a confirmed contract"))
                 .build());
@@ -265,23 +277,34 @@ public class AnalyzeNullnessTool extends AbstractTool {
                 targets.addAll(service.getAllJavaFiles());
             }
             List<Map<String, Object>> contracts = new ArrayList<>();
-            for (Path path : targets) {
+            SourceScan scan = SourceScan.of(targets);
+            for (Path path : scan.files()) {
                 if (contracts.size() >= maxResults) {
                     break;
                 }
-                ICompilationUnit cu = service.getCompilationUnit(path);
-                if (cu != null) {
+                ICompilationUnit cu = scan.resolve(service, path);
+                if (cu != null) {   // a null here is RECORDED, not swallowed — see SourceScan
+                    scan.examined();
                     inferContractsForFile(service, cu, contracts, maxResults);
                 }
             }
+
+            // "No inferable contracts" is only sayable if we managed to read the code.
+            Optional<ToolResponse> blind = scan.refuseIfBlind("inferable nullness contracts");
+            if (blind.isPresent()) {
+                return blind.get();
+            }
+
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("operation", "analyze_nullness");
             data.put("kind", "infer_contracts");
             data.put("contractCount", contracts.size());
             data.put("contracts", contracts);
+            data.putAll(scan.describe());
             return ToolResponse.success(data, ResponseMeta.builder()
                 .totalCount(contracts.size())
                 .returnedCount(contracts.size())
+                .steering(scan.steering(contracts.size(), "inferable nullness contracts"))
                 .suggestedNextTools(List.of(
                     "apply_null_annotations(kind=add) to record a confirmed contract"))
                 .build());
@@ -469,16 +492,21 @@ public class AnalyzeNullnessTool extends AbstractTool {
 
     /** Dominant nullness family across the project, or the Eclipse default for option FQNs. */
     private NullnessStyle dominantStyle(IJdtService service) throws Exception {
+        // A vote. A file we cannot read is a vote never counted — and enough of those make the
+        // "dominant" family simply the wrong one, chosen in silence.
         Map<NullnessStyle, Integer> totals = new EnumMap<>(NullnessStyle.class);
-        for (Path path : service.getAllJavaFiles()) {
-            ICompilationUnit cu = service.getCompilationUnit(path);
+        org.jawata.mcp.tools.shared.SourceScan scan =
+            org.jawata.mcp.tools.shared.SourceScan.of(service.getAllJavaFiles());
+        for (Path path : scan.files()) {
+            ICompilationUnit cu = scan.resolve(service, path);
             if (cu == null) {
                 continue;
             }
-            ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
-            parser.setSource(cu);
-            parser.setKind(ASTParser.K_COMPILATION_UNIT);
-            CompilationUnit ast = (CompilationUnit) parser.createAST(null);
+            CompilationUnit ast = scan.parse(cu, path, false);
+            if (ast == null) {
+                continue;
+            }
+            scan.examined();
             List<String> imports = new ArrayList<>();
             for (Object o : ast.imports()) {
                 imports.add(((ImportDeclaration) o).getName().getFullyQualifiedName());
@@ -500,16 +528,18 @@ public class AnalyzeNullnessTool extends AbstractTool {
         int maxEvidence = getIntParam(arguments, "maxResults", 50);
         Map<NullnessStyle, Integer> totals = new EnumMap<>(NullnessStyle.class);
         List<String> evidence = new ArrayList<>();
+        SourceScan scan = SourceScan.of(service.getAllJavaFiles());
         try {
-            for (Path path : service.getAllJavaFiles()) {
-                ICompilationUnit cu = service.getCompilationUnit(path);
+            for (Path path : scan.files()) {
+                ICompilationUnit cu = scan.resolve(service, path);
                 if (cu == null) {
+                    continue;   // RECORDED, not swallowed — see SourceScan
+                }
+                CompilationUnit ast = scan.parse(cu, path, false);
+                if (ast == null) {
                     continue;
                 }
-                ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
-                parser.setSource(cu);
-                parser.setKind(ASTParser.K_COMPILATION_UNIT);
-                CompilationUnit ast = (CompilationUnit) parser.createAST(null);
+                scan.examined();
                 List<String> imports = new ArrayList<>();
                 for (Object o : ast.imports()) {
                     imports.add(((ImportDeclaration) o).getName().getFullyQualifiedName());
@@ -525,6 +555,12 @@ public class AnalyzeNullnessTool extends AbstractTool {
         } catch (Exception e) {
             log.error("analyze_nullness(detect_style) failed: {}", e.getMessage(), e);
             return ToolResponse.internalError(e);
+        }
+
+        // "No nullness family in use" is only sayable if we managed to read the imports.
+        Optional<ToolResponse> blind = scan.refuseIfBlind("nullness annotation family in use");
+        if (blind.isPresent()) {
+            return blind.get();
         }
 
         NullnessStyle dominant = null;
@@ -544,7 +580,9 @@ public class AnalyzeNullnessTool extends AbstractTool {
         data.put("detectedStyle", dominant == null ? "none" : dominant.name());
         data.put("families", families);
         data.put("evidence", evidence);
+        data.putAll(scan.describe());
         return ToolResponse.success(data, ResponseMeta.builder()
+            .steering(scan.steering(families.size(), "nullness annotation family in use"))
             .suggestedNextTools(List.of(
                 "analyze_nullness(kind=find_violations) to surface probable null bugs"))
             .build());
