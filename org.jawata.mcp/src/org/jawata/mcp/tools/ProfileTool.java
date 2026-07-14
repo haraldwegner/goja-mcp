@@ -67,7 +67,7 @@ public class ProfileTool extends AbstractTool {
 
     private static final List<String> ACTIONS = List.of(
         "threads", "deadlock", "histogram", "gc", "nmt", "heap_dump",
-        "sample", "jfr_dump", "hotspots", "call_counts", "latency_seam",
+        "sample", "jfr_dump", "hotspots", "call_counts", "domain_events", "latency_seam",
         "incident_arm", "incident_status", "incident_get", "incident_disarm",
         "jmx_read", "log_level",
         "native_hs_err", "native_nmt", "native_handoff",
@@ -236,6 +236,15 @@ public class ProfileTool extends AbstractTool {
                            it reports pauseCount/totalPauseMillis/maxPauseMillis instead
                            of inventing an attribution JFR does not provide.
 
+            - domain_events — artifactId: the TARGET'S OWN domain events emitted during a
+                           recording — its application-defined jdk.jfr.Event types (an
+                           OrderPlaced, a RiskBreach), as opposed to the JVM's built-in
+                           jdk.* events. Grouped by type with a count and a bounded sample
+                           of each type's fields. This is the domain context D12 pairs with
+                           a latency measurement — sample() (or the incident JFR slice) to
+                           record, then domain_events to read the target's own vocabulary
+                           out of the same recording. Empty, honestly, when the target
+                           emits none.
             - call_counts — className + durationSeconds: TRUE per-method invocation counts
                            for a class, via the same non-suspending method_trace probe D8
                            provides — every method ENTRY counted, symbol-named, ranked. This
@@ -471,6 +480,7 @@ public class ProfileTool extends AbstractTool {
                 case "jfr_dump" -> jfrDump(arguments);
                 case "hotspots" -> hotspots(arguments);
                 case "call_counts" -> callCounts(service, arguments);
+                case "domain_events" -> domainEvents(arguments);
                 case "latency_seam" -> latencySeam(service, arguments);
                 case "incident_arm" -> incidentArm(arguments);
                 case "incident_status" -> incidentStatus(arguments);
@@ -774,6 +784,38 @@ public class ProfileTool extends AbstractTool {
      * a method was caught on top of the stack — a frequency signal, not a call count; a method
      * called 10,000× at 1µs each yields ~0 samples). Both are honest; only this one counts calls.
      */
+    /** The target's own application-emitted JFR events in a recording — its domain, not the JVM's. */
+    private ToolResponse domainEvents(JsonNode arguments) throws Exception {
+        String artifactId = getStringParam(arguments, "artifactId");
+        if (artifactId == null || artifactId.isBlank()) {
+            return ToolResponse.invalidParameter("artifactId",
+                "domain_events needs an artifactId (from action=sample or action=jfr_dump).");
+        }
+        if (!artifacts.exists(artifactId)) {
+            return ToolResponse.symbolNotFound("No artifact '" + artifactId + "'.");
+        }
+        Path jfrFile = artifacts.root().resolve(artifactId).resolve(JFR_FILE_NAME);
+        if (!Files.exists(jfrFile)) {
+            return ToolResponse.error("NOT_A_JFR_ARTIFACT",
+                "Artifact '" + artifactId + "' has no " + JFR_FILE_NAME + " — it was not "
+                    + "produced by action=sample or action=jfr_dump.",
+                "Use action=artifacts to see what kind each artifact is.");
+        }
+
+        int perTypeSample = Math.max(1, getIntParam(arguments, "limit", 10));
+        Map<String, Object> data = new LinkedHashMap<>(JfrParser.domainEvents(jfrFile, perTypeSample));
+        data.put("artifactId", artifactId);
+        long totalTypes = data.get("totalTypes") instanceof Number n ? n.longValue() : 0;
+        return ToolResponse.success(data, ResponseMeta.builder()
+            .steering(totalTypes == 0
+                ? "No application-defined JFR events in this recording — the target emitted none "
+                    + "(or does not use the jdk.jfr.Event API). An absence, not a failure to look."
+                : totalTypes + " domain event type(s) the TARGET itself emitted — its own "
+                    + "vocabulary (orders, signals, risk breaches) recorded right alongside the "
+                    + "JVM's events, with a bounded sample of each type's fields.")
+            .build());
+    }
+
     private ToolResponse callCounts(IJdtService service, JsonNode arguments) throws Exception {
         RuntimeSession session = sessionOf(arguments);
         String className = getStringParam(arguments, "className");

@@ -212,6 +212,77 @@ public final class JfrParser {
         return gaps.get(gaps.size() / 2);
     }
 
+    /**
+     * The TARGET'S OWN domain events — application-defined {@code jdk.jfr.Event} subclasses it
+     * emitted during the recording, as opposed to the JVM's built-in {@code jdk.*} events.
+     *
+     * <p>A trading sim that commits an {@code OrderPlaced} or {@code RiskBreach} JFR event puts
+     * its own domain right into the same recording jawata profiles — D12 asks for exactly this
+     * ("plus the target's own domain events where it emits them"), and it was not built. Groups
+     * them by event type with a count each, plus a bounded sample of the most recent ones with
+     * their fields, so the domain is legible without dumping the whole stream.</p>
+     */
+    public static Map<String, Object> domainEvents(Path jfrFile, int perTypeSample)
+            throws IOException {
+        Map<String, Long> countByType = new LinkedHashMap<>();
+        Map<String, List<Map<String, Object>>> recentByType = new LinkedHashMap<>();
+
+        try (RecordingFile rf = new RecordingFile(jfrFile)) {
+            while (rf.hasMoreEvents()) {
+                RecordedEvent event = rf.readEvent();
+                String type = event.getEventType().getName();
+                // Built-in JVM/JDK/JFR events are not the application's domain — skip them.
+                if (type.startsWith("jdk.") || type.startsWith("jfr.") || type.startsWith("java.")) {
+                    continue;
+                }
+                countByType.merge(type, 1L, Long::sum);
+                List<Map<String, Object>> recent =
+                    recentByType.computeIfAbsent(type, k -> new ArrayList<>());
+                recent.add(fieldsOf(event));
+                if (recent.size() > perTypeSample) {
+                    recent.remove(0);   // keep only the most recent `perTypeSample`
+                }
+            }
+        }
+
+        List<Map<String, Object>> types = new ArrayList<>();
+        countByType.entrySet().stream()
+            .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
+            .forEach(entry -> {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("eventType", entry.getKey());
+                row.put("count", entry.getValue());
+                row.put("recent", recentByType.get(entry.getKey()));
+                types.add(row);
+            });
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("domainEventTypes", types);
+        result.put("totalTypes", types.size());
+        result.put("totalEvents", countByType.values().stream().mapToLong(Long::longValue).sum());
+        return result;
+    }
+
+    /** An application event's own fields — its domain payload — as plain values. */
+    private static Map<String, Object> fieldsOf(RecordedEvent event) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        event.getFields().forEach(field -> {
+            String name = field.getName();
+            // The event's declared payload — skip JFR's own bookkeeping fields.
+            if (name.equals("stackTrace") || name.equals("eventThread") || name.startsWith("jdk.")) {
+                return;
+            }
+            try {
+                Object value = event.getValue(name);
+                fields.put(name, value == null ? null : value.toString());
+            } catch (Exception e) {
+                // A field we cannot read is skipped, not faked.
+                fields.put(name, "(unreadable)");
+            }
+        });
+        return fields;
+    }
+
     /** Total GC pause count and duration — a fact about the collector, not a call site. */
     public static Map<String, Object> gcPauses(Path jfrFile) throws IOException {
         long count = 0;

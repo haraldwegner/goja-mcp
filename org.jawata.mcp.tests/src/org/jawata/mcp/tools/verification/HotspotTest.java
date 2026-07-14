@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -57,7 +58,8 @@ class HotspotTest {
             pkg.resolve("DebugTarget.java").toString(),
             pkg.resolve("HotLoopTarget.java").toString(),
             pkg.resolve("WallTimeTarget.java").toString(),
-            pkg.resolve("LatencySeamTarget.java").toString());
+            pkg.resolve("LatencySeamTarget.java").toString(),
+            pkg.resolve("DomainEventTarget.java").toString());
         assertEquals(0, rc, "the hotspot fixtures must compile");
     }
 
@@ -210,25 +212,43 @@ class HotspotTest {
 
         assertEquals("wall", d.get("dimension"));
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> rows = (List<Map<String, Object>>) d.get("rows");
-        assertFalse(rows.isEmpty(), "a running program has wall-time hotspots: " + d);
+        List<Map<String, Object>> wallRows = (List<Map<String, Object>>) d.get("rows");
+        assertFalse(wallRows.isEmpty(), "a running program has wall-time hotspots: " + d);
 
         // Every row is ranked by ELAPSED milliseconds, not a sample count.
-        for (Map<String, Object> row : rows) {
+        for (Map<String, Object> row : wallRows) {
             assertNotNull(row.get("wallMillis"), "wall rows are ranked by milliseconds: " + row);
             assertTrue(row.get("symbol").toString().contains("#"), "symbol-named: " + row);
         }
         assertNotNull(d.get("totalWallMillis"));
         assertNotNull(d.get("samplingIntervalMillis"), "the measured on-CPU interval is disclosed");
+        assertTrue(((Number) d.get("blockingEvents")).longValue() > 0,
+            "the blocking wall time was actually captured, not just CPU samples: " + d);
 
-        int waitRank = rankOf(rows, "com.example.debug.WallTimeTarget#waitOnLock");
-        int burnRank = rankOf(rows, "com.example.debug.WallTimeTarget#burnCpu");
-        assertTrue(waitRank > 0,
-            "the BLOCKING method must appear in a wall-time ranking — it is where the elapsed "
-                + "time goes: " + rows);
-        assertTrue(burnRank < 0 || waitRank < burnRank,
-            "and it must rank ABOVE the CPU-only method (wall != CPU): waitOnLock@" + waitRank
-                + " vs burnCpu@" + burnRank + " — " + rows);
+        // THE PROOF that wall != CPU, made with the tool's OWN two outputs on the SAME
+        // recording. burnCpu is a top CPU hotspot; but the #1 WALL method is where the program
+        // spends its elapsed time BLOCKED — a place a blocked thread's monitor-wait parks,
+        // which CPU sampling never sees (a blocked thread is not on the CPU) and which is NOT
+        // the CPU-bound burnCpu.
+        ObjectNode cpu = profileAction("hotspots");
+        cpu.put("artifactId", artifactId);
+        cpu.put("dimension", "cpu");
+        cpu.put("limit", 20);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> cpuRows =
+            (List<Map<String, Object>>) data(profile.execute(cpu)).get("rows");
+
+        int burnCpuRankInCpu = rankOf(cpuRows, "com.example.debug.WallTimeTarget#burnCpu");
+        assertTrue(burnCpuRankInCpu > 0 && burnCpuRankInCpu <= 3,
+            "burnCpu is a top CPU hotspot (that is where the CPU goes): " + cpuRows);
+
+        String topWallSymbol = wallRows.get(0).get("symbol").toString();
+        assertNotEquals("com.example.debug.WallTimeTarget#burnCpu", topWallSymbol,
+            "the #1 WALL method must be where the program BLOCKS, not where it burns CPU — "
+                + "that is the whole difference between wall and cpu: " + wallRows);
+        assertTrue(topWallSymbol.contains("wait") || topWallSymbol.contains("Wait")
+                || topWallSymbol.contains("park") || topWallSymbol.contains("Lock"),
+            "and that #1 wall method is a blocking/waiting one: " + wallRows);
     }
 
     @Test
@@ -268,6 +288,47 @@ class HotspotTest {
             assertNotNull(row.get("calls"), "…ranked by real call count: " + row);
         }
         assertNotNull(d.get("totalCalls"));
+    }
+
+    @Test
+    @DisplayName("domain_events: the TARGET's own JFR events are surfaced, with their fields")
+    void domainEventsSurfacesTheApplicationsOwnEvents() throws Exception {
+        // Sprint-24 audit T2.3: D12 asks for "the target's own domain events where it emits
+        // them"; v2.13.0 surfaced only the JVM's built-in jdk.* events. DomainEventTarget
+        // commits its own OrderPlaced JFR event ~50x/s. sample() records into whatever JFR
+        // recording is running, so those events land in the same recording jawata profiles,
+        // and domain_events must read them back out.
+        String sessionId = launchAndResume("com.example.debug.DomainEventTarget");
+
+        ObjectNode sample = profileAction("sample");
+        sample.put("sessionId", sessionId);
+        sample.put("durationSeconds", 3);
+        ToolResponse sampled = profile.execute(sample);
+        assertTrue(sampled.isSuccess(), "got: " + sampled.getError());
+        String artifactId = (String) data(sampled).get("artifactId");
+
+        ObjectNode domain = profileAction("domain_events");
+        domain.put("artifactId", artifactId);
+        ToolResponse r = profile.execute(domain);
+        assertTrue(r.isSuccess(), "domain_events must be a real action: " + r.getError());
+        Map<String, Object> d = data(r);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> types = (List<Map<String, Object>>) d.get("domainEventTypes");
+        assertFalse(types.isEmpty(), "the target's own events must be surfaced: " + d);
+
+        Map<String, Object> order = types.stream()
+            .filter(t -> "com.example.debug.OrderPlaced".equals(t.get("eventType")))
+            .findFirst().orElse(null);
+        assertNotNull(order, "the application's OrderPlaced event, by its own name: " + types);
+        assertTrue(((Number) order.get("count")).longValue() > 0, "with a real count: " + order);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> recent = (List<Map<String, Object>>) order.get("recent");
+        assertFalse(recent.isEmpty(), "and a sample of the events themselves: " + order);
+        Map<String, Object> one = recent.get(0);
+        assertTrue(one.containsKey("symbol") && one.containsKey("quantity"),
+            "carrying the event's OWN declared fields — the target's domain: " + one);
     }
 
     private static int rankOf(List<Map<String, Object>> rows, String symbol) {
