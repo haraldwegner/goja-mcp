@@ -11,6 +11,8 @@ import org.jawata.mcp.runtime.RuntimeArtifactStore;
 import org.jawata.mcp.runtime.RuntimeSession;
 import org.jawata.mcp.runtime.RuntimeSessionRegistry;
 import org.jawata.mcp.runtime.debug.DebugController;
+import org.jawata.mcp.runtime.profile.GdbAdapter;
+import org.jawata.mcp.runtime.profile.HsErrParser;
 import org.jawata.mcp.runtime.profile.Jcmd;
 import org.jawata.mcp.runtime.profile.JfrParser;
 import org.jawata.mcp.runtime.profile.JmxClient;
@@ -63,6 +65,7 @@ public class ProfileTool extends AbstractTool {
         "threads", "deadlock", "histogram", "gc", "nmt", "heap_dump",
         "sample", "jfr_dump", "hotspots", "latency_seam",
         "incident_arm", "incident_status", "incident_get", "jmx_read", "log_level",
+        "native_hs_err", "native_nmt", "native_handoff",
         "artifacts", "artifact_delete");
 
     private static final int DEFAULT_STACK_FRAMES = 20;
@@ -88,6 +91,9 @@ public class ProfileTool extends AbstractTool {
 
     private static final int DEFAULT_JFR_SLICE_SECONDS = 15;
     private static final int DEFAULT_LOG_SLICE_LINES = 200;
+    /** gdb and lldb both understand this flag; either is a valid native_handoff adapter. */
+    private static final String DEFAULT_ADAPTER_COMMAND = "gdb";
+    private static final int ADAPTER_TIMEOUT_SECONDS = 30;
     /** An armed incident is cheap in-memory state; still bounded, same discipline as sessions. */
     private static final int MAX_ARMED_INCIDENTS = 50;
 
@@ -255,6 +261,37 @@ public class ProfileTool extends AbstractTool {
                            it. Without expirySeconds, it is permanent until changed
                            again — say so up front, do not assume.
 
+            NATIVE BOUNDARY TRIAGE — for a crash that killed the process (no live
+            session, no sessionId; these three read a file, not a JVM):
+            - native_hs_err  — hsErrFile: parse the JVM's own hs_err_pid<pid>.log
+                           fatal-error report. HotSpot ALREADY correlates Java and
+                           native frames for the crashing thread's own stack — the
+                           combined frame list carries each frame's kind
+                           (compiledJava/interpretedJava/vmInternal/vmStub/native),
+                           and Java frames are symbol-named (`ClassName#methodName`,
+                           the same key as everywhere else) while native/VM frames
+                           carry library+offset and a resolved function name WHERE
+                           HotSpot could resolve one (never invented when it could
+                           not — e.g. a stripped library frame stays offset-only,
+                           honestly). No external tool is needed for this — it is
+                           the JDK's own diagnostic, always available.
+            - native_nmt     — hsErrFile: the memory-tracking section EMBEDDED in
+                           the crash report itself (only present if the crashed JVM
+                           was launched with -XX:NativeMemoryTracking=summary — it
+                           cannot be turned on post-mortem). Absent, honestly:
+                           `enabled: false` + why, same shape as the live `nmt`
+                           action's capability-absent report.
+            - native_handoff — hsErrFile + optional adapterCommand (default "gdb";
+                           "lldb" also understood) + optional corePath (else
+                           inferred from the hs_err file's own "dumping to ..."
+                           line): hands the crash to a CONFIGURED external debugger
+                           for a deeper backtrace than hs_err alone carries,
+                           correlating any frame whose function name matches a
+                           symbol hs_err already resolved. An OPTIONAL adapter —
+                           honest about platform support: `available: false` + why
+                           when the command is not found on this machine, never a
+                           silent skip.
+
             ARTIFACTS: artifacts / artifact_delete — heap dumps, JFR recordings (and
             anything debug produced) with provenance and an expiry; explicit delete,
             because these get large. Shares the store with `debug` — one place either
@@ -339,6 +376,16 @@ public class ProfileTool extends AbstractTool {
         properties.put("expirySeconds", Map.of("type", "integer",
             "description", "log_level: after this long, the level automatically REVERTS "
                 + "to what it was. Omitted: the change is permanent until set again."));
+        properties.put("hsErrFile", Map.of("type", "string",
+            "description", "native_hs_err / native_nmt / native_handoff: path to the "
+                + "hs_err_pid<pid>.log the crashed JVM wrote. No sessionId — the process "
+                + "that crashed is gone."));
+        properties.put("adapterCommand", Map.of("type", "string",
+            "description", "native_handoff: the external debugger command (default \""
+                + DEFAULT_ADAPTER_COMMAND + "\"; \"lldb\" also understood)."));
+        properties.put("corePath", Map.of("type", "string",
+            "description", "native_handoff: path to the core dump. Omitted: inferred from "
+                + "the hs_err file's own \"dumping to ...\" line."));
 
         schema.put("properties", properties);
         schema.put("required", List.of("action"));
@@ -368,6 +415,9 @@ public class ProfileTool extends AbstractTool {
                 case "incident_get" -> incidentGet(arguments);
                 case "jmx_read" -> jmxRead(arguments);
                 case "log_level" -> logLevel(arguments);
+                case "native_hs_err" -> nativeHsErr(arguments);
+                case "native_nmt" -> nativeNmt(arguments);
+                case "native_handoff" -> nativeHandoff(arguments);
                 case "artifacts" -> listArtifacts();
                 case "artifact_delete" -> deleteArtifact(arguments);
                 default -> ToolResponse.invalidParameter("action",
@@ -1185,6 +1235,133 @@ public class ProfileTool extends AbstractTool {
         }, "jawata-log-level-revert");
         reverter.setDaemon(true);
         reverter.start();
+    }
+
+    // --------------------------------------------------- D14: native boundary triage
+
+    private Path resolveHsErrFile(JsonNode arguments) throws Exception {
+        String hsErrFile = getStringParam(arguments, "hsErrFile");
+        if (hsErrFile == null || hsErrFile.isBlank()) {
+            throw new IllegalArgumentException("needs hsErrFile — the path to the crashed "
+                + "JVM's hs_err_pid<pid>.log. There is no sessionId here: the process that "
+                + "crashed is gone.");
+        }
+        Path path = Path.of(hsErrFile);
+        if (!Files.exists(path)) {
+            throw new java.io.FileNotFoundException("No hs_err file at '" + hsErrFile + "'.");
+        }
+        return path;
+    }
+
+    private ToolResponse nativeHsErr(JsonNode arguments) {
+        try {
+            Path hsErrFile = resolveHsErrFile(arguments);
+            Map<String, Object> parsed = HsErrParser.parse(hsErrFile);
+            return ToolResponse.success(parsed, ResponseMeta.builder()
+                .steering("native_nmt reads just the memory-tracking section; native_handoff "
+                    + "hands this crash to a configured gdb/lldb for a deeper backtrace.")
+                .build());
+        } catch (IllegalArgumentException e) {
+            return ToolResponse.invalidParameter("hsErrFile", "native_hs_err " + e.getMessage());
+        } catch (java.io.FileNotFoundException e) {
+            return ToolResponse.error("HSERR_FILE_NOT_FOUND", e.getMessage(), null);
+        } catch (Exception e) {
+            return ToolResponse.internalError(e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private ToolResponse nativeNmt(JsonNode arguments) {
+        try {
+            Path hsErrFile = resolveHsErrFile(arguments);
+            Map<String, Object> parsed = HsErrParser.parse(hsErrFile);
+            Map<String, Object> data = new LinkedHashMap<>(
+                (Map<String, Object>) parsed.get("nativeMemoryTracking"));
+            data.put("hsErrFile", hsErrFile.toString());
+            if (parsed.get("hostMemory") != null) {
+                data.put("hostMemory", parsed.get("hostMemory"));
+            }
+            return ToolResponse.success(data);
+        } catch (IllegalArgumentException e) {
+            return ToolResponse.invalidParameter("hsErrFile", "native_nmt " + e.getMessage());
+        } catch (java.io.FileNotFoundException e) {
+            return ToolResponse.error("HSERR_FILE_NOT_FOUND", e.getMessage(), null);
+        } catch (Exception e) {
+            return ToolResponse.internalError(e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private ToolResponse nativeHandoff(JsonNode arguments) {
+        try {
+            Path hsErrFile = resolveHsErrFile(arguments);
+            String adapterCommand = getStringParam(arguments, "adapterCommand", DEFAULT_ADAPTER_COMMAND);
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("hsErrFile", hsErrFile.toString());
+            data.put("adapterCommand", adapterCommand);
+
+            if (!GdbAdapter.isAvailable(adapterCommand)) {
+                data.put("available", false);
+                data.put("why", "'" + adapterCommand + "' was not found (or did not run) on "
+                    + "this machine. native_hs_err already gives the crashing thread's own "
+                    + "Java/native frames without any external tool — this adapter is an "
+                    + "OPTIONAL step beyond that baseline.");
+                return ToolResponse.success(data);
+            }
+            data.put("available", true);
+
+            Map<String, Object> hsErrParsed = HsErrParser.parse(hsErrFile);
+            String corePathParam = getStringParam(arguments, "corePath");
+            Path corePath = corePathParam != null && !corePathParam.isBlank()
+                ? Path.of(corePathParam)
+                : hsErrParsed.get("coreDumpPath") != null
+                    ? Path.of((String) hsErrParsed.get("coreDumpPath"))
+                    : null;
+
+            if (corePath == null || !Files.exists(corePath)) {
+                data.put("correlated", false);
+                data.put("why", corePath == null
+                    ? "no corePath was given and the hs_err file named none"
+                    : "no core dump file at '" + corePath + "' — core dumping may be disabled "
+                        + "on this machine (ulimit -c / core_pattern).");
+                return ToolResponse.success(data);
+            }
+
+            Path javaBinary = Path.of(System.getProperty("java.home"), "bin", "java");
+            String backtrace = GdbAdapter.runBacktrace(adapterCommand, javaBinary, corePath,
+                ADAPTER_TIMEOUT_SECONDS);
+            List<Map<String, Object>> threads = GdbAdapter.parseBacktrace(backtrace);
+
+            Set<String> hsErrResolvedSymbols = new HashSet<>();
+            for (Map<String, Object> frame : (List<Map<String, Object>>) hsErrParsed.get("nativeFrames")) {
+                if (frame.get("resolvedSymbol") != null) {
+                    hsErrResolvedSymbols.add((String) frame.get("resolvedSymbol"));
+                }
+            }
+            int correlatedCount = 0;
+            for (Map<String, Object> thread : threads) {
+                for (Map<String, Object> frame : (List<Map<String, Object>>) thread.get("frames")) {
+                    boolean correlated = hsErrResolvedSymbols.contains(frame.get("function"));
+                    frame.put("correlatedWithHsErr", correlated);
+                    if (correlated) {
+                        correlatedCount++;
+                    }
+                }
+            }
+
+            data.put("correlated", true);
+            data.put("corePath", corePath.toString());
+            data.put("threads", threads);
+            data.put("correlatedFrameCount", correlatedCount);
+            return ToolResponse.success(data);
+        } catch (IllegalArgumentException e) {
+            return ToolResponse.invalidParameter("hsErrFile", "native_handoff " + e.getMessage());
+        } catch (java.io.FileNotFoundException e) {
+            return ToolResponse.error("HSERR_FILE_NOT_FOUND", e.getMessage(), null);
+        } catch (Exception e) {
+            return ToolResponse.internalError(e);
+        }
     }
 
     private ToolResponse listArtifacts() {

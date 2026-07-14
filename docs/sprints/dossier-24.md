@@ -1283,3 +1283,112 @@ time.
 | toolCount | 45 (unchanged — 5 new actions on the existing `profile` tool) | **45** ✓ (verified live over the raw MCP endpoint: `tools/list` → 45 names, `debug` + `profile` present; `profile`'s own `action` enum lists all 17 actions incl. the 5 new ones) |
 | Suite SERIAL | green | **1353/1353** ✓ (wall 490s) |
 | Suite SHARDED | green | **1353/1353** ✓ (wall 525s) |
+
+## C19 — D14: native boundary triage (2026-07-14)
+
+### What shipped
+
+**`profile` actions: `native_hs_err` / `native_nmt` / `native_handoff`.** No
+`sessionId` on any of these three — the process that crashed is gone; each
+takes an `hsErrFile` path instead.
+
+- **`HsErrParser`** (`runtime/profile/`) parses the JVM's OWN
+  `hs_err_pid<pid>.log` fatal-error report. The key finding this stage rests
+  on: HotSpot ALREADY correlates Java and native frames for the crashing
+  thread's own stack — its "Native frames:" section interleaves `C`/`V`/`v`
+  native frames with `J`/`j` Java frames, and Java frames carry a fully
+  resolved method signature. No external debugger is needed to get that
+  correlation; `native_hs_err` exposes it directly: `crashingThread`
+  (name/state, or an honest `javaThread: false` when the signal hit a
+  native/VM-internal thread instead), `nativeFrames` / `javaFrames` (each
+  frame kind-classified — compiledJava/interpretedJava/vmInternal/vmStub/
+  native — Java frames symbol-named `ClassName#methodName`, the SAME key
+  D15's closure contract uses everywhere else; native/VM frames carry
+  library+offset and a resolved function name WHERE HotSpot could resolve
+  one, honestly offset-only otherwise), `problematicFrame`, `hostMemory`,
+  and `coreDumpPath` (parsed from the report's own "dumping to ..." line).
+- **`native_nmt`** reads the memory-tracking section EMBEDDED in the crash
+  report itself (present only if the crashed JVM was launched with
+  `-XX:NativeMemoryTracking=summary` — it cannot be turned on post-mortem).
+  Reuses Stage 15's `ProfileParsers.parseNativeMemory` AS-IS on the embedded
+  text once the section is correctly bounded (see bug 1 below) — same
+  category-line shape as the live jcmd format. Absent: `enabled: false` +
+  why, same shape as the live `nmt` action.
+- **`native_handoff`** hands the crash to a CONFIGURED external debugger
+  (`adapterCommand`, default "gdb") for a deeper backtrace than hs_err alone
+  carries. Split in two by design: `GdbAdapter.isAvailable` /
+  `runBacktrace` (thin, genuinely needs the tool, hard to unit-test without
+  it) and `GdbAdapter.parseBacktrace` (a PURE function over gdb's own
+  `thread apply all bt` text, unit-testable with a fixture transcript
+  whether or not gdb is installed on the box running the test). Any gdb
+  frame whose function name matches a symbol hs_err already resolved is
+  marked `correlatedWithHsErr: true`. Honest about platform support (R4/D14
+  wording): no configured/resolvable adapter → `available: false` + why,
+  never a silent skip — and genuinely exercised as such in THIS sandbox
+  (gdb is not installed here; `ulimit -c` is 0 and `core_pattern` routes to
+  apport, so even an installed gdb would find no core file to analyze).
+- **New fixture**: `NativeCrashTarget.java` — deterministically SIGSEGVs
+  from inside a NAMED method (`triggerCrash`) via an out-of-bounds
+  `sun.misc.Unsafe` write, so the hs_err file this stage's tests parse is
+  exactly what HotSpot itself produces for a genuine in-process native
+  crash: a real `JavaThread`, a real resolved native symbol
+  (`Unsafe_PutInt+0xa4` in `libjvm.so`), and this fixture's own method name
+  in the Java frames — grounded against two independently generated real
+  crashes before any parser code was written (Sprint 24 diagnosis
+  discipline, same as Stages 15–18).
+
+### Three real bugs, all caught by grounding against actual generated text — none guessed
+
+1. **The NMT section's true end is not the first blank line.** HotSpot
+   inserts a "(Omitting categories weighting less than 1KB)" NOTE followed
+   by ITS OWN blank line before the real `Total:` line and category
+   breakdown even starts. The naive "stop at first blank line" extraction
+   captured nothing but that one note line — `categories: []` on a crash
+   that plainly had `-XX:NativeMemoryTracking=summary` on. Fixed: bound the
+   section by the next major `---------------` divider instead (confirmed
+   against the actual captured file: the section genuinely runs ~90 lines,
+   header to `MallocLimit: unset`, before the next divider).
+2. **A lazy-quantifier regex ambiguity silently skipped the LWP capture.**
+   `\(.*?(?:LWP (?<lwp>\d+))?.*?\):\s*$` lets the engine satisfy the WHOLE
+   match by treating the optional LWP group as zero-width (the trailing
+   `.*?` happily swallows the literal `(LWP 5002)` text as ordinary
+   characters) — `matches()` only needs ONE success, so it never backtracks
+   into the position where the group would actually fire. `lwp` came back
+   `null` on every thread. Fixed by NOT folding it into one pattern: a
+   simple `.*` for the header shape, plus a SEPARATE `find()` for `LWP
+   (\d+)` against the same line — removes the ambiguity entirely instead of
+   trying to out-clever it.
+3. **gdb frames end EITHER `at file:line` OR `from /path/lib.so`, never
+   assumed to be only the first.** Routine calls into libc/libpthread
+   (`raise`, `abort`, `pthread_cond_wait`) almost never carry debug info, so
+   gdb resolves them via the dynamic symbol table and reports `from
+   <library>` instead of a source location. A regex that only recognized
+   `at file:line` (and required pure trailing whitespace otherwise) matched
+   NEITHER shape for these frames and dropped them with no error — 3 of a
+   5-frame fixture transcript vanished silently, first surfacing as
+   `assertEquals(2, thread2Frames.size())` failing with `<1>`. Fixed: both
+   suffixes are optional and mutually exclusive; a `library` field is
+   captured when present, `file`/`line` when the other shape is.
+
+**Plus a process trap that cost real time before any of the above was found:**
+`mvn ... | tail -100 && echo "BUILD_OK"` printed success on a build that had
+actually FAILED (`POM file build/pom.xml ... does not exist`, from a cwd that
+had drifted since the last explicit `cd`) — a bash pipeline's exit status is
+the LAST command's (`tail`'s, always 0), not `mvn`'s, so the dist jar sat
+frozen mid-fix while two already-corrected bugs kept "reproducing" for real
+minutes until file-mtime comparison exposed the frozen jar. Recorded in the
+experience store (`b268ba59`) alongside the two hs_err/gdb domain facts
+(`a15f4bc5`, `40160600`) — all three are exactly the kind of thing a future
+stage would otherwise rediscover the hard way.
+
+### Gates
+
+| Gate | Expected | Actual |
+|---|---|---|
+| NativeTriageTest | real crash parsed (signal, correlated Java+native frames); NMT present/absent both proven; native_handoff honest either way; gdb frame-parsing proven pure | **8/8** ✓ (stable ×3 post-fix) |
+| Correlated-evidence path (`GdbAdapter.parseBacktrace`) proven WITHOUT gdb installed | pure-function unit test green | ✓ |
+| Capability-absent path (`native_handoff`) proven ON this platform | `available: false` + why, matches ground truth (`GdbAdapter.isAvailable("gdb")`) | ✓ (gdb genuinely absent here) |
+| Focused battery (Stage 6–19: session spine → native triage) | green | **96/96** ✓ |
+| toolCount | 45 (unchanged — 3 new actions on the existing `profile` tool) | **45** ✓ (verified live over the raw MCP endpoint; `profile`'s action enum lists all 20 actions incl. the 3 new ones) |
+| Suite SERIAL | green | **1361/1361** ✓ (wall 573s) |
+| Suite SHARDED | green | **1361/1361** ✓ (wall 340s) |
