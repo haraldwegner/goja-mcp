@@ -182,7 +182,7 @@ public class SearchSymbolsTool extends AbstractTool {
             return ToolResponse.success(data, ResponseMeta.builder()
                 .returnedCount(page.size())
                 .truncated(page.size() == maxResults)
-                .steering(teachTheAddress(query, page))
+                .steering(teachTheAddress(query, page, address -> resolves(service, address)))
                 .suggestedNextTools(List.of(
                     "get_symbol_info at a result location for detailed info",
                     "get_type_members for type results",
@@ -207,6 +207,19 @@ public class SearchSymbolsTool extends AbstractTool {
      * null otherwise, which leaves the central steering in place.</p>
      */
     public static String teachTheAddress(String query, List<Map<String, Object>> page) {
+        return teachTheAddress(query, page, address -> true);
+    }
+
+    /**
+     * @param resolvable proves the address actually resolves before we hand it over. We do
+     *                   not teach a key we have not tried in the lock: an anonymous class's
+     *                   member ({@code Outer$1#add}) has a perfectly good qualified name and
+     *                   no way to address it, and teaching it would send the agent straight
+     *                   into a "SYMBOL_RELOCATED — it appears to have moved" about a symbol
+     *                   that never moved. Silence is the honest answer when there is no key.
+     */
+    public static String teachTheAddress(String query, List<Map<String, Object>> page,
+                                         java.util.function.Predicate<String> resolvable) {
         if (query.indexOf('*') >= 0 || query.indexOf('?') >= 0) {
             return null;
         }
@@ -214,16 +227,49 @@ public class SearchSymbolsTool extends AbstractTool {
             if (!query.equals(row.get("name"))) {
                 continue;
             }
-            Object qualified = row.get("qualifiedName");
-            String address = qualified != null
-                ? String.valueOf(qualified)
-                : row.get("containingType") + "#" + row.get("name");
+            String address = addressOf(row);
+            // Better to teach NOTHING than an address that opens nothing — but an exact hit
+            // we cannot address (a member of an anonymous class, say) must not silence the
+            // NEXT exact hit, which may be the very one the caller was looking for.
+            if (address == null || !resolvable.test(address)) {
+                continue;
+            }
             return "Address this directly next time: symbol=\"" + address + "\" — the name is "
                 + "the stable key (it survives file moves; a position does not), and every "
                 + "reading tool and whole-symbol refactoring accepts it. Remember it instead "
                 + "of searching again.";
         }
         return null;
+    }
+
+    /** Does this address resolve through the very path we are about to tell the agent to use? */
+    private static boolean resolves(IJdtService service, String address) {
+        try {
+            return org.jawata.mcp.tools.fqn.FqnResolver.resolveWorkspace(address, service).isPresent();
+        } catch (Exception e) {
+            log.debug("teach-line check: '{}' does not resolve: {}", address, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * The name an agent can actually address this row by — or null if there is none.
+     *
+     * <p>For a member this MUST be the declaring type's FULLY QUALIFIED name.
+     * {@code containingType} carries the SIMPLE name (it is for display), and building the
+     * key from it taught {@code symbol="Calculator#add"} — which resolves to nothing, and
+     * whose first use came back as a misleading "it appears to have moved". A tool that
+     * hands an agent a key must hand it one that opens the door: this codebase's own rule,
+     * recorded after the last time it was broken, and broken again here until the Sprint-24
+     * audit. See KeyTeachingAndLandmarksTest#theTaughtMemberAddressResolves.</p>
+     */
+    private static String addressOf(Map<String, Object> row) {
+        Object qualified = row.get("qualifiedName");
+        if (qualified != null) {
+            return String.valueOf(qualified);
+        }
+        Object declaringType = row.get("containingTypeQualified");
+        return declaringType != null ? declaringType + "#" + row.get("name") : null;
     }
 
     /**
@@ -362,12 +408,19 @@ public class SearchSymbolsTool extends AbstractTool {
             } else if (javaElement instanceof IMethod method) {
                 info.put("signature", getMethodSignature(method));
                 if (method.getDeclaringType() != null) {
+                    // containingType is the SIMPLE name (for reading); containingTypeQualified
+                    // is the one you can actually address the member by. Teaching from the
+                    // former handed out keys that opened nothing — Sprint-24 audit.
                     info.put("containingType", method.getDeclaringType().getElementName());
+                    info.put("containingTypeQualified",
+                        method.getDeclaringType().getFullyQualifiedName());
                 }
             } else if (javaElement instanceof IField field) {
                 info.put("type", field.getTypeSignature());
                 if (field.getDeclaringType() != null) {
                     info.put("containingType", field.getDeclaringType().getElementName());
+                    info.put("containingTypeQualified",
+                        field.getDeclaringType().getFullyQualifiedName());
                 }
             }
 

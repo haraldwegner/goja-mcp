@@ -91,14 +91,108 @@ class KeyTeachingAndLandmarksTest {
         assertNull(SearchSymbolsTool.teachTheAddress("Calculator",
             List.of(Map.of("name", "CalculatorTest", "qualifiedName", "com.example.CalculatorTest"))),
             "a near-miss is not an exact hit");
-        // A member hit addresses Type#member.
+        // A member hit addresses Type#member — with the DECLARING TYPE'S FULL NAME, which is
+        // the shape production actually emits (`containingTypeQualified`).
         String member = SearchSymbolsTool.teachTheAddress("add",
-            List.of(Map.of("name", "add", "containingType", "com.example.Calculator")));
+            List.of(Map.of("name", "add",
+                "containingType", "Calculator",
+                "containingTypeQualified", "com.example.Calculator")));
         assertNotNull(member);
         assertTrue(member.contains("com.example.Calculator#add"), "got: " + member);
     }
 
+    @Test
+    @DisplayName("D3: THE ADDRESS IT TEACHES ACTUALLY RESOLVES — a member hit, end to end")
+    void theTaughtMemberAddressResolves() {
+        // Sprint-24 audit: for a METHOD or FIELD hit the teach line was built from
+        // `containingType`, which production fills with the declaring type's SIMPLE name
+        // (getElementName()). So searching for `add` taught symbol="Calculator#add" — which
+        // FqnResolver cannot resolve, and whose first use answered with a misleading
+        // "SYMBOL_RELOCATED / it appears to have moved". The unit test above did not catch it
+        // because it hand-built a row carrying a QUALIFIED containingType, a shape production
+        // never emits: it asserted a fiction.
+        //
+        // This project's own recorded rule (experience store aebb1dad): any feature that
+        // hands an agent a name to reuse must verify that name resolves through the SAME
+        // path the agent will use. So that is what this test does — it takes what the tool
+        // teaches and feeds it straight back in.
+        SearchSymbolsTool search = new SearchSymbolsTool(() -> service);
+        ObjectNode args = om.createObjectNode();
+        args.put("query", "add");
+        args.put("kind", "Method");
+
+        ToolResponse r = search.execute(args);
+        assertTrue(r.isSuccess(), "got: " + r.getError());
+        String steering = r.getMeta().getSteering();
+        assertNotNull(steering, "an exact member hit must teach its address: " + data(r));
+
+        java.util.regex.Matcher taught = java.util.regex.Pattern
+            .compile("symbol=\"([^\"]+)\"").matcher(steering);
+        assertTrue(taught.find(), "the steering must carry a symbol= address: " + steering);
+        String address = taught.group(1);
+        assertTrue(address.contains("#"), "a member address is Type#member: " + address);
+        assertTrue(address.contains("."),
+            "and it carries the declaring type's FULL name — 'Calculator#add' resolves to "
+                + "nothing: " + address);
+
+        // AND IT MUST WORK. Hand it to a symbol= consumer exactly as an agent would. This is
+        // the assertion that matters: not that the address has a particular spelling, but
+        // that the key we handed over opens the door.
+        org.jawata.mcp.tools.FindReferencesTool references =
+            new org.jawata.mcp.tools.FindReferencesTool(() -> service);
+        ObjectNode byName = om.createObjectNode();
+        byName.put("kind", "references");
+        byName.put("symbol", address);
+
+        ToolResponse resolved = references.execute(byName);
+        assertTrue(resolved.isSuccess(),
+            "the address the search TAUGHT must resolve through the tools it told the agent "
+                + "to use — otherwise we handed out a key that opens nothing: " + resolved.getError());
+    }
+
     // ------------------------------------------------------------------ D4
+
+    @Test
+    @DisplayName("D4: a landmark whose type was RENAMED is never served from cache — it would not resolve")
+    void aRenamedTypeIsNotServedAsAStaleLandmark() throws Exception {
+        // Sprint-24 audit: the ranking was cached in a static map keyed on the Eclipse project
+        // NAME alone and never invalidated (invalidate() had no callers anywhere). On a
+        // long-lived resident the first ranking became permanent — so after a rename, the
+        // landmarks call kept handing out the OLD name as orientation. A landmark you cannot
+        // address is worse than no landmark: it is a confident pointer at nothing, and it
+        // breaks the one invariant this feature's own test asserts.
+        InspectTool inspect = new InspectTool(() -> service);
+        ObjectNode args = om.createObjectNode();
+        args.put("kind", "landmarks");
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> before =
+            (List<Map<String, Object>>) data(inspect.execute(args)).get("landmarks");
+        assertFalse(before.isEmpty(), "the fixture has landmarks to begin with");
+        assertTrue(before.stream().anyMatch(l -> "com.example.Calculator".equals(l.get("qualifiedName"))),
+            "Calculator is one of them: " + before);
+
+        // Rename it through the compiler-accurate path an agent would actually use.
+        org.jawata.mcp.tools.RenameSymbolTool rename = new org.jawata.mcp.tools.RenameSymbolTool(
+            () -> service, new org.jawata.mcp.refactoring.RefactoringChangeCache());
+        ObjectNode renameArgs = om.createObjectNode();
+        renameArgs.put("symbol", "com.example.Calculator");
+        renameArgs.put("newName", "Reckoner");
+        renameArgs.put("auto_apply", true);
+        ToolResponse renamed = rename.execute(renameArgs);
+        assertTrue(renamed.isSuccess(), "got: " + renamed.getError());
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> after =
+            (List<Map<String, Object>>) data(inspect.execute(args)).get("landmarks");
+
+        assertTrue(after.stream().noneMatch(l -> "com.example.Calculator".equals(l.get("qualifiedName"))),
+            "the old name must NOT still be offered as a landmark: " + after);
+        for (Map<String, Object> landmark : after) {
+            assertNotNull(service.findType(String.valueOf(landmark.get("qualifiedName"))),
+                "and EVERY landmark served must still resolve by its name: " + landmark);
+        }
+    }
 
     @Test
     @DisplayName("D4: landmarks name the load-bearing types, most-referenced first")

@@ -44,8 +44,36 @@ public final class Landmarks {
      */
     private static final int REFERENCE_CAP = 2000;
 
-    /** Keyed by project + its source-file count: a changed workspace recomputes. */
-    private static final Map<String, List<Map<String, Object>>> CACHE = new ConcurrentHashMap<>();
+    /**
+     * Keyed by each project's ROOT, its source-file count and the moment it was loaded — so a
+     * reload, an added file or a removed file all recompute, and two different workspaces can
+     * never be served each other's landmarks.
+     *
+     * <p>It was keyed on the Eclipse project's element NAME alone, and {@link #invalidate}
+     * had no callers anywhere. On a long-lived resident that made the first ranking permanent:
+     * types renamed or deleted afterwards were still handed out as orientation, and a landmark
+     * whose name no longer resolves is worse than no landmark — it is the exact invariant this
+     * class exists to protect, and the one its own test asserts. Worse, an Eclipse project name
+     * is derived from the directory basename, so loading a DIFFERENT tree with the same
+     * basename was served the first tree's landmarks verbatim. Sprint-24 audit (T1.12).</p>
+     */
+    private static final Map<String, Entry> CACHE = new ConcurrentHashMap<>();
+
+    /**
+     * A backstop for the changes a key cannot see (an in-place rename leaves the file count
+     * and the load time untouched). Bounded staleness beats unbounded staleness; an explicit
+     * {@link #invalidate} is still the immediate path.
+     */
+    private static final long MAX_AGE_MILLIS = 5L * 60 * 1000;
+
+    /** Keep the map from accumulating one dead entry per reload on a long-lived server. */
+    private static final int MAX_ENTRIES = 16;
+
+    private record Entry(List<Map<String, Object>> ranked, long computedAtMillis) {
+        boolean isStale() {
+            return System.currentTimeMillis() - computedAtMillis > MAX_AGE_MILLIS;
+        }
+    }
 
     private Landmarks() {
     }
@@ -61,15 +89,51 @@ public final class Landmarks {
      * @param limit how many to name (the orientation set, not an inventory).
      */
     public static List<Map<String, Object>> of(IJdtService service, int limit) {
-        List<Map<String, Object>> ranked = CACHE.computeIfAbsent(
-            cacheKey(service), key -> rank(service));
+        String key = cacheKey(service);
+        Entry entry = CACHE.get(key);
+        if (entry == null || entry.isStale() || !stillResolves(service, entry.ranked(), limit)) {
+            if (CACHE.size() >= MAX_ENTRIES) {
+                CACHE.clear();
+            }
+            entry = new Entry(rank(service), System.currentTimeMillis());
+            CACHE.put(key, entry);
+        }
+        List<Map<String, Object>> ranked = entry.ranked();
         return ranked.size() > limit ? new ArrayList<>(ranked.subList(0, limit)) : ranked;
+    }
+
+    /**
+     * Would every landmark we are about to hand out still resolve by name?
+     *
+     * <p>The cache key sees a reload, an added file, a removed file — it cannot see a type
+     * RENAMED in place, which is precisely what a refactoring does, and which leaves the
+     * cached ranking advertising a name that no longer exists. Rather than try to hook every
+     * mutation in the system, the invariant is simply enforced where it matters: a landmark
+     * is offered as an address, so it is checked as an address, every time. Cheap — we only
+     * ever check the handful actually being served.</p>
+     */
+    private static boolean stillResolves(IJdtService service, List<Map<String, Object>> ranked, int limit) {
+        for (Map<String, Object> landmark : ranked.subList(0, Math.min(limit, ranked.size()))) {
+            try {
+                if (service.findType(String.valueOf(landmark.get("qualifiedName"))) == null) {
+                    log.debug("landmark {} no longer resolves — reranking",
+                        landmark.get("qualifiedName"));
+                    return false;
+                }
+            } catch (Exception e) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String cacheKey(IJdtService service) {
         StringBuilder key = new StringBuilder();
         for (LoadedProject lp : service.allProjects()) {
-            key.append(lp.javaProject().getElementName()).append(':');
+            key.append(lp.projectRoot())
+                .append('@').append(lp.sourceFileCount())
+                .append('@').append(lp.loadedAt().toEpochMilli())
+                .append(';');
         }
         return key.toString();
     }

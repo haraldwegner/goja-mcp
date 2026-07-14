@@ -34,6 +34,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /**
@@ -104,6 +108,19 @@ public class ProfileTool extends AbstractTool {
     private static final int MAX_DECLARED_TEXT_CHARS = 2_000;
 
     private final Map<String, ArmedIncident> incidents = new ConcurrentHashMap<>();
+
+    /** One pending revert per (target, logger) — see {@link LogLevelBump}. */
+    private final Map<String, LogLevelBump> logLevelBumps = new ConcurrentHashMap<>();
+    /**
+     * One bounded, daemon scheduler for every pending log-level revert. The old code started
+     * a raw Thread per call — unbounded, and each carrying its own idea of what to revert to.
+     */
+    private final ScheduledExecutorService logLevelReverts =
+        Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "jawata-log-level-revert");
+            thread.setDaemon(true);
+            return thread;
+        });
 
     private final RuntimeSessionRegistry sessions;
     private final RuntimeArtifactStore artifacts;
@@ -266,12 +283,19 @@ public class ProfileTool extends AbstractTool {
                            local JMX the dev/sim preset already enables (no new
                            capability, no authentication surface — loopback-only).
             - log_level  — loggerName ("" = root) + level, via the platform Logging
-                           MBean. Optional expirySeconds: after that long, the level
-                           REVERTS to what it was before this call — read up front and
-                           restored automatically, on a background timer, so a
-                           diagnostic verbosity bump cannot outlive the reason you set
-                           it. Without expirySeconds, it is permanent until changed
-                           again — say so up front, do not assume.
+                           MBean. Optional expirySeconds: after that long the level
+                           REVERTS — not to whatever it was when you made THIS call, but
+                           to the level the logger had before jawata first touched it
+                           (`revertsTo` says which). Bumping again while a revert is
+                           pending moves the deadline; it does not change the
+                           destination, so two overlapping bumps cannot leave the target
+                           stranded at an intermediate level. Without expirySeconds the
+                           change is permanent and any pending revert is cancelled — a
+                           diagnostic verbosity bump should not outlive its reason, but
+                           neither should it undo a level you deliberately set.
+                           The timer runs in THIS server: if jawata restarts before the
+                           expiry, the level stays as set (`revertPerformedBy` says so —
+                           we cannot schedule work inside a JVM we do not own).
 
             NATIVE BOUNDARY TRIAGE — for a crash that killed the process (no live
             session, no sessionId; these three read a file, not a JVM):
@@ -1319,8 +1343,39 @@ public class ProfileTool extends AbstractTool {
             return null;
         });
 
+        String bumpKey = pid + " " + loggerName;
+        String revertsTo = null;
+
         if (expirySeconds != null && expirySeconds > 0) {
-            scheduleLogLevelRevert(pid, loggerName, previous, expirySeconds);
+            // ONE pending revert per (target, logger), anchored to the level that was in
+            // force before jawata touched this logger AT ALL.
+            //
+            // Each call used to capture "whatever the level is right now" as its own revert
+            // target and start its own timer, so a second bump while the first was pending
+            // (INFO → FINE → FINEST) reverted to INFO on the first timer and then BACK TO
+            // FINE on the second — one reverter restoring another's temporary level, leaving
+            // the target verbose indefinitely. That is the precise opposite of this action's
+            // promise. Sprint-24 audit (T1.11).
+            final String observedNow = previous;
+            LogLevelBump bump = logLevelBumps.compute(bumpKey, (key, pending) -> {
+                String baseline = pending != null ? pending.baseline : observedNow;
+                if (pending != null && pending.revert != null) {
+                    pending.revert.cancel(false);   // supersede it; the baseline carries over
+                }
+                return new LogLevelBump(baseline);
+            });
+            revertsTo = bump.baseline;
+
+            bump.revert = logLevelReverts.schedule(
+                () -> revertLogLevel(bumpKey, bump, pid, loggerName, bump.baseline),
+                expirySeconds, TimeUnit.SECONDS);
+        } else {
+            // Permanent: the caller is taking ownership of this logger's level. Any pending
+            // revert must be dropped, or it would later undo the level they just asked to keep.
+            LogLevelBump superseded = logLevelBumps.remove(bumpKey);
+            if (superseded != null && superseded.revert != null) {
+                superseded.revert.cancel(false);
+            }
         }
 
         Map<String, Object> data = new LinkedHashMap<>();
@@ -1330,33 +1385,52 @@ public class ProfileTool extends AbstractTool {
         data.put("newLevel", level);
         if (expirySeconds != null) {
             data.put("expirySeconds", expirySeconds);
+            data.put("revertsTo", revertsTo);
+            // Stated, not silent: the timer lives in THIS process. We cannot schedule work
+            // inside a JVM we do not own, so a jawata restart before the expiry leaves the
+            // level exactly as set — the operator needs to know that, not discover it.
+            data.put("revertPerformedBy", "this jawata server — if it restarts before the "
+                + "expiry, the level stays as set");
         }
         return ToolResponse.success(data, ResponseMeta.builder()
             .steering(expirySeconds != null
-                ? "Will revert to '" + previous + "' automatically in " + expirySeconds + "s."
-                : "PERMANENT until set again — no expirySeconds was given.")
+                ? "Reverts to '" + revertsTo + "' (the level before jawata first touched this "
+                    + "logger) in " + expirySeconds + "s. A further bump before then moves the "
+                    + "deadline; it does NOT change what it reverts to."
+                : "PERMANENT until set again — no expirySeconds was given. Any pending revert "
+                    + "on this logger has been cancelled.")
             .build());
     }
 
-    private void scheduleLogLevelRevert(long pid, String loggerName, String revertTo, int expirySeconds) {
-        Thread reverter = new Thread(() -> {
-            try {
-                Thread.sleep(expirySeconds * 1000L);
-                JmxClient.withConnection(pid, mbs -> {
-                    mbs.invoke(JmxClient.LOGGING_MBEAN, "setLoggerLevel",
-                        new Object[] {loggerName, revertTo},
-                        new String[] {"java.lang.String", "java.lang.String"});
-                    return null;
-                });
-                log.debug("log_level expiry: reverted {} to {}", loggerName, revertTo);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (Exception e) {
-                log.warn("log_level expiry revert failed for {}: {}", loggerName, e.getMessage());
-            }
-        }, "jawata-log-level-revert");
-        reverter.setDaemon(true);
-        reverter.start();
+    /** The level a logger had before jawata first bumped it, and the one timer that restores it. */
+    private static final class LogLevelBump {
+        final String baseline;
+        volatile ScheduledFuture<?> revert;
+
+        LogLevelBump(String baseline) {
+            this.baseline = baseline;
+        }
+    }
+
+    private void revertLogLevel(String bumpKey, LogLevelBump bump, long pid,
+                                String loggerName, String baseline) {
+        try {
+            JmxClient.withConnection(pid, mbs -> {
+                mbs.invoke(JmxClient.LOGGING_MBEAN, "setLoggerLevel",
+                    new Object[] {loggerName, baseline},
+                    new String[] {"java.lang.String", "java.lang.String"});
+                return null;
+            });
+            log.info("log_level expiry: {} reverted to {}",
+                loggerName.isEmpty() ? "<root>" : loggerName, baseline);
+        } catch (Exception e) {
+            // The target may simply be gone — that is fine, and it is not an error worth
+            // failing anything over. It must not pass silently either.
+            log.warn("log_level expiry: could not revert {} to {}: {}",
+                loggerName.isEmpty() ? "<root>" : loggerName, baseline, e.getMessage());
+        } finally {
+            logLevelBumps.remove(bumpKey, bump);   // only if this bump is still the current one
+        }
     }
 
     // --------------------------------------------------- D14: native boundary triage

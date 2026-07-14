@@ -467,6 +467,53 @@ class IncidentBundleTest {
     }
 
     @Test
+    @DisplayName("STACKED log_level calls still revert to the ORIGINAL level, not to an intermediate one")
+    void stackedLogLevelCallsRevertToTheTrueBaseline() throws Exception {
+        // Sprint-24 audit: each call captured "the level as it is right now" as its revert
+        // target and fired an independent timer. So INFO --(t0)--> FINE --(t0+0.5s)--> FINEST
+        // reverted to INFO at t0+expiry and then BACK TO FINE at t0+0.5s+expiry — the second
+        // reverter restoring the FIRST call's temporary level. The target was left verbose
+        // indefinitely, by the very mechanism whose promise is "a diagnostic verbosity bump
+        // cannot outlive the reason you set it".
+        String sessionId = launchAndResume("com.example.debug.DebugTarget", List.of());
+
+        ObjectNode first = profileAction("log_level");
+        first.put("sessionId", sessionId);
+        first.put("level", "FINE");
+        first.put("expirySeconds", 2);
+        ToolResponse firstR = profile.execute(first);
+        assertTrue(firstR.isSuccess(), "got: " + firstR.getError());
+        String baseline = (String) data(firstR).get("previousLevel");
+        assertEquals(baseline, data(firstR).get("revertsTo"), "got: " + data(firstR));
+
+        Thread.sleep(500);
+
+        // A second bump while the first is still pending — its `previousLevel` is FINE, the
+        // temporary level, NOT the baseline. The revert target must not follow it down.
+        ObjectNode second = profileAction("log_level");
+        second.put("sessionId", sessionId);
+        second.put("level", "FINEST");
+        second.put("expirySeconds", 2);
+        ToolResponse secondR = profile.execute(second);
+        assertTrue(secondR.isSuccess(), "got: " + secondR.getError());
+        assertEquals("FINE", data(secondR).get("previousLevel"),
+            "sanity: the second call really does observe the first call's temporary level");
+        assertEquals(baseline, data(secondR).get("revertsTo"),
+            "but it must revert to the TRUE baseline, not to FINE: " + data(secondR));
+
+        Thread.sleep(4_000);   // well past both expiries
+
+        ObjectNode probe = profileAction("log_level");
+        probe.put("sessionId", sessionId);
+        probe.put("level", "INFO");
+        ToolResponse probeR = profile.execute(probe);
+        assertTrue(probeR.isSuccess(), "got: " + probeR.getError());
+        assertEquals(baseline, data(probeR).get("previousLevel"),
+            "after BOTH expiries the logger is back where it started — not stranded at an "
+                + "intermediate level by one reverter racing another");
+    }
+
+    @Test
     @DisplayName("log_level without expirySeconds: permanent, stated as such")
     void logLevelWithoutExpiryIsPermanent() throws Exception {
         String sessionId = launchAndResume("com.example.debug.DebugTarget", List.of());
