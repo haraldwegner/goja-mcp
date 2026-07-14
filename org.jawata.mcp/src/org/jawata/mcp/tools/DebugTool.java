@@ -744,17 +744,34 @@ public class DebugTool extends AbstractTool {
     }
 
     private ToolResponse mutations(JsonNode arguments) throws Exception {
-        List<Map<String, Object>> changed = debuggerOf(arguments).mutations();
+        DebugController debugger = debuggerOf(arguments);
+        List<Map<String, Object>> changed = debugger.mutations();
+        List<Map<String, Object>> ran = debugger.evaluations();
+        long invoking = ran.stream()
+            .filter(e -> Boolean.TRUE.equals(e.get("invokedMethod")))
+            .count();
+        boolean unmodified = debugger.programIsUnmodified();
+
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("mutations", changed);
         data.put("count", changed.size());
-        data.put("programIsUnmodified", changed.isEmpty());
+        // An evaluation that ran the target's own code is part of what we did to it. It was
+        // reported nowhere, so `programIsUnmodified: true` could be said of a program we had
+        // just told to clear its own queue. Sprint-24 audit (T1.15).
+        data.put("evaluations", ran);
+        data.put("evaluationsThatInvokedMethods", invoking);
+        data.put("programIsUnmodified", unmodified);
         return ToolResponse.success(data, ResponseMeta.builder()
             .returnedCount(changed.size())
-            .steering(changed.isEmpty()
+            .steering(unmodified
                 ? "Nothing has been changed — what this program does, it does on its own."
-                : "This program has been EDITED " + changed.size() + " time(s). Any finding "
-                    + "from here on describes the edited program; report it that way.")
+                : changed.isEmpty()
+                    ? "No state was overwritten, but " + invoking + " evaluation(s) RAN THIS "
+                        + "PROGRAM'S OWN CODE in it. We cannot prove those calls were pure, so "
+                        + "this is no longer provably the program you started: say so when you "
+                        + "report what you found."
+                    : "This program has been EDITED " + changed.size() + " time(s). Any finding "
+                        + "from here on describes the edited program; report it that way.")
             .build());
     }
 
@@ -1058,10 +1075,16 @@ public class DebugTool extends AbstractTool {
         Map<String, Object> described = new LinkedHashMap<>(session.get().describe());
         described.put("hitStream", hitStreamOf(session.get()).toString());
         // The session always discloses what it changed. A debugged program is no longer the
-        // program you started, and a status that hides that invites a false conclusion.
+        // program you started, and a status that hides that invites a false conclusion — and
+        // "changed" includes an evaluation that ran the target's own (not-provably-pure) code,
+        // not only an explicit state mutation. Sprint-24 audit (T1.15).
         List<Map<String, Object>> changed = debugger.mutations();
+        long invokingEvaluations = debugger.evaluations().stream()
+            .filter(e -> Boolean.TRUE.equals(e.get("invokedMethod")))
+            .count();
         described.put("mutationCount", changed.size());
-        described.put("programIsUnmodified", changed.isEmpty());
+        described.put("evaluationsThatInvokedMethods", invokingEvaluations);
+        described.put("programIsUnmodified", debugger.programIsUnmodified());
         if (!changed.isEmpty()) {
             described.put("mutations", changed);
         }

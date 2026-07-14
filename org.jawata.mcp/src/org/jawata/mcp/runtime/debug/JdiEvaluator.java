@@ -76,10 +76,27 @@ public final class JdiEvaluator {
     private final int frameIndex;
     private final VirtualMachine vm;
 
+    /**
+     * Did this evaluation actually RUN code in the target?
+     *
+     * <p>{@code queue.size()} and {@code queue.clear()} are the same shape to us — we cannot
+     * prove a method is pure, and the spec is explicit that an evaluation "may invoke methods
+     * and is side-effecting unless proven otherwise". So we record the one thing we know for
+     * certain: whether we invoked anything at all. An evaluation that only read fields and
+     * folded operators cannot have changed the program; one that invoked a method might have,
+     * and the session must not claim otherwise. Sprint-24 audit (T1.15).</p>
+     */
+    private boolean invokedMethod;
+
     public JdiEvaluator(ThreadReference thread, int frameIndex) {
         this.thread = thread;
         this.frameIndex = frameIndex;
         this.vm = thread.virtualMachine();
+    }
+
+    /** Whether {@link #evaluate} ran any code inside the target JVM. */
+    public boolean invokedMethod() {
+        return invokedMethod;
     }
 
     /** Parse and evaluate. The result is a live JDI value in the target JVM. */
@@ -347,6 +364,9 @@ public final class JdiEvaluator {
     }
 
     private Value invokeChecked(Invocation invocation, String name) throws EvalException {
+        // The single gate every method invocation passes through — mark BEFORE running, so a
+        // call that throws inside the target still counts as having run there. It did.
+        invokedMethod = true;
         try {
             return invocation.run();
         } catch (com.sun.jdi.InvocationException e) {

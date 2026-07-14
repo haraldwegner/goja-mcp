@@ -564,6 +564,44 @@ public final class DebugController implements AutoCloseable {
         return bp;
     }
 
+    /**
+     * The ONE loaded class with this name — or a refusal that names the alternatives.
+     *
+     * <p>{@code vm.classesByName(name)} can return several: the SAME fully-qualified name
+     * loaded by different classloaders. In a plain app that is rare; in OSGi it is ordinary,
+     * and the intended target here — JATS — IS OSGi, where a class can genuinely be present
+     * in two bundles at once. Every caller used {@code .get(0)}: {@code redefine} patched an
+     * arbitrary one of them, {@code breakpoint_set} bound to an arbitrary one, {@code
+     * instances} counted an arbitrary one — each reporting success while acting on a coin
+     * flip. On a hot-swap that is the difference between fixing the bug and fixing a class
+     * that is not even running.</p>
+     *
+     * <p>So when the name is ambiguous we REFUSE and hand back the loaders, because silently
+     * choosing one is the one thing worse than not choosing: it looks like it worked.</p>
+     */
+    private ReferenceType resolveUniqueType(String className, String action) throws DebugException {
+        List<ReferenceType> loaded = vm.classesByName(className);
+        if (loaded.isEmpty()) {
+            throw new DebugException("TYPE_NOT_LOADED",
+                className + " is not loaded in the target JVM.");
+        }
+        if (loaded.size() > 1) {
+            StringBuilder loaders = new StringBuilder();
+            for (ReferenceType type : loaded) {
+                com.sun.jdi.ClassLoaderReference cl = type.classLoader();
+                loaders.append("\n  - ")
+                    .append(cl == null ? "the bootstrap loader" : cl.referenceType().name()
+                        + "@" + cl.uniqueID());
+            }
+            throw new DebugException("TYPE_AMBIGUOUS",
+                className + " is loaded " + loaded.size() + " times by different classloaders "
+                    + "(this is normal in OSGi, and the target may be OSGi). " + action + " would "
+                    + "have to guess which one you mean, and guessing wrong looks exactly like "
+                    + "success. Loaders:" + loaders);
+        }
+        return loaded.get(0);
+    }
+
     private void bind(Bp bp) throws DebugException {
         List<ReferenceType> loaded = vm.classesByName(bp.className);
         if (loaded.isEmpty()) {
@@ -938,16 +976,45 @@ public final class DebugController implements AutoCloseable {
         // The frame must be stopped AND readable — a force-returned frame is neither there
         // nor evaluable, however stopped the thread is.
         ThreadReference thread = readableThread(threadId);
+        JdiEvaluator evaluator = new JdiEvaluator(thread, frameIndex);
         try {
-            Value result = new JdiEvaluator(thread, frameIndex).evaluate(expression);
+            Value result = evaluator.evaluate(expression);
             Map<String, Object> evaluated = new LinkedHashMap<>();
             evaluated.put("expression", expression);
             evaluated.put("value", JdiValues.expand(result));
             evaluated.put("summary", JdiValues.summary(result));
+            evaluated.put("invokedMethod", evaluator.invokedMethod());
+            recordEvaluation(expression, evaluator.invokedMethod());
             return evaluated;
         } catch (JdiEvaluator.EvalException e) {
+            // It ran code in the target and THEN failed? That still happened. Record it.
+            if (evaluator.invokedMethod()) {
+                recordEvaluation(expression, true);
+            }
             throw new DebugException(e.code, e.getMessage());
         }
+    }
+
+    /**
+     * An evaluation is part of what this session DID to the program, so it belongs in the
+     * session's own account of itself — the spec requires evaluation, state mutation and
+     * hot-swap alike to be "explicit actions recorded in the session outcome", and it says
+     * plainly that an evaluation "may invoke methods and is side-effecting unless proven
+     * otherwise".
+     *
+     * <p>It was recorded nowhere. So an agent could evaluate {@code queue.clear()} in a
+     * suspended frame and {@code status} would still answer {@code programIsUnmodified: true}
+     * — a confident false statement about a program we had just edited, from the one field
+     * whose entire job is to be trustworthy about that. Sprint-24 audit (T1.15).</p>
+     */
+    private void recordEvaluation(String expression, boolean invokedMethod) {
+        Map<String, Object> evaluation = new LinkedHashMap<>();
+        evaluation.put("expression", expression);
+        evaluation.put("invokedMethod", invokedMethod);
+        evaluation.put("atMillis", System.currentTimeMillis());
+        evaluation.put("evaluationId", "eval-" + ids.incrementAndGet());
+        evaluations.add(evaluation);
+        appendToJournal(evaluation);
     }
 
     // -------------------------------------------------------------- control
@@ -1151,13 +1218,13 @@ public final class DebugController implements AutoCloseable {
                                         List<String> capture, Integer budget)
             throws DebugException {
         requireLive();
-        List<ReferenceType> loaded = vm.classesByName(className);
-        if (loaded.isEmpty()) {
+        if (vm.classesByName(className).isEmpty()) {
             throw new DebugException("TYPE_NOT_LOADED",
                 className + " is not loaded yet. A probe watches a running program, so the "
                     + "class has to be in it — start the program first, or break on it once.");
         }
-        ReferenceType type = loaded.get(0);
+        ReferenceType type = resolveUniqueType(className,
+            "Probing " + className);
         List<String> captures = capture == null ? List.of() : List.copyOf(capture);
         int bound = budget == null || budget <= 0 ? DEFAULT_PROBE_BUDGET : budget;
         String id = "probe-" + ids.incrementAndGet();
@@ -1376,8 +1443,26 @@ public final class DebugController implements AutoCloseable {
     private final java.util.Set<Long> staleStacks = java.util.concurrent.ConcurrentHashMap
         .newKeySet();
 
+    /** Every expression this session ran in the target — see {@link #recordEvaluation}. */
+    private final List<Map<String, Object>> evaluations = new CopyOnWriteArrayList<>();
+
     public List<Map<String, Object>> mutations() {
         return List.copyOf(mutations);
+    }
+
+    public List<Map<String, Object>> evaluations() {
+        return List.copyOf(evaluations);
+    }
+
+    /**
+     * Could this session have changed the program? Only "no" when we neither mutated its
+     * state NOR ran any of its code — an evaluation that invoked a method might have changed
+     * anything, and we cannot prove otherwise (we do not know that {@code size()} is pure).
+     * The honest answer to "is this still the program you started?" is therefore no.
+     */
+    public boolean programIsUnmodified() {
+        return mutations.isEmpty()
+            && evaluations.stream().noneMatch(e -> Boolean.TRUE.equals(e.get("invokedMethod")));
     }
 
     private Map<String, Object> recordMutation(String kind, Map<String, Object> detail) {
@@ -1587,12 +1672,11 @@ public final class DebugController implements AutoCloseable {
             throw new DebugException("CAPABILITY_ABSENT",
                 "This JVM cannot redefine classes (canRedefineClasses=false).");
         }
-        List<ReferenceType> types = vm.classesByName(className);
-        if (types.isEmpty()) {
-            throw new DebugException("TYPE_NOT_LOADED",
-                className + " is not loaded in the target — there is nothing to replace.");
-        }
-        ReferenceType type = types.get(0);
+        // Refuse if the name is ambiguous: redefining an arbitrary one of several same-named
+        // classes (ordinary in OSGi — and JATS is OSGi) can patch a class that is not even
+        // the one running, while reporting success.
+        ReferenceType type = resolveUniqueType(className,
+            "Redefining " + className + " (hot-swapping its code)");
         try {
             vm.redefineClasses(Map.of(type, bytecode));
         } catch (UnsupportedOperationException e) {
@@ -1669,13 +1753,15 @@ public final class DebugController implements AutoCloseable {
             throw new DebugException("CAPABILITY_ABSENT",
                 "This JVM cannot report instances (canGetInstanceInfo=false).");
         }
-        List<ReferenceType> types = vm.classesByName(className);
-        if (types.isEmpty()) {
+        if (vm.classesByName(className).isEmpty()) {
             throw new DebugException("TYPE_NOT_LOADED",
                 className + " is not loaded in the target JVM — so it has no instances "
                     + "there. (Not the same as having zero: it has never been used.)");
         }
-        ReferenceType type = types.get(0);
+        // Count instances of the ONE class you mean — two same-named classes in two bundles
+        // have two separate instance populations, and reporting one as if it were the answer
+        // is a wrong number stated with confidence.
+        ReferenceType type = resolveUniqueType(className, "Counting instances of " + className);
 
         // One over the cap tells us whether the cap bit.
         List<ObjectReference> found = type.instances(INSTANCES_CAP + 1L);

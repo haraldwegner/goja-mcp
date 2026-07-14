@@ -410,6 +410,45 @@ class DebugMutateTest {
         assertNotEquals(null, status.get("mutations"));
     }
 
+    @Test
+    @DisplayName("evaluating a method-invoking expression is RECORDED — programIsUnmodified stops being a lie")
+    void evaluatingASideEffectingExpressionIsRecorded() {
+        // Sprint-24 audit: evaluate() recorded nothing, so an agent could run the target's
+        // own code — `offset()`, or a real `queue.clear()` — and status would still answer
+        // programIsUnmodified:true, from the one field whose whole job is to be trustworthy
+        // about that. The spec is explicit: evaluation "may invoke methods and is
+        // side-effecting unless proven otherwise", and must be recorded in the session outcome.
+        Map<String, Object> hit = armAndHit("line",
+            Map.of("line", lineOf("int doubled = iteration * 2;")));
+        long threadId = ((Number) hit.get("threadId")).longValue();
+
+        // A PURE evaluation (reads a field, folds operators) leaves the program its own.
+        evaluate(threadId, "iteration * 2 + 1");
+        Map<String, Object> afterPure = ok(onSession("mutations"));
+        assertEquals(Boolean.TRUE, afterPure.get("programIsUnmodified"),
+            "reading state and folding operators changes nothing: " + afterPure);
+
+        // Invoking one of the program's OWN methods might have done anything — we cannot
+        // prove offset() is pure, so we must not claim the program is untouched.
+        assertEquals(7, ((Number) evaluate(threadId, "offset()")).intValue(),
+            "sanity: the method really does run in the target");
+
+        Map<String, Object> afterInvoke = ok(onSession("mutations"));
+        assertEquals(Boolean.FALSE, afterInvoke.get("programIsUnmodified"),
+            "after running the program's own code, it is no longer PROVABLY unmodified: "
+                + afterInvoke);
+        assertEquals(0, ((Number) afterInvoke.get("count")).intValue(),
+            "…yet no STATE mutation was recorded — the two are distinct, and both are told");
+        assertEquals(1L, ((Number) afterInvoke.get("evaluationsThatInvokedMethods")).longValue(),
+            "the invoking evaluation is on the record: " + afterInvoke);
+
+        // status tells the same truth, so a reader cannot miss it.
+        Map<String, Object> status = ok(onSession("status"));
+        assertEquals(Boolean.FALSE, status.get("programIsUnmodified"), "got: " + status);
+        assertEquals(1L, ((Number) status.get("evaluationsThatInvokedMethods")).longValue());
+        assertEquals(0, ((Number) status.get("mutationCount")).intValue());
+    }
+
     // -------------------------------------------------------------- helpers
 
     private Map<String, Object> snapshot(long threadId) {
