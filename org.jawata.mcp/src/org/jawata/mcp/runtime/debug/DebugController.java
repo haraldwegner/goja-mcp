@@ -1399,6 +1399,18 @@ public final class DebugController implements AutoCloseable {
         return probes.values().stream().map(Probe::report).toList();
     }
 
+    /**
+     * A probe's own account of itself — crucially its TRUE event count ({@code events}) and
+     * whether it stopped on its budget. A caller that reads events out of the bounded ring
+     * needs this to know whether the ring dropped any: {@code events} counts every event the
+     * probe fired; the ring keeps only the last {@link #MAX_PROBE_EVENTS_KEPT}. Empty when
+     * there is no such probe.
+     */
+    public Optional<Map<String, Object>> probeReport(String probeId) {
+        Probe probe = probes.get(probeId);
+        return probe == null ? Optional.empty() : Optional.of(probe.report());
+    }
+
     public boolean clearProbe(String probeId) {
         Probe probe = probes.remove(probeId);
         if (probe == null) {

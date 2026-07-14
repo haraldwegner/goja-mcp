@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -92,13 +93,38 @@ public final class JvmTargets {
         Process process = builder.start();
         outProcess[0] = process;
 
-        int port = awaitPort(process);
+        BufferedReader out =
+            new BufferedReader(new InputStreamReader(process.getInputStream()));
+        int port = awaitPort(process, out);
         if (port <= 0) {
             process.destroyForcibly();
             throw new IllegalStateException(
                 "the launched JVM never announced a debug port — it is not debuggable");
         }
+        // Keep draining stdout/stderr for the life of the target. A pipe holds ~64KB; a
+        // program that writes past that with nobody reading blocks in write() FOREVER —
+        // so a chatty target (a JATS replay logging per event, say) would stall the moment
+        // its output filled the buffer, before doing anything the debugger came to see.
+        // We stopped reading at the JDWP banner and never resumed. Sprint-24 audit (T1.6).
+        drainForLife(process, out);
         return attachToPort(port);
+    }
+
+    /** Read and discard the target's output until it exits, so its stdout pipe never fills. */
+    private static void drainForLife(Process process, BufferedReader alreadyOpen) {
+        Thread drain = new Thread(() -> {
+            try (BufferedReader reader = alreadyOpen) {
+                while (reader.readLine() != null) {
+                    // Discarded on purpose: the target's console is its own (the dev/sim
+                    // preset quiets JIT/GC logging); we drain only to keep the pipe flowing.
+                    // If a future feature wants this output, tee it to the session here.
+                }
+            } catch (IOException e) {
+                log.debug("launched target output stream ended: {}", e.getMessage());
+            }
+        }, "jawata-target-stdout-drain");
+        drain.setDaemon(true);
+        drain.start();
     }
 
     /**
@@ -197,10 +223,8 @@ public final class JvmTargets {
         return socket.attach(args);
     }
 
-    private static int awaitPort(Process process) throws Exception {
+    private static int awaitPort(Process process, BufferedReader out) throws Exception {
         long deadline = System.currentTimeMillis() + 30_000;
-        BufferedReader out =
-            new BufferedReader(new InputStreamReader(process.getInputStream()));
         while (System.currentTimeMillis() < deadline && process.isAlive()) {
             String line = out.readLine();
             if (line == null) {

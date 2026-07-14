@@ -23,9 +23,16 @@ public final class LatencySeamTarget {
 
     public static void main(String[] args) throws Exception {
         boolean injectSlowdown = Boolean.getBoolean("jawata.latency.slowdown");
+        // -Djawata.latency.hot=true removes the planned gap, so the seam fires as fast as the
+        // CPU allows — thousands of calls/s. That is what overflows the bounded probe-event
+        // ring, which is what latency_seam must now detect and REPORT rather than silently
+        // computing percentiles on a biased subset (Sprint-24 audit T1.5).
+        boolean hot = Boolean.getBoolean("jawata.latency.hot");
         while (true) {
             seam(injectSlowdown);
-            Thread.sleep(PLANNED_GAP_MILLIS);
+            if (!hot) {
+                Thread.sleep(PLANNED_GAP_MILLIS);
+            }
         }
     }
 

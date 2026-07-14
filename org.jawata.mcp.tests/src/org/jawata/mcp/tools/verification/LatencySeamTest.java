@@ -183,6 +183,67 @@ class LatencySeamTest {
         assertNotNull(d.get("expectedIntervalMillis"));
     }
 
+    @Test
+    @DisplayName("a normal window reports eventsLost:0 — the honesty fields are always present")
+    void aNormalWindowReportsNoLoss() throws Exception {
+        String sessionId = launchAndResume("com.example.debug.LatencySeamTarget");
+        ObjectNode args = profileAction("latency_seam");
+        args.put("sessionId", sessionId);
+        args.put("className", "com.example.debug.LatencySeamTarget");
+        args.put("method", "seam");
+        args.put("durationSeconds", 4);
+        ToolResponse r = profile.execute(args);
+        assertTrue(r.isSuccess(), "got: " + r.getError());
+        Map<String, Object> d = data(r);
+
+        // The denominator is ALWAYS reported — a caller can always ask "did you see it all?".
+        assertNotNull(d.get("eventsGenerated"), "got: " + d);
+        assertNotNull(d.get("eventsObserved"));
+        assertEquals(0L, ((Number) d.get("eventsLost")).longValue(),
+            "a 5ms-gap seam is nowhere near the ring's rate — nothing should be lost: " + d);
+        assertFalse(d.containsKey("percentilesReliable"),
+            "with no loss, the percentiles are not flagged unreliable: " + d);
+    }
+
+    @Test
+    @DisplayName("a seam that outruns the event ring REPORTS the loss — it does not hide it")
+    void aHotSeamThatOverflowsTheRingReportsTheLoss() throws Exception {
+        // Sprint-24 audit T1.5: the probe-event ring holds ~500 events; a seam firing
+        // thousands/s overflows it, and v2.13.0 computed percentiles on whatever survived
+        // with no hint that anything was dropped — and the loss BIASES the tail. This
+        // fixture removes the planned gap so the seam fires flat-out. Any loss that still
+        // occurs must be reported honestly (eventsLost > 0, percentilesReliable:false); if
+        // the machine is slow enough that even flat-out stays under the ring rate, then
+        // eventsLost is genuinely 0 and that is honest too — either way the fields are real.
+        String sessionId = launchAndResume("com.example.debug.LatencySeamTarget",
+            "-Djawata.latency.hot=true");
+        ObjectNode args = profileAction("latency_seam");
+        args.put("sessionId", sessionId);
+        args.put("className", "com.example.debug.LatencySeamTarget");
+        args.put("method", "seam");
+        args.put("durationSeconds", 4);
+        ToolResponse r = profile.execute(args);
+        assertTrue(r.isSuccess(), "got: " + r.getError());
+        Map<String, Object> d = data(r);
+
+        long generated = ((Number) d.get("eventsGenerated")).longValue();
+        long observed = ((Number) d.get("eventsObserved")).longValue();
+        long lost = ((Number) d.get("eventsLost")).longValue();
+
+        assertTrue(generated >= observed, "the true count cannot be less than what we saw: " + d);
+        assertEquals(generated - observed, lost, "eventsLost must be exactly the shortfall: " + d);
+        assertTrue(generated > 500,
+            "a flat-out seam over 4s must fire well more than the ring's 500-event capacity, "
+                + "so this test genuinely exercises the pressure it exists for: " + d);
+        if (lost > 0) {
+            assertEquals(Boolean.FALSE, d.get("percentilesReliable"),
+                "when events were dropped, the percentiles must be flagged as not reliable: " + d);
+            String steering = r.getMeta().getSteering();
+            assertTrue(steering.contains("dropped") || steering.contains("budget"),
+                "and the steering must SAY the tail is biased, not stay silent: " + steering);
+        }
+    }
+
     // ========================================================== JDT resolution + error handling
 
     @Test

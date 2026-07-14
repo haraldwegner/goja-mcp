@@ -88,7 +88,14 @@ public class ProfileTool extends AbstractTool {
 
     private static final int DEFAULT_LATENCY_SECONDS = 5;
     private static final int MAX_LATENCY_SECONDS = 30;
-    private static final int LATENCY_POLL_MILLIS = 200;
+    /**
+     * Poll the probe ring OFTEN — the ring keeps only the last ~500 events across all
+     * probes, so at a few thousand calls/s (an order-flow seam) a 200ms gap between reads
+     * let it overflow and silently drop samples BEFORE we read them, biasing the very tail
+     * the measurement exists to catch. 20ms keeps the ring well drained; any residual loss
+     * is now also detected and reported rather than hidden. Sprint-24 audit (T1.5).
+     */
+    private static final int LATENCY_POLL_MILLIS = 20;
     /** Generous — a hot seam under load easily exceeds the shared probe ring's 500-event cap. */
     private static final int LATENCY_PROBE_BUDGET = 200_000;
     /** Below this many paired samples, p999 is a near-extrapolation, not a measurement. */
@@ -781,12 +788,16 @@ public class ProfileTool extends AbstractTool {
         List<Map<String, Object>> collected = new ArrayList<>();
         Set<Object> seenSequences = new HashSet<>();
         long deadline = System.currentTimeMillis() + durationSeconds * 1000L;
+        Map<String, Object> probeReport;
         try {
             while (System.currentTimeMillis() < deadline) {
                 drainNewEvents(debugger, probeId, seenSequences, collected);
                 Thread.sleep(LATENCY_POLL_MILLIS);
             }
             drainNewEvents(debugger, probeId, seenSequences, collected);
+            // Read the probe's TRUE event count BEFORE clearing it — the only honest
+            // denominator for "did we see every event?". The ring keeps only the last ~500.
+            probeReport = debugger.probeReport(probeId).orElse(Map.of());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw e;
@@ -838,12 +849,36 @@ public class ProfileTool extends AbstractTool {
             latenciesMillis, expectedInterval);
         LatencyCalculator.Percentiles correctedPct = LatencyCalculator.percentilesOf(corrected);
 
+        // HONESTY ABOUT WHAT WE MISSED. `sequence` is monotonic 1..N per probe, so a GAP in
+        // the sequence numbers we observed is an event the bounded ring evicted before we read
+        // it — and that loss is NOT random: a surviving exit can pair with an earlier call's
+        // entry, fabricating an inflated tail. Loss is therefore (highest sequence we saw −
+        // how many distinct ones we saw), NOT (probe's final count − observed): the latter
+        // counts events that fired AFTER our last read, which are merely past the window, not
+        // lost, and would flag a phantom 1-event "loss" on every calm run. If the probe hit
+        // its budget, the window also silently covered less than `durationSeconds`. Both were
+        // invisible in v2.13.0 though the data to detect them was right here.
+        long maxSequence = collected.stream()
+            .mapToLong(e -> ((Number) e.get("sequence")).longValue())
+            .max().orElse(0);
+        long eventsObserved = collected.size();
+        long eventsLost = Math.max(0, maxSequence - eventsObserved);
+        long eventsGenerated = probeReport.get("events") instanceof Number n ? n.longValue() : maxSequence;
+        boolean budgetHit = Boolean.TRUE.equals(probeReport.get("stopped"));
+
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("sessionId", session.id);
         data.put("seam", className + "#" + methodName);
         data.put("durationSeconds", durationSeconds);
         data.put("resolution", "milliseconds");
         data.put("sampleCount", latenciesMillis.size());
+        data.put("eventsGenerated", eventsGenerated);
+        data.put("eventsObserved", eventsObserved);
+        data.put("eventsLost", eventsLost);
+        if (budgetHit) {
+            data.put("windowTruncated", true);
+            data.put("windowTruncatedReason", probeReport.get("stoppedReason"));
+        }
         data.put("expectedIntervalMillis", expectedInterval);
         data.put("raw", Map.of("p50Millis", raw.p50(), "p99Millis", raw.p99(),
             "p999Millis", raw.p999()));
@@ -854,14 +889,33 @@ public class ProfileTool extends AbstractTool {
         if (p999Unreliable) {
             data.put("p999Unreliable", true);
         }
-        return ToolResponse.success(data, ResponseMeta.builder()
-            .steering(p999Unreliable
-                ? "Only " + latenciesMillis.size() + " paired call(s) observed — p999 here is "
-                    + "close to an extrapolation from the single slowest sample, not a stable "
-                    + "measurement. Trace longer (raise durationSeconds) for a trustworthy p999."
-                : "`corrected` accounts for coordinated omission (see the tool description); "
-                    + "compare it against `raw` rather than reading either alone.")
-            .build());
+        boolean lossy = eventsLost > 0 || budgetHit;
+        if (lossy) {
+            data.put("percentilesReliable", false);
+        }
+
+        String steering;
+        if (budgetHit) {
+            steering = "The probe hit its event budget and stopped BEFORE the window ended, so "
+                + "these percentiles cover only the first part of the run, not all "
+                + durationSeconds + "s. Raise the seam's budget or shorten durationSeconds for a "
+                + "measurement that spans the whole window.";
+        } else if (eventsLost > 0) {
+            steering = eventsLost + " of " + eventsGenerated + " trace events were dropped from "
+                + "the bounded event ring before they could be read — this seam fires faster "
+                + "than the ring drains, and the loss BIASES THE TAIL (a surviving exit can "
+                + "pair with an earlier call's entry). Treat these percentiles as indicative, "
+                + "not exact; a shorter/less-hot window loses nothing.";
+        } else if (p999Unreliable) {
+            steering = "Only " + latenciesMillis.size() + " paired call(s) observed — p999 here "
+                + "is close to an extrapolation from the single slowest sample, not a stable "
+                + "measurement. Trace longer (raise durationSeconds) for a trustworthy p999.";
+        } else {
+            steering = "Every trace event was captured (eventsLost:0). `corrected` accounts for "
+                + "coordinated omission (see the tool description); compare it against `raw` "
+                + "rather than reading either alone.";
+        }
+        return ToolResponse.success(data, ResponseMeta.builder().steering(steering).build());
     }
 
     /**
