@@ -341,6 +341,11 @@ JAWATA loads every listed project into one process and serves them as a single M
 about a second. jawata-studio writes and maintains this file as you add and remove projects in the
 UI; when running manager-free you write it yourself.
 
+**Known limitation — one JAWATA per project tree.** Serve a given project directory from one
+JAWATA process at a time, and avoid refactoring through JAWATA while a build or another writer is
+mutating the same tree. Concurrent access does not corrupt silently — an operation that hits
+interference fails and says so — but coordination across processes is not provided yet.
+
 ---
 
 ## Configuration
