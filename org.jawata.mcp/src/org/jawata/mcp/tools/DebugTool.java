@@ -11,6 +11,8 @@ import org.jawata.mcp.runtime.RuntimeSession;
 import org.jawata.mcp.runtime.RuntimeSessionRegistry;
 import org.jawata.mcp.runtime.debug.DebugController;
 import org.jawata.mcp.runtime.debug.JdiValues;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,6 +36,8 @@ import java.util.function.Supplier;
  * is not refused, it is unreachable. (D17 states this in the README too.)</p>
  */
 public class DebugTool extends AbstractTool {
+
+    private static final Logger log = LoggerFactory.getLogger(DebugTool.class);
 
     private static final List<String> ACTIONS = List.of(
         "discover", "launch", "attach", "status", "detach", "cancel",
@@ -70,16 +74,25 @@ public class DebugTool extends AbstractTool {
 
     private final RuntimeSessionRegistry sessions;
     private final RuntimeArtifactStore artifacts;
+    /** Optional: when present, a hit RECALLS what is already known about its symbol (D15). */
+    private final org.jawata.mcp.knowledge.ExperienceRetrieval experience;
 
     public DebugTool(Supplier<IJdtService> serviceSupplier, RuntimeSessionRegistry sessions) {
-        this(serviceSupplier, sessions, new RuntimeArtifactStore());
+        this(serviceSupplier, sessions, new RuntimeArtifactStore(), null);
     }
 
     public DebugTool(Supplier<IJdtService> serviceSupplier, RuntimeSessionRegistry sessions,
                      RuntimeArtifactStore artifacts) {
+        this(serviceSupplier, sessions, artifacts, null);
+    }
+
+    public DebugTool(Supplier<IJdtService> serviceSupplier, RuntimeSessionRegistry sessions,
+                     RuntimeArtifactStore artifacts,
+                     org.jawata.mcp.knowledge.ExperienceRetrieval experience) {
         super(serviceSupplier);
         this.sessions = sessions;
         this.artifacts = artifacts;
+        this.experience = experience;
     }
 
     @Override
@@ -567,13 +580,53 @@ public class DebugTool extends AbstractTool {
         String symbol = data.get("class") + "#" + data.get("method");
         data.put("symbol", symbol);
 
+        // RECALL BEFORE YOU PROBE (D15). The moment the runtime names a symbol, surface what
+        // is ALREADY on record about it — a prior incident, a lesson, a known hazard — so the
+        // agent is reminded before it investigates from scratch. The spec's measure is exactly
+        // this: "a diagnosis session demonstrably recalls a previously recorded incident
+        // first." Sprint-24 audit (T2.5) — this was proven nowhere and wired nowhere in v2.13.0.
+        List<Map<String, Object>> priorKnowledge = recallForSymbol(symbol);
+        String recallSteering = "";
+        if (!priorKnowledge.isEmpty()) {
+            data.put("priorKnowledge", priorKnowledge);
+            recallSteering = " YOU HAVE " + priorKnowledge.size() + " PRIOR NOTE(S) on this "
+                + "symbol (priorKnowledge above) — read them BEFORE probing; the last session "
+                + "to stop here may already have found what you are about to look for.";
+        }
+
         return ToolResponse.success(data, ResponseMeta.builder()
             .steering("The thread is SUSPENDED here. Read it with action=snapshot (threadId "
                 + "above), then step or resume; every other thread is still running. AND YOU "
                 + "ALREADY HAVE THE KEY: symbol=\"" + symbol + "\" goes straight into "
                 + "get_call_hierarchy / find_references / analyze — do NOT search for it, the "
-                + "running program has just told you exactly where it is.")
+                + "running program has just told you exactly where it is." + recallSteering)
             .build());
+    }
+
+    /** Prior experience-store knowledge for a symbol the runtime just named — empty if none or unwired. */
+    private List<Map<String, Object>> recallForSymbol(String symbol) {
+        if (experience == null || symbol == null || symbol.isBlank()) {
+            return List.of();
+        }
+        try {
+            Map<String, Object> recalled = experience.recall(new org.jawata.mcp.knowledge.RecallQuery(
+                symbol, null, null, null, null));
+            Object entries = recalled.get("entries");
+            if (entries instanceof List<?> list && !list.isEmpty()) {
+                List<Map<String, Object>> out = new ArrayList<>();
+                for (Object e : list) {
+                    if (e instanceof Map<?, ?> m) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> entry = (Map<String, Object>) m;
+                        out.add(entry);
+                    }
+                }
+                return out;
+            }
+        } catch (Exception e) {
+            log.debug("recall-before-probe for {} failed: {}", symbol, e.getMessage());
+        }
+        return List.of();
     }
 
     private ToolResponse threads(JsonNode arguments) throws Exception {

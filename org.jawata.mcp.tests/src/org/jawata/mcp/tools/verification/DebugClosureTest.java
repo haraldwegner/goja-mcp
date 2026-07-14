@@ -212,6 +212,85 @@ class DebugClosureTest {
             "the lesson comes back for the symbol the DEBUGGER named: " + recalled.getData());
     }
 
+    @Test
+    @DisplayName("D15 recall-BEFORE-probe: a session recalls a PRIOR incident the moment it stops on the symbol")
+    void aSessionRecallsAPriorIncidentBeforeProbing() throws Exception {
+        // Sprint-24 audit T2.5: D15's measure is "a diagnosis session demonstrably recalls a
+        // previously recorded incident FIRST." v2.13.0 proved only record-THEN-recall (the
+        // inverted order), with no product wiring — nothing recalled anything before probing.
+        // Here the incident is on record BEFORE the session ever runs, and the hit itself must
+        // surface it, so the agent is reminded before it investigates from scratch.
+        org.jawata.mcp.knowledge.H2ExperienceStore store =
+            org.jawata.mcp.knowledge.H2ExperienceStore.open(null);
+        String priorSymbol = TARGET + "#computeSignal";
+        ExperienceTool experience = new ExperienceTool(() -> service, store);
+        ObjectNode seed = om.createObjectNode();
+        seed.put("kind", "record");
+        seed.put("type", "failure_mode");
+        seed.put("summary", "computeSignal overflowed on iteration 46000 last time — the known "
+            + "incident on this seam");
+        seed.put("symbol", priorSymbol);
+        seed.put("confidence", "high");
+        seed.put("status", "accepted");   // a settled, recallable incident
+        assertTrue(experience.execute(seed).isSuccess(), "seed the prior incident");
+
+        // A FRESH session — a different DebugTool, wired to that store, exactly as the resident
+        // is wired (JawataApplication). It knows nothing of the seed except through recall.
+        RuntimeSessionRegistry freshSessions = new RuntimeSessionRegistry();
+        DebugTool recallingTool = new DebugTool(() -> service, freshSessions,
+            new org.jawata.mcp.runtime.RuntimeArtifactStore(),
+            new org.jawata.mcp.knowledge.ExperienceRetrieval(store, () -> service));
+        try {
+            Path classes = Files.createTempDirectory("jawata-recall-");
+            Path file = service.getProjectRoot()
+                .resolve("src/main/java/com/example/debug/DebugTarget.java");
+            assertEquals(0, javax.tools.ToolProvider.getSystemJavaCompiler().run(
+                null, null, null, "-g", "-d", classes.toString(), file.toString()));
+            ObjectNode launch = om.createObjectNode();
+            launch.put("action", "launch");
+            launch.put("mainClass", TARGET);
+            launch.put("classpath", classes.toString());
+            String freshSession = (String) data(recallingTool.execute(launch)).get("sessionId");
+
+            ObjectNode bp = om.createObjectNode();
+            bp.put("action", "breakpoint_set");
+            bp.put("sessionId", freshSession);
+            bp.put("kind", "line");
+            bp.put("className", TARGET);
+            bp.put("line", lineOf("int doubled = iteration * 2;"));
+            assertTrue(recallingTool.execute(bp).isSuccess());
+
+            ObjectNode resume = om.createObjectNode();
+            resume.put("action", "resume");
+            resume.put("sessionId", freshSession);
+            assertTrue(recallingTool.execute(resume).isSuccess());
+
+            ObjectNode wait = om.createObjectNode();
+            wait.put("action", "wait");
+            wait.put("sessionId", freshSession);
+            wait.put("timeoutMillis", 30_000);
+            ToolResponse waited = recallingTool.execute(wait);
+            assertTrue(waited.isSuccess(), "got: " + waited.getError());
+            Map<String, Object> hit = data(waited);
+
+            // THE POINT: the hit itself — the FIRST thing the session hands back on stopping —
+            // already carries the prior incident. No probe was run to find it; it was recalled.
+            assertEquals(priorSymbol, hit.get("symbol"));
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> prior = (List<Map<String, Object>>) hit.get("priorKnowledge");
+            assertNotNull(prior, "the hit must recall what is on record for its symbol: " + hit);
+            assertFalse(prior.isEmpty(), "and the seeded incident is in it: " + hit);
+            assertTrue(prior.toString().contains("overflowed on iteration 46000"),
+                "the actual prior incident, recalled BEFORE any probing: " + prior);
+
+            String steering = waited.getMeta().getSteering();
+            assertTrue(steering.contains("PRIOR NOTE") && steering.contains("BEFORE probing"),
+                "and the steering tells the agent to read it before it investigates: " + steering);
+        } finally {
+            freshSessions.closeAll();
+        }
+    }
+
     // -------------------------------------------------- D16: the audit battery
 
     @Test

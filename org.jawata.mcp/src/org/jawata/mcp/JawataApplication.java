@@ -626,8 +626,12 @@ public class JawataApplication implements IApplication {
         toolRegistry.register(new RunTestsTool(() -> jdtService));
 
         // Sprint 24 (D5): the interactive debugger's front door. Dev/sim only —
-        // production runs no agent and exposes no debug channel.
-        toolRegistry.register(new DebugTool(() -> jdtService, runtimeSessions));
+        // production runs no agent and exposes no debug channel. It is given the
+        // experience store (D15): a breakpoint hit RECALLS what is already recorded
+        // about its symbol, so a session recalls prior incidents before it probes.
+        toolRegistry.register(new DebugTool(() -> jdtService, runtimeSessions,
+            new org.jawata.mcp.runtime.RuntimeArtifactStore(),
+            new org.jawata.mcp.knowledge.ExperienceRetrieval(experienceStore, () -> jdtService)));
 
         // Sprint 24 (D10): the profiling floor's front door — process-level
         // diagnostics (threads/deadlock/heap/GC/native-memory) via jcmd, against
