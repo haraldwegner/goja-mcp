@@ -7,7 +7,7 @@ APPLIED-STAGED methodName=formatMessage methodClass=RefactoringTarget
       */
      public void printMessages() {
 -        String result = formatMessage("Items", 5);
-+        String result = ("Items" + ": " + 5);
++        String result = "Items" + ": " + 5;
          System.out.println(result);
          System.out.println(formatMessage("Total", 10));
      }

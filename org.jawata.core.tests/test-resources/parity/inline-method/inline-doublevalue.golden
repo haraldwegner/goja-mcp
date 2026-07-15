@@ -7,7 +7,7 @@ APPLIED-STAGED methodName=doubleValue methodClass=RefactoringTarget
       */
      public int processValue(int x) {
 -        int doubled = doubleValue(x);
-+        int doubled = (x * 2);
++        int doubled = x * 2;
          return doubled + 1;
      }
  

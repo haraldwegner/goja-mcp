@@ -73,12 +73,13 @@ class InlineMethodToolTest {
         assertNotNull(data.get("methodClass"));
         assertNotNull(data.get("undoChangeId"));
 
-        String inlinedCode = (String) data.get("inlinedCode");
-        assertTrue(inlinedCode.contains("x") || inlinedCode.contains("*"),
-            "inlined code must come from the method body: " + inlinedCode);
-
         String onDisk = Files.readString(refactoringTargetFile);
         assertNotEquals(original, onDisk, "inlined call must be on disk");
+        // Sprint 25 (D1b): JDT's Inline Method performs the real substitution rather
+        // than the old tool's synthesized `inlinedCode` string — verify the call site
+        // was rewritten (the `doubleValue(x)` call is gone from processValue).
+        assertFalse(onDisk.contains("int doubled = doubleValue(x)"),
+            "the inlined call must be gone from the call site:\n" + onDisk);
 
         ToolResponse undone = undoTool.execute(objectMapper.createObjectNode()
             .put("undoChangeId", (String) data.get("undoChangeId")));
