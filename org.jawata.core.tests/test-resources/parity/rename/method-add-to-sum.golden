@@ -1,0 +1,56 @@
+APPLIED-STAGED symbolKind=Method oldName=add newName=sum fileRenamed=-
+---DIFF---
+--- a/src/main/java/com/example/Calculator.java
++++ b/src/main/java/com/example/Calculator.java
+@@ -12,7 +12,7 @@
+      * @param b second operand
+      * @return the sum
+      */
+-    public int add(int a, int b) {
++    public int sum(int a, int b) {
+         lastResult = a + b;
+         return lastResult;
+     }
+--- a/src/main/java/com/example/SearchPatterns.java
++++ b/src/main/java/com/example/SearchPatterns.java
+@@ -56,7 +56,7 @@
+ 
+         // Calculator instantiation (project type)
+         Calculator calc = new Calculator();
+-        int result = calc.add(1, 2);
++        int result = calc.sum(1, 2);
+     }
+ 
+     /**
+@@ -78,7 +78,7 @@
+         // Cast to Calculator
+         if (obj instanceof Calculator) {
+             Calculator calc = (Calculator) obj;
+-            calc.add(1, 2);
++            calc.sum(1, 2);
+         }
+     }
+ 
+--- a/src/main/java/com/example/service/UserService.java
++++ b/src/main/java/com/example/service/UserService.java
+@@ -56,7 +56,7 @@
+      * @return the sum
+      */
+     public int calculateSum(int a, int b) {
+-        return calculator.add(a, b);
++        return calculator.sum(a, b);
+     }
+ 
+     /**
+--- a/src/test/java/com/example/SampleTest.java
++++ b/src/test/java/com/example/SampleTest.java
+@@ -26,7 +26,7 @@
+ 
+     @Test
+     void testAddition() {
+-        int result = calculator.add(2, 3);
++        int result = calculator.sum(2, 3);
+         assert result == 5;
+     }
+ 
+

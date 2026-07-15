@@ -1,0 +1,44 @@
+APPLIED-STAGED symbolKind=Field oldName=userName newName=userFullName fileRenamed=-
+---DIFF---
+--- a/src/main/java/com/example/RefactoringTarget.java
++++ b/src/main/java/com/example/RefactoringTarget.java
+@@ -13,7 +13,7 @@
+ public class RefactoringTarget {
+ 
+     // Field for rename testing
+-    private String userName;
++    private String userFullName;
+     private int count;
+ 
+     // Constant candidate
+@@ -96,9 +96,9 @@
+      * Method for field rename testing.
+      */
+     public void useFields() {
+-        userName = "test";
++        userFullName = "test";
+         count = 10;
+-        System.out.println(userName + ": " + count);
++        System.out.println(userFullName + ": " + count);
+     }
+ 
+     /**
+@@ -105,7 +105,7 @@
+      * Getter for rename testing.
+      */
+     public String getUserName() {
+-        return userName;
++        return userFullName;
+     }
+ 
+     /**
+@@ -112,7 +112,7 @@
+      * Setter for rename testing.
+      */
+     public void setUserName(String userName) {
+-        this.userName = userName;
++        this.userFullName = userName;
+     }
+ 
+     /**
+
