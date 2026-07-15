@@ -926,12 +926,12 @@ rank against known facts (ask Harald for runtime realities) → ONE cheapest
 discriminating observation → proven-vs-inferred stated unprompted → discuss before
 resuming motion. (`feedback-diagnosis-discipline-no-stock-explanations`, store 9ba98b4b.)
 
-### Production consequence (Harald's requirement → Sprint 28)
+### Production consequence (Harald's requirement → the marketing/launch sprint: Sprint 28 then, **Sprint 29** since the 2026-07-15 renumber)
 
 The trigger is CONCURRENT WORKSPACE ACCESS, which is a real production case (two
 residents on one tree after boot; a resident racing the user's own `mvn clean`; scratch
-files in the user's source tree at all). Requirement added to the Sprint-28 marketing
-spec: before launch, jawata is either process-concurrency-safe per workspace or the
+files in the user's source tree at all). Requirement added to the marketing
+spec (Sprint 28 then; **Sprint 29** since the 2026-07-15 renumber): before launch, jawata is either process-concurrency-safe per workspace or the
 limitation is a documented, user-visible contract with a runtime guard.
 
 ### Disclosed, not fixed (Harald's ranking)
@@ -994,7 +994,7 @@ heuristics inherited a responsibility they were never designed for. The Sprint-1
 
 **Harald's rulings:** fix `extract_method` + a universal compile-verify gate in v2.12.1;
 migrate the remaining gen-1 tools to their JDT engines in **Sprint 25** (requirement
-committed, f32abb4); concurrent-workspace safety already a **Sprint 28** requirement.
+committed, f32abb4); concurrent-workspace safety already a requirement on the marketing/launch sprint (**Sprint 28** then; **Sprint 29** since the 2026-07-15 renumber).
 
 ### v2.12.1 contents (all findings from HOURS of dogfood, most caught BY the new gate)
 
@@ -1738,8 +1738,9 @@ of the patched bundle + jdtpatch module + Directory target location.
 
 Sprint 24 is now closed — for real this time: every deliverable at full body strength,
 the audit on the record, the patch shipped. Open threads: the fleet flip + release-day
-battery (imminent), and the GB10/aarch64 probe — **re-scoped by Harald (2026-07-15) to
-Sprint 27 (client OS coverage)**: the box's known hazard is client-side (WebKitGTK
+battery (imminent), and the GB10/aarch64 probe — **re-scoped by Harald (2026-07-15) to client OS
+coverage — Sprint 28 after the same-day roadmap renumber (27 embeddings · 28 client+OS ·
+29 marketing, marketing LAST)**: the box's known hazard is client-side (WebKitGTK
 DMABUF webview blackout on Grace, a Tauri/studio concern), so it belongs to the sprint
 that owns client/OS/arch coverage, not to this sprint's runtime deliverables. Sprint 24
 carries **no open threads**.
