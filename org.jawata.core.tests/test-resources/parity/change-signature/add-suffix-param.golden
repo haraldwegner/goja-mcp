@@ -1,0 +1,26 @@
+APPLIED-STAGED oldName=formatMessage newName=formatMessage oldReturnType=String newReturnType=String
+---DIFF---
+--- a/src/main/java/com/example/RefactoringTarget.java
++++ b/src/main/java/com/example/RefactoringTarget.java
+@@ -69,7 +69,7 @@
+     /**
+      * Method with parameters for signature change.
+      */
+-    public String formatMessage(String message, int count) {
++    public String formatMessage(String message, int count, String suffix) {
+         return message + ": " + count;
+     }
+ 
+@@ -77,9 +77,9 @@
+      * Method that calls formatMessage.
+      */
+     public void printMessages() {
+-        String result = formatMessage("Items", 5);
++        String result = formatMessage("Items", 5, "!");
+         System.out.println(result);
+-        System.out.println(formatMessage("Total", 10));
++        System.out.println(formatMessage("Total", 10, "!"));
+     }
+ 
+     /**
+

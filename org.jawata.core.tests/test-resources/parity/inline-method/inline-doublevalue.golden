@@ -1,0 +1,14 @@
+APPLIED-STAGED methodName=doubleValue methodClass=RefactoringTarget
+---DIFF---
+--- a/src/main/java/com/example/RefactoringTarget.java
++++ b/src/main/java/com/example/RefactoringTarget.java
+@@ -62,7 +62,7 @@
+      * Method that calls doubleValue for inline testing.
+      */
+     public int processValue(int x) {
+-        int doubled = doubleValue(x);
++        int doubled = (x * 2);
+         return doubled + 1;
+     }
+ 
+

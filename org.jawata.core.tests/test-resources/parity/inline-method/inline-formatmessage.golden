@@ -1,0 +1,14 @@
+APPLIED-STAGED methodName=formatMessage methodClass=RefactoringTarget
+---DIFF---
+--- a/src/main/java/com/example/RefactoringTarget.java
++++ b/src/main/java/com/example/RefactoringTarget.java
+@@ -77,7 +77,7 @@
+      * Method that calls formatMessage.
+      */
+     public void printMessages() {
+-        String result = formatMessage("Items", 5);
++        String result = ("Items" + ": " + 5);
+         System.out.println(result);
+         System.out.println(formatMessage("Total", 10));
+     }
+
