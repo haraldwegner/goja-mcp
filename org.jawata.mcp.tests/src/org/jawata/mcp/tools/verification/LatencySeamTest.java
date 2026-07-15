@@ -231,7 +231,14 @@ class LatencySeamTest {
         long lost = ((Number) d.get("eventsLost")).longValue();
 
         assertTrue(generated >= observed, "the true count cannot be less than what we saw: " + d);
-        assertEquals(generated - observed, lost, "eventsLost must be exactly the shortfall: " + d);
+        // Loss is measured from GAPS in the observed sequence numbers (maxSequence - observed),
+        // not generated-minus-observed — that was the very conflation T1.5 fixed. The shortfall
+        // (generated - observed) is an UPPER bound on loss: some of it is ring-drop (real loss,
+        // shows as a gap) and the rest is post-window LATE events (the probe fires a beat after
+        // the final drain, bumping eventsGenerated but never observed and never lost). So loss
+        // is between zero and the shortfall, and zero is honest when the ring kept up.
+        assertTrue(lost >= 0 && lost <= generated - observed,
+            "eventsLost must be between 0 and the shortfall (the remainder are late, not lost): " + d);
         assertTrue(generated > 500,
             "a flat-out seam over 4s must fire well more than the ring's 500-event capacity, "
                 + "so this test genuinely exercises the pressure it exists for: " + d);

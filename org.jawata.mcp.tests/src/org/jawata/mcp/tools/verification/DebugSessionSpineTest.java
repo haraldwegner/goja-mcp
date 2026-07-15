@@ -299,24 +299,20 @@ class DebugSessionSpineTest {
         // teardown, so no JVM shutdown hook runs to clean the recording repository. Unless WE
         // own that dir and delete it, every launch+detach leaks JFR chunks forever. D5 claimed
         // "no recording left behind" but nothing enforced it. We now pin the repository to a
-        // dir named jawata-jfr-repo-* and delete it on teardown. Sprint-24 audit (T2.6).
-        Path tmp = Path.of(System.getProperty("java.io.tmpdir"));
-        java.util.function.Supplier<java.util.Set<String>> repoDirs = () -> {
-            try (java.util.stream.Stream<Path> s = Files.list(tmp)) {
-                return s.filter(Files::isDirectory)
-                    .map(p -> p.getFileName().toString())
-                    .filter(n -> n.startsWith("jawata-jfr-repo-"))
-                    .collect(java.util.stream.Collectors.toSet());
-            } catch (Exception e) {
-                return java.util.Set.of();
-            }
-        };
-        java.util.Set<String> before = repoDirs.get();
-
+        // dir we own and delete it on teardown. Sprint-24 audit (T2.6).
         ToolResponse launched = launchTarget();
         assertTrue(launched.isSuccess(), "got: " + launched.getError());
         String sessionId = (String) data(launched).get("sessionId");
         long pid = ((Number) data(launched).get("pid")).longValue();
+
+        // Assert on THIS session's OWN pinned repository — not "any jawata-jfr-repo-* dir in
+        // tmp". The full suite shards share tmp across parallel JVMs, so a global sweep would
+        // see other shards' concurrent launches; the session reports its own dir exactly.
+        String repo = (String) data(launched).get("recordingRepository");
+        assertNotNull(repo, "a launched session must report its pinned recording repository: "
+            + data(launched));
+        Path repoDir = Path.of(repo);
+        assertTrue(Files.isDirectory(repoDir), "the pinned repo dir exists while live: " + repo);
 
         // Start it so the continuous recording actually spins up and writes into the repo.
         ObjectNode resume = action("resume");
@@ -324,12 +320,7 @@ class DebugSessionSpineTest {
         assertTrue(tool.execute(resume).isSuccess());
         Thread.sleep(1500);
 
-        // A NEW repo dir appeared for this launch — the one we pinned.
-        java.util.Set<String> during = repoDirs.get();
-        during.removeAll(before);
-        assertFalse(during.isEmpty(), "the launched JVM must write into a repo dir WE pinned");
-
-        // Detach = kill it. The repo must be gone afterwards.
+        // Detach = kill it. THIS repo must be gone afterwards.
         ObjectNode detach = action("detach");
         detach.put("sessionId", sessionId);
         assertTrue(tool.execute(detach).isSuccess());
@@ -339,11 +330,8 @@ class DebugSessionSpineTest {
                 && ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false)) {
             Thread.sleep(200);
         }
-        java.util.Set<String> after = repoDirs.get();
-        after.retainAll(during);
-        assertTrue(after.isEmpty(),
-            "the pinned recording repository must be deleted on teardown, but these survived: "
-                + after);
+        assertFalse(Files.exists(repoDir),
+            "the pinned recording repository must be deleted on teardown: " + repo);
     }
 
     @Test

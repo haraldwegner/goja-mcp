@@ -152,6 +152,12 @@ public final class RuntimeSession {
                 + "breakpoints, then debug(action=resume) to start it — so nothing you "
                 + "wanted to see has already gone past.");
         }
+        // Where THIS session's continuous flight recording writes its chunks — a dir we own
+        // and delete on teardown (D5's "no recording left behind"). Present only for a JVM we
+        // launched; an attached foreign JVM's recording, if any, is not ours to place or remove.
+        if (jfrRepository != null) {
+            described.put("recordingRepository", jfrRepository.toString());
+        }
         described.put("capabilities", capabilities());
         return described;
     }
