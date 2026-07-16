@@ -53,7 +53,9 @@ public final class QualityDetectors {
                 "'catch (<query> …)' blocks (query = exception FQN).",
                 new FindCatchBlocksTool(svc), true), "quality")
             // Sprint 23 (GATE-1 addition): lack of coverage evidence as a smell.
-            .register(new org.jawata.mcp.tools.smell.CoverageLackDetector(), "quality");
+            .register(new org.jawata.mcp.tools.smell.CoverageLackDetector(), "quality")
+            // Sprint 25 (D3a): undocumented public API as a smell (the doc ratchet).
+            .register(new org.jawata.mcp.tools.smell.JavadocLackDetector(), "quality");
     }
 
     /**
