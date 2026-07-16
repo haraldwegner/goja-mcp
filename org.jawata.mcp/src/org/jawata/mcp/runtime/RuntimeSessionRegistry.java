@@ -96,6 +96,52 @@ public final class RuntimeSessionRegistry {
             String.join(" ", command), vm, process, capabilities, process.pid(), jfrRepo));
     }
 
+    /**
+     * Launch an eclipse-rcp target under the dev/sim preset and connect to it.
+     * The command is the NATIVE LAUNCHER's: program args first, then
+     * {@code --launcher.appendVmargs -vmargs} followed by the preset (held
+     * before its first instruction), the pinned JFR repository, and the
+     * caller's extra VM args — command-line {@code -vmargs} plus
+     * {@code appendVmargs} means the ini's own vmargs stay and ours append.
+     */
+    public RuntimeSession launchRcp(Path launcherPath, List<String> programArgs,
+                                    List<String> extraVmArgs, Path workingDirectory)
+            throws Exception {
+        evictIfFull();
+
+        Path jfrRepo = Files.createTempDirectory("jawata-jfr-repo-");
+        List<String> command = new ArrayList<>();
+        command.add(launcherPath.toString());
+        if (programArgs != null) {
+            command.addAll(programArgs);
+        }
+        command.add("--launcher.appendVmargs");
+        command.add("-vmargs");
+        command.addAll(DevSimPreset.jvmArgsForLaunch());
+        command.add("-XX:FlightRecorderOptions=repository=" + jfrRepo);
+        if (extraVmArgs != null) {
+            command.addAll(extraVmArgs);
+        }
+
+        Process[] out = new Process[1];
+        VirtualMachine vm;
+        try {
+            vm = JvmTargets.launchRaw(command, workingDirectory, out);
+        } catch (Exception e) {
+            if (out[0] != null) {
+                out[0].descendants().forEach(ProcessHandle::destroyForcibly);
+                out[0].destroyForcibly();
+            }
+            deleteRecursively(jfrRepo);
+            throw e;
+        }
+        Process process = out[0];
+        Map<String, Object> capabilities = DevSimPreset.report(
+            Map.of(), JvmTargets.jdiCapabilities(vm));
+        return admit(new RuntimeSession(newId(), RuntimeSession.Origin.LAUNCHED,
+            String.join(" ", command), vm, process, capabilities, process.pid(), jfrRepo));
+    }
+
     /** Best-effort recursive delete of a launched session's JFR repository on teardown. */
     static void deleteRecursively(Path dir) {
         if (dir == null || !Files.exists(dir)) {

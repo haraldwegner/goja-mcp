@@ -41,6 +41,7 @@ public class DebugTool extends AbstractTool {
 
     private static final List<String> ACTIONS = List.of(
         "discover", "launch", "attach", "status", "detach", "cancel",
+        "preset_args",
         "breakpoint_set", "breakpoint_clear", "breakpoint_list",
         "wait", "threads", "snapshot", "evaluate", "step", "resume", "instances",
         "set_value", "force_return", "pop_frame", "redefine", "mutations",
@@ -263,6 +264,17 @@ public class DebugTool extends AbstractTool {
             JVM for the whole toolkit: loopback debug port, continuous bounded flight
             recording, local JMX, native-memory tracking, profiler readiness, and a
             quiet console.
+
+            - preset_args — the preset as PASTE-READY blocks for a target the HOST starts
+              (suspend=n; the program is never held): a one-line java form and an
+              eclipse.ini block, each with instructions. Attach afterwards.
+            - launch also takes the ECLIPSE-RCP shape: launcherPath (the product's native
+              launcher; exclusive with mainClass/classpath) + optional iniPath /
+              configArea / workspaceArea / vmargsExtra — the command is built as
+              <launcher> [program args] --launcher.appendVmargs -vmargs <preset+extra>,
+              so the ini's own vmargs still apply and the preset appends. Point
+              configArea/workspaceArea at scratch dirs to leave the product's own
+              configuration untouched.
             """;
     }
 
@@ -292,6 +304,25 @@ public class DebugTool extends AbstractTool {
             "description", "launch: extra JVM flags, ON TOP of the dev/sim preset."));
         properties.put("workingDirectory", Map.of("type", "string",
             "description", "launch: the target's working directory."));
+
+        properties.put("launcherPath", Map.of("type", "string",
+            "description", "launch (eclipse-rcp shape): the product's NATIVE launcher "
+                + "executable. Exclusive with mainClass/classpath — the command becomes "
+                + "<launcher> [program args] --launcher.appendVmargs -vmargs <preset + "
+                + "vmargsExtra>, so the ini's own vmargs stay and the preset appends."));
+        properties.put("iniPath", Map.of("type", "string",
+            "description", "launch (eclipse-rcp): optional explicit .ini "
+                + "(--launcher.ini); default = the launcher's sibling ini."));
+        properties.put("vmargsExtra", Map.of("type", "array", "items", Map.of("type", "string"),
+            "description", "launch (eclipse-rcp): extra VM args appended AFTER the preset "
+                + "in the -vmargs block."));
+        properties.put("configArea", Map.of("type", "string",
+            "description", "launch (eclipse-rcp): -configuration area for the launched "
+                + "instance — point it at a scratch dir to leave the product's own "
+                + "configuration untouched."));
+        properties.put("workspaceArea", Map.of("type", "string",
+            "description", "launch (eclipse-rcp): -data workspace for the launched "
+                + "instance — scratch dir for the same reason."));
 
         properties.put("kind", Map.of("type", "string", "enum", BREAKPOINT_KINDS,
             "description", "breakpoint_set: which kind of breakpoint."));
@@ -380,6 +411,7 @@ public class DebugTool extends AbstractTool {
                 case "launch" -> launch(arguments);
                 case "status" -> status(arguments);
                 case "detach", "cancel" -> detach(arguments);
+                case "preset_args" -> presetArgs();
                 case "breakpoint_set" -> breakpointSet(arguments);
                 case "breakpoint_clear" -> breakpointClear(arguments);
                 case "breakpoint_list" -> breakpointList(arguments);
@@ -1084,8 +1116,17 @@ public class DebugTool extends AbstractTool {
     }
 
     private ToolResponse launch(JsonNode arguments) throws Exception {
+        String launcherPath = getStringParam(arguments, "launcherPath");
         String mainClass = getStringParam(arguments, "mainClass");
         String classpath = getStringParam(arguments, "classpath");
+        if (launcherPath != null && !launcherPath.isBlank()) {
+            if (mainClass != null || classpath != null) {
+                return ToolResponse.invalidParameter("launcherPath",
+                    "The eclipse-rcp shape (launcherPath) is exclusive with "
+                        + "mainClass/classpath — a native launcher brings its own JVM.");
+            }
+            return launchRcp(arguments, launcherPath);
+        }
         if (mainClass == null || mainClass.isBlank()) {
             return ToolResponse.invalidParameter("mainClass", "launch needs a mainClass.");
         }
@@ -1106,6 +1147,78 @@ public class DebugTool extends AbstractTool {
                 + "debug(action=resume) to start the program: a target that is already "
                 + "running has already run past whatever you wanted to see.",
             getStringParam(arguments, "projectKey"));
+    }
+
+    /** The eclipse-rcp launch shape: native launcher, preset behind -vmargs. */
+    private ToolResponse launchRcp(JsonNode arguments, String launcherPath) throws Exception {
+        Path launcher = Path.of(launcherPath);
+        if (!java.nio.file.Files.isExecutable(launcher)) {
+            return ToolResponse.invalidParameter("launcherPath",
+                "Not an executable: " + launcherPath);
+        }
+        List<String> programArgs = new ArrayList<>();
+        String iniPath = getStringParam(arguments, "iniPath");
+        if (iniPath != null && !iniPath.isBlank()) {
+            programArgs.add("--launcher.ini");
+            programArgs.add(iniPath);
+        }
+        String configArea = getStringParam(arguments, "configArea");
+        if (configArea != null && !configArea.isBlank()) {
+            programArgs.add("-configuration");
+            programArgs.add(configArea);
+        }
+        String workspaceArea = getStringParam(arguments, "workspaceArea");
+        if (workspaceArea != null && !workspaceArea.isBlank()) {
+            programArgs.add("-data");
+            programArgs.add(workspaceArea);
+        }
+        programArgs.addAll(stringList(arguments, "args"));
+
+        String workingDirectory = getStringParam(arguments, "workingDirectory");
+        RuntimeSession session = sessions.launchRcp(
+            launcher, programArgs, stringList(arguments, "vmargsExtra"),
+            workingDirectory == null ? null : Path.of(workingDirectory));
+        return sessionResponse(session,
+            "Launched the RCP product under the dev/sim preset (behind -vmargs with "
+                + "--launcher.appendVmargs, so its own ini vmargs still apply), and HELD "
+                + "BEFORE ITS FIRST INSTRUCTION. This JVM is ours — detach kills it. Point "
+                + "configArea/workspaceArea at scratch dirs to leave the product's own "
+                + "configuration untouched. Arm breakpoints now, then debug(action=resume).",
+            getStringParam(arguments, "projectKey"));
+    }
+
+    /**
+     * The dev/sim preset as PASTE-READY argument blocks, for a target the HOST
+     * starts (suspend=n — a pasted preset must never hang the program waiting
+     * for a debugger; the held-before-first-instruction variant belongs to
+     * action=launch, where the debugger owns the process).
+     */
+    private ToolResponse presetArgs() {
+        List<String> args = org.jawata.mcp.runtime.DevSimPreset.jvmArgs();
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("jvmArgs", args);
+        data.put("jvmArgsLine", String.join(" ", args));
+        StringBuilder ini = new StringBuilder("--launcher.appendVmargs\n-vmargs\n");
+        for (String arg : args) {
+            ini.append(arg).append('\n');
+        }
+        data.put("eclipseIniBlock", ini.toString());
+        data.put("instructions", List.of(
+            "Plain java command: append jvmArgsLine before the main class / -jar "
+                + "(or export it via JAVA_TOOL_OPTIONS / your launcher's JVM-args knob).",
+            "Eclipse RCP product: paste eclipseIniBlock at the END of the product's .ini "
+                + "file — --launcher.appendVmargs keeps the ini's existing vmargs AND these; "
+                + "each argument must stay on its own line.",
+            "The preset uses suspend=n: the program starts normally and is NOT held — "
+                + "attach later with debug(action=attach) (find the pid via "
+                + "debug(action=discover)). To debug from the first instruction instead, "
+                + "use debug(action=launch), which holds the target.",
+            "Loopback only: the debug port binds to 127.0.0.1 and is announced on stdout; "
+                + "nothing here reaches off the machine."));
+        return ToolResponse.success(data, ResponseMeta.builder()
+            .steering("Paste, restart the target, then debug(action=discover) shows it as "
+                + "debuggable and debug(action=attach) connects.")
+            .build());
     }
 
     private ToolResponse status(JsonNode arguments) {

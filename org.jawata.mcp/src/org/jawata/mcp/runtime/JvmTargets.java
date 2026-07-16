@@ -85,7 +85,24 @@ public final class JvmTargets {
             full.addAll(extraJvmArgs);
         }
         full.addAll(command);
+        return startAndAttach(full, workingDirectory, outProcess);
+    }
 
+    /**
+     * Launch a target whose command is COMPLETE as given — an eclipse-rcp native
+     * launcher, say, where the preset flags ride behind {@code -vmargs} and the
+     * executable is not {@code java}. The caller owns the arg weaving; this owns
+     * the same connect contract as {@link #launch}: the JVM must announce its
+     * debug port (the preset must be IN the command), stdout is drained for the
+     * target's life, and the returned VM is attached over loopback.
+     */
+    public static VirtualMachine launchRaw(List<String> fullCommand, Path workingDirectory,
+                                           Process[] outProcess) throws Exception {
+        return startAndAttach(new ArrayList<>(fullCommand), workingDirectory, outProcess);
+    }
+
+    private static VirtualMachine startAndAttach(List<String> full, Path workingDirectory,
+                                                 Process[] outProcess) throws Exception {
         ProcessBuilder builder = new ProcessBuilder(full).redirectErrorStream(true);
         if (workingDirectory != null) {
             builder.directory(workingDirectory.toFile());
