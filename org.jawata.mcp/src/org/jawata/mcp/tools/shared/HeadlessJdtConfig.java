@@ -46,6 +46,15 @@ public final class HeadlessJdtConfig {
             defaults.put("org.eclipse.jdt.ui.ondemandthreshold", "99");
             defaults.put("org.eclipse.jdt.ui.staticondemandthreshold", "99");
 
+            // Member-order cache: in the IDE, jdt.ui installs it on activation;
+            // headless embedders must install() it themselves or member
+            // insertion NPEs on fPreferences — hit live by
+            // ExtractSupertypeProcessor placing members into the created
+            // supertype. install() registers the instance with
+            // JavaManipulationPlugin and reads the defaults seeded above.
+            new org.eclipse.jdt.internal.core.manipulation.MembersOrderPreferenceCacheCommon()
+                .install();
+
             // Code-template store: without one, CodeGeneration.get*BodyContent
             // returns null and SelfEncapsulateFieldRefactoring's fallback path
             // hits an upstream bug (a bare Assignment added where a Statement

@@ -3,8 +3,12 @@ package org.jawata.mcp.tools;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IFile;
+import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.core.runtime.Path;
 import org.eclipse.jdt.core.ICompilationUnit;
+import org.eclipse.jdt.core.IField;
+import org.eclipse.jdt.core.IMember;
+import org.eclipse.jdt.core.IMethod;
 import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.dom.AST;
@@ -21,46 +25,60 @@ import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
+import org.eclipse.jdt.internal.corext.codemanipulation.CodeGenerationSettings;
+import org.eclipse.jdt.internal.corext.refactoring.structure.ExtractSupertypeProcessor;
 import org.eclipse.ltk.core.refactoring.Change;
 import org.eclipse.ltk.core.refactoring.CompositeChange;
+import org.eclipse.ltk.core.refactoring.RefactoringStatus;
+import org.eclipse.ltk.core.refactoring.participants.ProcessorBasedRefactoring;
 import org.eclipse.text.edits.TextEdit;
 import org.jawata.core.IJdtService;
 import org.jawata.mcp.models.ToolResponse;
 import org.jawata.mcp.refactoring.ChangeEngine;
+import org.jawata.mcp.refactoring.CheckedChange;
 import org.jawata.mcp.refactoring.CreateCompilationUnitChange;
+import org.jawata.mcp.refactoring.JdtRefactoringEngine;
 import org.jawata.mcp.refactoring.RefactoringChangeCache;
+import org.jawata.mcp.refactoring.RefactoringEngine;
+import org.jawata.mcp.tools.shared.HeadlessJdtConfig;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
 
 /**
- * Sprint 18 — <b>Extract Superclass</b> (the {@code extract(kind=superclass)}
- * cost-tool primitive). Given a class at a caret and one or more sibling classes
- * in the same package, synthesise a new abstract superclass and pull the members
- * they share up into it — the second half of the reuse-over-reinvent workflow
- * ({@code copy_class} then {@code extract_superclass}).
+ * <b>Extract Superclass</b> (the {@code extract(kind=superclass)} delegate),
+ * TWO modes since Sprint 25 (spec D1a item 7):
  *
- * <p>Conservative-or-refuse (v1.5): the caret type and every named sibling must be
- * classes in the same package that do <em>not</em> already extend a superclass;
- * only <b>methods</b> are pulled up (not fields/constructors), and only those that
- * are <b>byte-identical across all the types</b> (so the move is behaviour-
- * preserving) and <b>self-contained</b> (they reference no instance field of the
- * class and no non-pulled instance method — so they still resolve from the parent).
- * The new file must not already exist. JDT's own {@code ExtractSupertypeRefactoring}
- * lives in {@code jdt.ui} (off our target platform), so this composes the change
- * from primitives: one {@link CreateCompilationUnitChange} for the parent plus a
- * {@link ChangeEngine#fromFileEdits} edit per subclass (add {@code extends} +
- * delete the pulled methods), wrapped in a {@link CompositeChange} so a single undo
- * reverts everything.</p>
+ * <p><b>Default ({@code mode=jdt})</b> — JDT's own
+ * {@link ExtractSupertypeProcessor} (the IDE's Refactor &gt; Extract Superclass;
+ * shipped headless in {@code org.eclipse.jdt.core.manipulation} — the earlier
+ * claim here that the engine "lives in jdt.ui" was FALSE, falsified by the
+ * Sprint-25 provenance audit). The general case: pulls up fields and
+ * non-identical members, generates necessary constructors and type parameters,
+ * inserts the new type between the subclasses and their existing common
+ * superclass, and deletes matching duplicates in the sibling types.</p>
  *
- * <p>A delegate of the {@code extract} front door (kind {@code superclass}).</p>
+ * <p><b>{@code mode=identical}</b> — the preserved Sprint-18 conservative
+ * implementation (kept by decision, 2026-07-16): only methods that are
+ * <em>byte-identical across all the types</em> and <em>self-contained</em>
+ * (referencing no instance field and no non-pulled instance method) are pulled
+ * up; the caret type and every sibling must not already extend anything. Its
+ * guarantees are unchanged — the behaviour-preserving half of the
+ * reuse-over-reinvent workflow ({@code copy_class} then
+ * {@code extract_superclass}), where the pulled code is provably shared.</p>
+ *
+ * <p>Both modes compose a single undo; the v2.12.1 compile-verify gate stays
+ * wrapped around the applied change.</p>
  */
 public class ExtractSuperclassTool extends AbstractApplyingRefactoringTool {
+
+    private final RefactoringEngine engine = new JdtRefactoringEngine();
 
     public ExtractSuperclassTool(Supplier<IJdtService> serviceSupplier, RefactoringChangeCache cache) {
         super(serviceSupplier, cache);
@@ -73,9 +91,13 @@ public class ExtractSuperclassTool extends AbstractApplyingRefactoringTool {
 
     @Override
     public String getDescription() {
-        return "Extract Superclass — synthesize a new abstract parent and pull up the methods shared "
-            + "(byte-identical + self-contained) by a class and its same-package siblings. "
-            + "Delegate of extract(kind=superclass).";
+        return "Extract Superclass — synthesize a new abstract parent from a class and its "
+            + "same-package siblings. Default mode (jdt) uses JDT's Extract Superclass engine: "
+            + "pulls up the named members (fields and methods; default: the methods shared "
+            + "byte-identically), creates necessary constructors, reparents every named type, "
+            + "and removes matching duplicates in the siblings. mode=identical is the "
+            + "conservative Sprint-18 contract: only byte-identical, self-contained methods, "
+            + "types must not already extend anything. Delegate of extract(kind=superclass).";
     }
 
     @Override
@@ -90,7 +112,12 @@ public class ExtractSuperclassTool extends AbstractApplyingRefactoringTool {
         properties.put("siblings", Map.of("type", "array", "items", Map.of("type", "string"),
             "description", "Sibling class simple names in the same package to also reparent + pull from."));
         properties.put("members", Map.of("type", "array", "items", Map.of("type", "string"),
-            "description", "Optional: method names to pull up (must be identical across all types). Default: auto-discover."));
+            "description", "Optional: member names to pull up. Default: auto-discover the methods "
+                + "shared byte-identically. mode=jdt accepts fields and non-identical members; "
+                + "mode=identical requires identical methods."));
+        properties.put("mode", Map.of("type", "string", "enum", List.of("jdt", "identical"),
+            "description", "jdt (default): the general JDT Extract Superclass engine. "
+                + "identical: the conservative byte-identical + self-contained contract."));
         schema.put("properties", properties);
         schema.put("required", List.of("filePath", "line", "column", "superclassName"));
         return withAutoApply(withProjectKey(schema));
@@ -100,6 +127,235 @@ public class ExtractSuperclassTool extends AbstractApplyingRefactoringTool {
 
     @Override
     protected Preparation prepareChange(IJdtService service, JsonNode arguments) throws Exception {
+        String mode = getStringParam(arguments, "mode");
+        if (mode == null || mode.isBlank() || "jdt".equals(mode)) {
+            return prepareJdtMode(service, arguments);
+        }
+        if ("identical".equals(mode)) {
+            return prepareIdenticalMode(service, arguments);
+        }
+        return Preparation.fail(ToolResponse.invalidParameter("mode",
+            "Unknown mode '" + mode + "'. Allowed: jdt (default), identical."));
+    }
+
+    // ==================================================================
+    // Default mode: JDT ExtractSupertypeProcessor
+    // ==================================================================
+
+    private Preparation prepareJdtMode(IJdtService service, JsonNode arguments) throws Exception {
+        String filePath = getStringParam(arguments, "filePath");
+        if (filePath == null || filePath.isBlank()) {
+            return Preparation.fail(ToolResponse.invalidParameter("filePath", "Required."));
+        }
+        int line = getIntParam(arguments, "line", -1);
+        int column = getIntParam(arguments, "column", -1);
+        if (line < 0 || column < 0) {
+            return Preparation.fail(ToolResponse.invalidParameter("line/column", "Must be >= 0 (zero-based)."));
+        }
+        String parentName = getStringParam(arguments, "superclassName");
+        if (parentName == null || !isIdentifier(parentName)) {
+            return Preparation.fail(ToolResponse.invalidParameter("superclassName", "A valid Java type name is required."));
+        }
+
+        java.nio.file.Path path = java.nio.file.Path.of(filePath);
+        IType caretType = service.getTypeAtPosition(path, line, column);
+        if (caretType == null) {
+            return Preparation.fail(ToolResponse.invalidParameter("position", "No type at " + line + ":" + column + "."));
+        }
+        ICompilationUnit caretCu = caretType.getCompilationUnit();
+        if (caretCu == null) {
+            return Preparation.fail(ToolResponse.invalidParameter("type", "Source not available."));
+        }
+        if (caretType.isInterface() || caretType.isEnum()) {
+            return Preparation.fail(ToolResponse.invalidParameter("type", "Caret must be on a class."));
+        }
+
+        // Resolve the same-package siblings; the extracted type slots between the
+        // types and their COMMON superclass, so every sibling must share the
+        // caret's (possibly absent) superclass.
+        List<String> sibNames = stringArray(arguments, "siblings");
+        IPackageFragment pkg = (IPackageFragment) caretCu.getParent();
+        List<IType> types = new ArrayList<>();
+        types.add(caretType);
+        String caretSuper = caretType.getSuperclassName();
+        for (String s : sibNames) {
+            if (s.equals(caretType.getElementName())) {
+                continue;
+            }
+            ICompilationUnit scu = pkg.getCompilationUnit(s + ".java");
+            if (scu == null || !scu.exists()) {
+                return Preparation.fail(ToolResponse.invalidParameter("siblings", "Sibling not found in package: " + s + "."));
+            }
+            IType sibType = scu.getType(s);
+            if (!sibType.exists() || sibType.isInterface() || sibType.isEnum()) {
+                return Preparation.fail(ToolResponse.invalidParameter("siblings", s + " is not a class in " + s + ".java."));
+            }
+            if (!Objects.equals(caretSuper, sibType.getSuperclassName())) {
+                return Preparation.fail(ToolResponse.invalidParameter("siblings",
+                    s + " does not share " + caretType.getElementName() + "'s superclass ("
+                        + (caretSuper == null ? "none" : caretSuper) + " vs "
+                        + (sibType.getSuperclassName() == null ? "none" : sibType.getSuperclassName())
+                        + ") — the extracted type must slot under a common parent."));
+            }
+            types.add(sibType);
+        }
+        if (types.size() < 2) {
+            return Preparation.fail(ToolResponse.invalidParameter("siblings",
+                "Provide at least one sibling class in the same package to extract a common superclass."));
+        }
+
+        // Members to pull up, from the CARET type: explicit names (fields and
+        // methods — the general case), or the shared byte-identical methods.
+        List<String> explicit = stringArray(arguments, "members");
+        List<IMember> members = new ArrayList<>();
+        if (!explicit.isEmpty()) {
+            for (String name : explicit) {
+                boolean found = false;
+                IField field = caretType.getField(name);
+                if (field.exists()) {
+                    members.add(field);
+                    found = true;
+                }
+                for (IMethod m : caretType.getMethods()) {
+                    if (!m.isConstructor() && m.getElementName().equals(name)) {
+                        members.add(m);
+                        found = true;
+                    }
+                }
+                if (!found) {
+                    return Preparation.fail(ToolResponse.invalidParameter("members",
+                        "Member '" + name + "' not found in " + caretType.getElementName() + "."));
+                }
+            }
+        } else {
+            members.addAll(sharedIdenticalMethods(caretType, types));
+            if (members.isEmpty()) {
+                return Preparation.fail(ToolResponse.invalidParameter("members",
+                    "No methods shared byte-identically across all the named types; name the "
+                        + "members to pull up explicitly (mode=jdt accepts fields and "
+                        + "non-identical members — the caret type's version wins)."));
+            }
+        }
+
+        String pkgName = pkg.getElementName();
+        IContainer parentDir = (IContainer) caretCu.getResource().getParent();
+        IFile parentFile = parentDir.getFile(new Path(parentName + ".java"));
+        if (parentFile.exists()) {
+            return Preparation.fail(ToolResponse.invalidParameter("superclassName",
+                "A file named " + parentName + ".java already exists in this package."));
+        }
+
+        HeadlessJdtConfig.ensureInitialized();
+        ExtractSupertypeProcessor processor =
+            new ExtractSupertypeProcessor(members.toArray(new IMember[0]), new CodeGenerationSettings());
+        processor.setTypeName(parentName);
+        processor.setTypesToExtract(types.toArray(new IType[0]));
+
+        CheckedChange checked;
+        List<String> deletedInSubtypes = new ArrayList<>();
+        try {
+            // The driver creates the working-copy layer (the wizard does this on
+            // page transition): it materializes the extracted type and reparents
+            // the types in the layer, so matching duplicates can be computed.
+            RefactoringStatus layerStatus = processor.createWorkingCopyLayer(new NullProgressMonitor());
+            if (layerStatus.hasFatalError()) {
+                return Preparation.fail(ToolResponse.error(
+                    "EXTRACT_REFUSED",
+                    "extract_superclass (jdt) refused: " + layerStatus.getMessageMatchingSeverity(RefactoringStatus.FATAL),
+                    "JDT's Extract Superclass engine rejected the setup. No files were modified."));
+            }
+            // Sibling dedup — the wizard's checked-by-default list: matching
+            // members in the reparented types are deleted (they become inherited).
+            Set<IMember> moved = new LinkedHashSet<>(members);
+            List<IMethod> deleted = new ArrayList<>();
+            for (IMember match : processor.getMatchingElements(new NullProgressMonitor(), false)) {
+                if (match instanceof IMethod m && !moved.contains(match)) {
+                    deleted.add(m);
+                    IType owner = m.getDeclaringType();
+                    deletedInSubtypes.add((owner == null ? "?" : owner.getElementName()) + "#" + m.getElementName());
+                }
+            }
+            processor.setDeletedMethods(deleted.toArray(new IMethod[0]));
+
+            ProcessorBasedRefactoring refactoring = new ProcessorBasedRefactoring(processor);
+            checked = engine.propose(refactoring, "extract superclass " + parentName);
+        } finally {
+            // Deterministically discard the fOwner working copies; the produced
+            // change resolves files through primary-unit handles, so it stays
+            // valid for the (possibly staged) apply.
+            processor.resetEnvironment();
+        }
+        if (checked.isRefused()) {
+            return Preparation.fail(ToolResponse.error(
+                "EXTRACT_REFUSED",
+                "extract_superclass (jdt) refused: " + checked.messages(),
+                "JDT's Extract Superclass engine rejected it — a precondition failed "
+                    + "(name collision, unpullable member, reference it cannot preserve). "
+                    + "Adjust the input or use mode=identical for the conservative contract. "
+                    + "No files were modified."));
+        }
+
+        List<String> typeNames = types.stream().map(IType::getElementName).toList();
+        List<String> memberNames = members.stream().map(IMember::getElementName).distinct().toList();
+        Map<String, Object> extras = new LinkedHashMap<>();
+        extras.put("newSuperclass", parentName);
+        extras.put("package", pkgName == null ? "" : pkgName);
+        extras.put("subclasses", typeNames);
+        extras.put("pulledUpMembers", memberNames);
+        extras.put("deletedInSubtypes", deletedInSubtypes);
+        extras.put("mode", "jdt");
+        if (checked.hasWarnings()) {
+            extras.put("warnings", checked.messages());
+        }
+        String summary = "extract superclass " + parentName + " from " + String.join(", ", typeNames)
+            + " (jdt); pulled up " + memberNames;
+        return Preparation.of(checked.change(), summary, extras);
+    }
+
+    /**
+     * The methods of the caret type declared byte-identically (normalized
+     * whitespace) in EVERY named type — the default pull-up selection.
+     */
+    private static List<IMethod> sharedIdenticalMethods(IType caretType, List<IType> allTypes) throws Exception {
+        List<IMethod> shared = new ArrayList<>();
+        for (IMethod m : caretType.getMethods()) {
+            if (m.isConstructor()) {
+                continue;
+            }
+            String norm = normalize(m.getSource());
+            boolean inAll = true;
+            for (IType other : allTypes) {
+                if (other.equals(caretType)) {
+                    continue;
+                }
+                IMethod counterpart = null;
+                for (IMethod om : other.getMethods()) {
+                    if (!om.isConstructor()
+                            && om.getElementName().equals(m.getElementName())
+                            && om.getParameterTypes().length == m.getParameterTypes().length) {
+                        counterpart = om;
+                        break;
+                    }
+                }
+                if (counterpart == null || !normalize(counterpart.getSource()).equals(norm)) {
+                    inAll = false;
+                    break;
+                }
+            }
+            if (inAll) {
+                shared.add(m);
+            }
+        }
+        return shared;
+    }
+
+    // ==================================================================
+    // mode=identical: the preserved Sprint-18 conservative implementation
+    // (byte-identical + self-contained methods; kept by decision 2026-07-16).
+    // Body unchanged — the parity battery gates it against its golden.
+    // ==================================================================
+
+    private Preparation prepareIdenticalMode(IJdtService service, JsonNode arguments) throws Exception {
         String filePath = getStringParam(arguments, "filePath");
         if (filePath == null || filePath.isBlank()) {
             return Preparation.fail(ToolResponse.invalidParameter("filePath", "Required."));
@@ -253,6 +509,7 @@ public class ExtractSuperclassTool extends AbstractApplyingRefactoringTool {
         extras.put("package", pkgName == null ? "" : pkgName);
         extras.put("subclasses", typeNames);
         extras.put("pulledUpMembers", pulledNames);
+        extras.put("mode", "identical");
         String summary = "extract superclass " + parentName + " from " + String.join(", ", typeNames)
             + "; pulled up " + pulledNames;
         return Preparation.of(composite, summary, extras);
@@ -366,7 +623,7 @@ public class ExtractSuperclassTool extends AbstractApplyingRefactoringTool {
     }
 
     private static String normalize(String s) {
-        return s.replaceAll("\\s+", " ").trim();
+        return s == null ? "" : s.replaceAll("\\s+", " ").trim();
     }
 
     private static CompilationUnit parse(ICompilationUnit cu) throws Exception {

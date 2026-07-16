@@ -60,9 +60,11 @@ public class ExtractTool extends AbstractTool {
                          Needs: startLine, startColumn, endLine, endColumn, constantName.
             - interface— extract an interface from the type at a caret.
                          Needs: line, column, interfaceName (optional methodNames[] to pull up).
-            - superclass— synthesize a new abstract parent and pull up the methods shared by the
-                         caret class and its same-package siblings.
-                         Needs: line, column, superclassName, siblings[] (optional members[]).
+            - superclass— extract a common superclass from the caret class and its same-package
+                         siblings. Needs: line, column, superclassName, siblings[] (optional
+                         members[], mode). Default mode=jdt (the JDT engine: fields,
+                         non-identical members, constructors); mode=identical is the
+                         conservative byte-identical + self-contained contract.
 
             Applies by default; returns filesModified/diff/undoChangeId/summary. Pass
             auto_apply=false to stage without applying.
@@ -100,7 +102,9 @@ public class ExtractTool extends AbstractTool {
         properties.put("siblings", Map.of("type", "array", "items", Map.of("type", "string"),
             "description", "superclass: sibling class simple names in the same package to reparent + pull from."));
         properties.put("members", Map.of("type", "array", "items", Map.of("type", "string"),
-            "description", "superclass: optional method names to pull up (default: auto-discover the identical ones)."));
+            "description", "superclass: optional member names to pull up (default: auto-discover the identical methods; mode=jdt also accepts fields and non-identical members)."));
+        properties.put("mode", Map.of("type", "string", "enum", List.of("jdt", "identical"),
+            "description", "superclass: jdt (default) = the general JDT engine; identical = the conservative byte-identical + self-contained contract."));
 
         properties.put("typeName", org.jawata.mcp.tools.shared.FqnTarget.typeNameSchemaProperty(
             "type to extract from (kinds interface/superclass; the range kinds "
