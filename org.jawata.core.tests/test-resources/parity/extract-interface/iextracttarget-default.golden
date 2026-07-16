@@ -11,4 +11,24 @@ APPLIED-STAGED className=InterfaceExtractTarget interfaceName=IExtractTarget
  
      private String name;
      private int value;
+@@ -74,7 +74,7 @@
+     /**
+      * Static method - should NOT be included in interface.
+      */
+-    public static InterfaceExtractTarget create(String name) {
++    public static IExtractTarget create(String name) {
+         return new InterfaceExtractTarget(name);
+     }
+ 
+--- a/src/main/java/com/example/InterfaceUseSite.java
++++ b/src/main/java/com/example/InterfaceUseSite.java
+@@ -7,7 +7,7 @@
+  */
+ public class InterfaceUseSite {
+     public String describe() {
+-        InterfaceExtractTarget target = InterfaceExtractTarget.create("probe");
++        IExtractTarget target = InterfaceExtractTarget.create("probe");
+         return target.getName();
+     }
+ }
 

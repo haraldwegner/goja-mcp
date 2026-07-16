@@ -123,6 +123,22 @@ class ExtractInterfaceToolTest {
             "static create() must be excluded");
     }
 
+    @Test
+    @DisplayName("use-where-possible: a compatible use-site local is retyped to the new interface (JDT engine)")
+    void useWherePossible_retypesCompatibleLocal() throws Exception {
+        // Sprint 25 (spec D1a item 6): the InterfaceUseSite fixture's local calls only
+        // getName(), so the supertype-constraints solver can widen it to IExtractTarget —
+        // the capability the old file-local implementation did not have.
+        Path useSite = helper.getTempDirectory()
+            .resolve("simple-maven/src/main/java/com/example/InterfaceUseSite.java");
+        ToolResponse response = tool.execute(extractionArgs());
+        assertTrue(response.isSuccess(), () -> String.valueOf(response.getError()));
+
+        String onDisk = Files.readString(useSite);
+        assertTrue(onDisk.contains("IExtractTarget target"),
+            "compatible local must be retyped to the extracted interface:\n" + onDisk);
+    }
+
     // ========== Optional Parameters Tests ==========
 
     @Test

@@ -1,26 +1,25 @@
 package org.jawata.mcp.tools;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import org.eclipse.core.resources.IFile;
 import org.eclipse.jdt.core.Flags;
 import org.eclipse.jdt.core.ICompilationUnit;
+import org.eclipse.jdt.core.IMember;
 import org.eclipse.jdt.core.IMethod;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
-import org.eclipse.jdt.core.dom.AST;
-import org.eclipse.jdt.core.dom.ASTParser;
-import org.eclipse.jdt.core.dom.CompilationUnit;
-import org.eclipse.jdt.core.dom.TypeDeclaration;
-import org.eclipse.core.resources.IFile;
+import org.eclipse.jdt.internal.corext.codemanipulation.CodeGenerationSettings;
+import org.eclipse.jdt.internal.corext.refactoring.structure.ExtractInterfaceProcessor;
 import org.eclipse.ltk.core.refactoring.Change;
-import org.eclipse.ltk.core.refactoring.CompositeChange;
-import org.eclipse.text.edits.InsertEdit;
-import org.eclipse.text.edits.TextEdit;
+import org.eclipse.ltk.core.refactoring.participants.ProcessorBasedRefactoring;
 import org.jawata.core.IJdtService;
 import org.jawata.mcp.models.ToolResponse;
-import org.jawata.mcp.refactoring.ChangeEngine;
-import org.jawata.mcp.refactoring.CreateFileChange;
+import org.jawata.mcp.refactoring.CheckedChange;
+import org.jawata.mcp.refactoring.JdtRefactoringEngine;
 import org.jawata.mcp.refactoring.RefactoringChangeCache;
+import org.jawata.mcp.refactoring.RefactoringEngine;
+import org.jawata.mcp.tools.shared.HeadlessJdtConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,7 +30,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 /**
  * Extract an interface from a class containing selected public methods.
@@ -39,10 +37,24 @@ import java.util.stream.Collectors;
  * <p>Sprint 14b: auto-applies by default via
  * {@link AbstractApplyingRefactoringTool} — creates the interface file AND
  * adds the implements clause in one Change; undo removes both.</p>
+ *
+ * <p>Sprint 25 (spec D1a item 6): the extraction is computed by JDT's own
+ * {@link ExtractInterfaceProcessor} (the IDE's Refactor → Extract Interface),
+ * driven through the {@link RefactoringEngine} seam. The original implementation
+ * string-built the interface file (wholesale-copying every import from the
+ * source file) and inserted the implements clause via a raw brace scan; it never
+ * touched any other file. The JDT processor generates the interface with a
+ * proper import rewrite, adds the implements clause through the AST, and — the
+ * new capability — rewrites type occurrences across the workspace to USE the
+ * extracted interface where type-safe (its supertype-constraints solver
+ * decides). The v2.12.1 compile-verify gate stays wrapped around the applied
+ * change.</p>
  */
 public class ExtractInterfaceTool extends AbstractApplyingRefactoringTool {
 
     private static final Logger log = LoggerFactory.getLogger(ExtractInterfaceTool.class);
+
+    private final RefactoringEngine engine = new JdtRefactoringEngine();
 
     private static final Set<String> RESERVED_WORDS = Set.of(
         "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char",
@@ -67,15 +79,17 @@ public class ExtractInterfaceTool extends AbstractApplyingRefactoringTool {
     @Override
     public String getDescription() {
         return """
-            Extract an interface from a class containing selected public methods.
+            Extract an interface from a class containing selected public methods
+            (JDT's own Extract Interface engine).
 
-            Applies the extraction directly (default): creates the interface
-            file next to the class and adds the implements clause, returning
-            { filesModified, diff, undoChangeId, summary }. Undo removes the
-            new file and reverts the class. Pass auto_apply: false to stage.
+            Applies the extraction directly (default): creates the interface file,
+            adds the implements clause, and rewrites compatible type occurrences to
+            USE the new interface where type-safe. Returns
+            { filesModified, diff, undoChangeId, summary }. Undo removes the new
+            file and reverts every touched file. Pass auto_apply: false to stage.
 
             USAGE: Position on class, provide interface name, optionally specify methods
-            OUTPUT: New interface file + modified class + undo handle
+            OUTPUT: New interface file + modified class (+ retyped use sites) + undo handle
 
             IMPORTANT: Uses ZERO-BASED coordinates.
 
@@ -128,17 +142,14 @@ public class ExtractInterfaceTool extends AbstractApplyingRefactoringTool {
         if (line < 0 || column < 0) {
             return Preparation.fail(ToolResponse.invalidParameter("line/column", "Must be >= 0"));
         }
-
         if (interfaceName == null || interfaceName.isBlank()) {
             return Preparation.fail(ToolResponse.invalidParameter("interfaceName", "Required"));
         }
-
         if (!isValidJavaIdentifier(interfaceName)) {
             return Preparation.fail(
                 ToolResponse.invalidParameter("interfaceName", "Not a valid Java identifier"));
         }
 
-        // Get optional method names
         List<String> methodNamesToInclude = new ArrayList<>();
         if (arguments.has("methodNames") && arguments.get("methodNames").isArray()) {
             for (JsonNode nameNode : arguments.get("methodNames")) {
@@ -146,199 +157,132 @@ public class ExtractInterfaceTool extends AbstractApplyingRefactoringTool {
             }
         }
 
-        {
-            Path path = Path.of(filePath);
-            ICompilationUnit cu = service.getCompilationUnit(path);
-            if (cu == null) {
-                return Preparation.fail(ToolResponse.fileNotFound(filePath));
-            }
-
-            // Get the type at position
-            IType type = service.getTypeAtPosition(path, line, column);
-            if (type == null) {
-                return Preparation.fail(ToolResponse.symbolNotFound("No class found at position"));
-            }
-
-            // Verify it's a class (not interface or enum)
-            if (type.isInterface()) {
-                return Preparation.fail(
-                    ToolResponse.invalidParameter("type", "Cannot extract interface from an interface"));
-            }
-            if (type.isEnum()) {
-                return Preparation.fail(
-                    ToolResponse.invalidParameter("type", "Cannot extract interface from an enum"));
-            }
-
-            // Collect public non-static methods
-            List<IMethod> methodsToExtract = new ArrayList<>();
-            for (IMethod method : type.getMethods()) {
-                int flags = method.getFlags();
-                // Skip constructors, static methods, and non-public methods
-                if (method.isConstructor()) continue;
-                if (Flags.isStatic(flags)) continue;
-                if (!Flags.isPublic(flags)) continue;
-
-                // If specific methods are requested, filter by name
-                if (!methodNamesToInclude.isEmpty()) {
-                    if (!methodNamesToInclude.contains(method.getElementName())) {
-                        continue;
-                    }
-                }
-
-                methodsToExtract.add(method);
-            }
-
-            if (methodsToExtract.isEmpty()) {
-                return Preparation.fail(ToolResponse.invalidParameter("methods",
-                    "No eligible public methods found to extract"));
-            }
-
-            // Get package name
-            String packageName = type.getPackageFragment().getElementName();
-
-            // Build interface content
-            StringBuilder interfaceContent = new StringBuilder();
-
-            // Package declaration
-            if (!packageName.isEmpty()) {
-                interfaceContent.append("package ").append(packageName).append(";\n\n");
-            }
-
-            // v2.12.1 (C13-c): carry the source file's imports — the extracted
-            // signatures use simple names (`List<String> getItems()`), which only
-            // resolved in the original file because of ITS imports. Without them
-            // the generated interface did not compile (caught live by the
-            // compile-verify gate; the old test asserted content strings only).
-            // A superfluous import is harmless; a missing one is broken code.
-            org.eclipse.jdt.core.IImportDeclaration[] imports = cu.getImports();
-            for (org.eclipse.jdt.core.IImportDeclaration imp : imports) {
-                interfaceContent.append("import ")
-                    .append(org.eclipse.jdt.core.Flags.isStatic(imp.getFlags()) ? "static " : "")
-                    .append(imp.getElementName())
-                    .append(imp.isOnDemand() && !imp.getElementName().endsWith(".*") ? ".*" : "")
-                    .append(";\n");
-            }
-            if (imports.length > 0) {
-                interfaceContent.append("\n");
-            }
-
-            // Interface declaration
-            interfaceContent.append("public interface ").append(interfaceName).append(" {\n\n");
-
-            // Method signatures
-            List<Map<String, Object>> extractedMethods = new ArrayList<>();
-            for (IMethod method : methodsToExtract) {
-                String signature = buildMethodSignature(method);
-                interfaceContent.append("    ").append(signature).append(";\n\n");
-
-                Map<String, Object> methodInfo = new LinkedHashMap<>();
-                methodInfo.put("name", method.getElementName());
-                methodInfo.put("signature", signature);
-                extractedMethods.add(methodInfo);
-            }
-
-            interfaceContent.append("}\n");
-
-            // Parse AST to find position for 'implements' clause
-            ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
-            parser.setSource(cu);
-            parser.setResolveBindings(true);
-            CompilationUnit ast = (CompilationUnit) parser.createAST(null);
-
-            // Find the type declaration in AST
-            TypeDeclaration typeDecl = findTypeDeclaration(ast, type.getElementName());
-
-            // Build the implements-clause edit
-            List<TextEdit> classEdits = new ArrayList<>();
-
-            if (typeDecl != null) {
-                // Check if class already has implements clause
-                @SuppressWarnings("unchecked")
-                List<?> existingInterfaces = typeDecl.superInterfaceTypes();
-                boolean hasImplements = !existingInterfaces.isEmpty();
-
-                String source = cu.getSource();
-                if (source != null) {
-                    // Find position to insert implements clause
-                    // This is after class name and type parameters, before '{'
-
-                    int classBodyStart = findClassBodyStart(source, typeDecl);
-                    if (classBodyStart > 0) {
-                        if (hasImplements) {
-                            // Add to the existing implements list, after the last interface
-                            int insertPos = findLastImplementsPosition(source, typeDecl);
-                            classEdits.add(new InsertEdit(insertPos, ", " + interfaceName));
-                        } else {
-                            // Add new implements clause before '{'
-                            classEdits.add(new InsertEdit(classBodyStart, " implements " + interfaceName));
-                        }
-                    }
-                }
-            }
-
-            // Determine interface file path (next to the class file)
-            String interfaceFileName = interfaceName + ".java";
-            Path interfacePath;
-            if (path.getParent() != null) {
-                interfacePath = path.getParent().resolve(interfaceFileName);
-            } else {
-                interfacePath = Path.of(interfaceFileName);
-            }
-
-            IFile classFile = (IFile) cu.getResource();
-            IFile interfaceFile = classFile.getParent()
-                .getFile(new org.eclipse.core.runtime.Path(interfaceFileName));
-            if (interfaceFile.exists()) {
-                return Preparation.fail(ToolResponse.invalidParameter("interfaceName",
-                    "File already exists: " + interfaceFile.getFullPath()));
-            }
-
-            CompositeChange change = new CompositeChange("extract interface " + interfaceName);
-            change.add(new CreateFileChange(interfaceFile, interfaceContent.toString()));
-            if (!classEdits.isEmpty()) {
-                change.add(ChangeEngine.fromFileEdits(
-                    "implements " + interfaceName, Map.of(classFile, classEdits)));
-            }
-
-            Map<String, Object> extras = new LinkedHashMap<>();
-            extras.put("className", type.getElementName());
-            extras.put("interfaceName", interfaceName);
-            extras.put("packageName", packageName);
-            extras.put("interfaceFilePath", service.getPathUtils().formatPath(interfacePath));
-            extras.put("interfaceContent", interfaceContent.toString());
-            extras.put("extractedMethods", extractedMethods);
-            extras.put("sourceFilePath", service.getPathUtils().formatPath(path));
-
-            String summary = "extract interface " + interfaceName + " from "
-                + type.getElementName() + " (" + extractedMethods.size() + " methods)";
-            return Preparation.of((Change) change, summary, extras);
+        Path path = Path.of(filePath);
+        ICompilationUnit cu = service.getCompilationUnit(path);
+        if (cu == null) {
+            return Preparation.fail(ToolResponse.fileNotFound(filePath));
         }
+        IType type = service.getTypeAtPosition(path, line, column);
+        if (type == null) {
+            return Preparation.fail(ToolResponse.symbolNotFound("No class found at position"));
+        }
+        if (type.isInterface()) {
+            return Preparation.fail(
+                ToolResponse.invalidParameter("type", "Cannot extract interface from an interface"));
+        }
+        if (type.isEnum()) {
+            return Preparation.fail(
+                ToolResponse.invalidParameter("type", "Cannot extract interface from an enum"));
+        }
+
+        // Collect the members to extract: public non-static methods, optionally
+        // filtered by name. By DEFAULT, methods that override a supertype's
+        // (toString from Object, compareTo from Comparable, ...) are excluded —
+        // they are the supertype's contract, not this class's, and the JDT
+        // processor rewrites parameter types inside the generated interface,
+        // which turns an extracted override into an unimplemented abstract
+        // method (caught live by the compile gate). An explicit methodNames
+        // selection overrides the exclusion.
+        // MethodOverrideTester substitutes type variables (Comparable<Foo>#compareTo(T)
+        // matches compareTo(Foo)); IType.findMethods compares raw simple names and misses
+        // generic-supertype overrides.
+        org.eclipse.jdt.internal.corext.util.MethodOverrideTester overrideTester =
+            methodNamesToInclude.isEmpty()
+                ? new org.eclipse.jdt.internal.corext.util.MethodOverrideTester(
+                    type, type.newSupertypeHierarchy(null))
+                : null;
+        List<IMethod> methodsToExtract = new ArrayList<>();
+        for (IMethod method : type.getMethods()) {
+            int flags = method.getFlags();
+            if (method.isConstructor()) continue;
+            if (Flags.isStatic(flags)) continue;
+            if (!Flags.isPublic(flags)) continue;
+            if (!methodNamesToInclude.isEmpty()) {
+                if (!methodNamesToInclude.contains(method.getElementName())) {
+                    continue;
+                }
+            } else if (overrideTester.findOverriddenMethod(method, false) != null) {
+                continue;
+            }
+            methodsToExtract.add(method);
+        }
+        if (methodsToExtract.isEmpty()) {
+            return Preparation.fail(ToolResponse.invalidParameter("methods",
+                "No eligible public methods found to extract"));
+        }
+
+        String packageName = type.getPackageFragment().getElementName();
+        IFile classFile = (IFile) cu.getResource();
+        IFile interfaceFile = classFile.getParent()
+            .getFile(new org.eclipse.core.runtime.Path(interfaceName + ".java"));
+        if (interfaceFile.exists()) {
+            return Preparation.fail(ToolResponse.invalidParameter("interfaceName",
+                "File already exists: " + interfaceFile.getFullPath()));
+        }
+
+        HeadlessJdtConfig.ensureInitialized();
+        CodeGenerationSettings settings = new CodeGenerationSettings();
+        ExtractInterfaceProcessor processor = new ExtractInterfaceProcessor(type, settings);
+        processor.setTypeName(interfaceName);
+        processor.setExtractedMembers(methodsToExtract.toArray(new IMember[0]));
+        processor.setComments(true);
+        // Use-where-possible: retype compatible occurrences to the new interface
+        // (the supertype-constraints solver decides type-safety per site).
+        processor.setReplace(true);
+
+        ProcessorBasedRefactoring refactoring = new ProcessorBasedRefactoring(processor);
+        CheckedChange checked = engine.propose(refactoring, "extract interface " + interfaceName);
+        if (checked.isRefused()) {
+            return Preparation.fail(ToolResponse.error(
+                "EXTRACT_REFUSED",
+                "extract_interface refused: " + checked.messages(),
+                "JDT's Extract Interface engine rejected it — a name collision or an "
+                    + "unextractable member. Adjust the input and retry. No files were "
+                    + "modified."));
+        }
+
+        Change change = checked.change();
+
+        List<Map<String, Object>> extractedMethods = new ArrayList<>();
+        for (IMethod method : methodsToExtract) {
+            Map<String, Object> methodInfo = new LinkedHashMap<>();
+            methodInfo.put("name", method.getElementName());
+            methodInfo.put("signature", buildMethodSignature(method));
+            extractedMethods.add(methodInfo);
+        }
+
+        Map<String, Object> extras = new LinkedHashMap<>();
+        extras.put("className", type.getElementName());
+        extras.put("interfaceName", interfaceName);
+        extras.put("packageName", packageName);
+        extras.put("interfaceFilePath", service.getPathUtils().formatPath(
+            path.getParent() != null
+                ? path.getParent().resolve(interfaceName + ".java")
+                : Path.of(interfaceName + ".java")));
+        extras.put("extractedMethods", extractedMethods);
+        extras.put("sourceFilePath", service.getPathUtils().formatPath(path));
+        if (checked.hasWarnings()) {
+            extras.put("warnings", checked.messages());
+        }
+
+        String summary = "extract interface " + interfaceName + " from "
+            + type.getElementName() + " (" + extractedMethods.size() + " methods)";
+        log.debug("extract_interface via JDT ExtractInterfaceProcessor: {}", summary);
+        return Preparation.of(change, summary, extras);
     }
 
+    /** Human-readable signature for the response's extractedMethods list. */
     private String buildMethodSignature(IMethod method) throws JavaModelException {
         StringBuilder sig = new StringBuilder();
-
-        // Return type
-        String returnType = Signature.toString(method.getReturnType());
-        sig.append(returnType).append(" ");
-
-        // Method name
-        sig.append(method.getElementName());
-
-        // Parameters
-        sig.append("(");
+        sig.append(Signature.toString(method.getReturnType())).append(" ");
+        sig.append(method.getElementName()).append("(");
         String[] paramTypes = method.getParameterTypes();
         String[] paramNames = method.getParameterNames();
-
         for (int i = 0; i < paramTypes.length; i++) {
             if (i > 0) sig.append(", ");
-            sig.append(Signature.toString(paramTypes[i]));
-            sig.append(" ");
-            sig.append(paramNames[i]);
+            sig.append(Signature.toString(paramTypes[i])).append(" ").append(paramNames[i]);
         }
         sig.append(")");
-
-        // Exceptions
         String[] exceptions = method.getExceptionTypes();
         if (exceptions.length > 0) {
             sig.append(" throws ");
@@ -347,50 +291,7 @@ public class ExtractInterfaceTool extends AbstractApplyingRefactoringTool {
                 sig.append(Signature.toString(exceptions[i]));
             }
         }
-
         return sig.toString();
-    }
-
-    private TypeDeclaration findTypeDeclaration(CompilationUnit ast, String typeName) {
-        @SuppressWarnings("unchecked")
-        List<?> types = ast.types();
-        for (Object t : types) {
-            if (t instanceof TypeDeclaration td) {
-                if (typeName.equals(td.getName().getIdentifier())) {
-                    return td;
-                }
-            }
-        }
-        return null;
-    }
-
-    private int findClassBodyStart(String source, TypeDeclaration typeDecl) {
-        int start = typeDecl.getStartPosition();
-        int end = start + typeDecl.getLength();
-
-        // Find the opening brace
-        for (int i = start; i < end && i < source.length(); i++) {
-            if (source.charAt(i) == '{') {
-                // Return position just before the brace
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private int findLastImplementsPosition(String source, TypeDeclaration typeDecl) {
-        @SuppressWarnings("unchecked")
-        List<?> interfaces = typeDecl.superInterfaceTypes();
-        if (interfaces.isEmpty()) {
-            return -1;
-        }
-
-        // Get the last interface
-        Object lastInterface = interfaces.get(interfaces.size() - 1);
-        if (lastInterface instanceof org.eclipse.jdt.core.dom.Type t) {
-            return t.getStartPosition() + t.getLength();
-        }
-        return -1;
     }
 
     private boolean isValidJavaIdentifier(String name) {
