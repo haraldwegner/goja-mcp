@@ -118,7 +118,7 @@ class ChangeMethodSignatureToolTest {
     }
 
     @Test
-    @DisplayName("removes parameter from method signature")
+    @DisplayName("removes parameter (coupled: body uses it → REPORT fallback + coupledChange worklist)")
     void removesParameter() {
         ObjectNode args = baseArgs();
         ArrayNode params = objectMapper.createArrayNode();
@@ -128,7 +128,15 @@ class ChangeMethodSignatureToolTest {
         ToolResponse response = tool.execute(args);
 
         assertTrue(response.isSuccess(), () -> String.valueOf(response.getError()));
-        assertEquals(1, getData(response).get("newParameterCount"));
+        Map<String, Object> data = getData(response);
+        assertEquals(1, data.get("newParameterCount"));
+        // Sprint 25: JDT conservatively refuses removing a parameter the body names
+        // (`count`), so it routes through the REPORT fallback and is flagged
+        // coupledChange. Here the applied result happens to compile — the body's
+        // `count` falls back to the field of the same name — so there is no worklist;
+        // the genuine worklist case is asserted in changesReturnType.
+        assertEquals(Boolean.TRUE, data.get("coupledChange"),
+            "removing a named parameter must be flagged coupledChange");
     }
 
     @Test
@@ -156,6 +164,13 @@ class ChangeMethodSignatureToolTest {
         assertTrue(response.isSuccess(), () -> String.valueOf(response.getError()));
         Map<String, Object> data = getData(response);
         assertEquals("void", data.get("newReturnType"));
+        // Sprint 25: String->void with a value-returning body is COUPLED — JDT refuses;
+        // the REPORT fallback applies it and returns the body/caller sites as the
+        // worklist (the change-the-signature-then-fix-by-the-compile-failures workflow).
+        assertEquals(Boolean.TRUE, data.get("coupledChange"),
+            "return String->void with a value-returning body must be flagged coupledChange");
+        assertNotNull(data.get("introducedErrors"),
+            "the coupled return change must return its compile-failure worklist");
         assertTrue(Files.readString(refactoringTargetFile).contains("void formatMessage")
                 || Files.readString(refactoringTargetFile).contains("void formatMessage("),
             "new return type must be in the signature on disk");
