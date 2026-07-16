@@ -1,0 +1,15 @@
+APPLIED-STAGED variableName=calculated variableType=int
+---DIFF---
+--- a/src/main/java/com/example/RefactoringTarget.java
++++ b/src/main/java/com/example/RefactoringTarget.java
+@@ -29,7 +29,8 @@
+         System.out.println(trimmed.length());
+ 
+         // Expression to extract as variable
+-        int result = input.length() * 2 + 10;
++                int calculated = input.length() * 2 + 10;
++int result = calculated;
+         System.out.println(result);
+ 
+         // Expression to extract as constant
+

@@ -1,0 +1,24 @@
+APPLIED-STAGED constantName=DEFAULT_PREFIX constantType=String
+---DIFF---
+--- a/src/main/java/com/example/RefactoringTarget.java
++++ b/src/main/java/com/example/RefactoringTarget.java
+@@ -18,7 +18,9 @@
+ 
+     // Constant candidate
+     private static final int MAX_SIZE = 100;
++    private static final String DEFAULT_PREFIX = "PREFIX_";
+ 
++
+     /**
+      * Method with extractable expressions.
+      */
+@@ -33,7 +35,7 @@
+         System.out.println(result);
+ 
+         // Expression to extract as constant
+-        String prefix = "PREFIX_";
++        String prefix = DEFAULT_PREFIX;
+         System.out.println(prefix + input);
+     }
+ 
+
