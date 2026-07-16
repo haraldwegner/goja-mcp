@@ -1,0 +1,22 @@
+APPLIED-STAGED kind=add_final editCount=3 filesChanged=1
+---DIFF---
+--- a/src/main/java/com/example/CleanupTargets.java
++++ b/src/main/java/com/example/CleanupTargets.java
+@@ -7,13 +7,13 @@
+ public class CleanupTargets {
+ 
+     /** add_final: `value` and `doubled` are never reassigned → both finalizable. */
+-    int compute(int value) {
+-        int doubled = value * 2;
++    int compute(final int value) {
++        final int doubled = value * 2;
+         return doubled + 1;
+     }
+ 
+     /** add_final negative: `acc` is reassigned in the loop → must stay non-final. */
+-    int sum(int n) {
++    int sum(final int n) {
+         int acc = 0;
+         for (int i = 0; i < n; i++) {
+             acc += i;
+

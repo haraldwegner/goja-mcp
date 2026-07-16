@@ -1,0 +1,19 @@
+APPLIED-STAGED interfaceType=Comparator<String> methodName=compare
+---DIFF---
+--- a/src/main/java/com/example/AnonymousClassExamples.java
++++ b/src/main/java/com/example/AnonymousClassExamples.java
+@@ -31,12 +31,7 @@
+      */
+     public void comparatorExample() {
+         List<String> list = new ArrayList<>();
+-        Collections.sort(list, new Comparator<String>() {
+-            @Override
+-            public int compare(String a, String b) {
+-                return a.length() - b.length();
+-            }
+-        });
++        Collections.sort(list, (a, b) -> a.length() - b.length());
+     }
+ 
+     /**
+

@@ -1,0 +1,19 @@
+APPLIED-STAGED interfaceType=Runnable methodName=run
+---DIFF---
+--- a/src/main/java/com/example/AnonymousClassExamples.java
++++ b/src/main/java/com/example/AnonymousClassExamples.java
+@@ -17,12 +17,7 @@
+      * Simple Runnable anonymous class - can convert.
+      */
+     public void simpleRunnable() {
+-        Runnable runnable = new Runnable() {
+-            @Override
+-            public void run() {
+-                System.out.println("Hello");
+-            }
+-        };
++        Runnable runnable = () -> System.out.println("Hello");
+         runnable.run();
+     }
+ 
+

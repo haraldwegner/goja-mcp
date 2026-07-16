@@ -1,0 +1,16 @@
+APPLIED-STAGED kind=redundant_modifiers editCount=5 filesChanged=1
+---DIFF---
+--- a/src/main/java/com/example/CleanupTargets.java
++++ b/src/main/java/com/example/CleanupTargets.java
+@@ -23,8 +23,8 @@
+ 
+     /** redundant_modifiers: every modifier below is implicit on an interface. */
+     interface Service {
+-        public static final int LIMIT = 10;
++        int LIMIT = 10;
+ 
+-        public abstract void run();
++        void run();
+     }
+ }
+
