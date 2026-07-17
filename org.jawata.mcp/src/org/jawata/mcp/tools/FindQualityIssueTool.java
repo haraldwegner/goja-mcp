@@ -16,6 +16,11 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.IntConsumer;
 import java.util.function.Supplier;
 
 /**
@@ -90,6 +95,13 @@ public class FindQualityIssueTool extends AbstractTool {
 
             The available kinds are the registered detectors (see the kind enum);
             more analyses may be added without introducing new tools.
+
+            ASYNC FAMILY SWEEPS (v3.0.0): a family sweep can take minutes and
+            outlive a client timeout. action=start returns a sweepId at once;
+            action=status shows progress (kindsDone/kindsTotal) while running
+            and returns the FULL result once finished — retrievable repeatedly,
+            so a timed-out client loses nothing. action=cancel stops between
+            kinds and status then returns the honest partial (partial: true).
 
             Examples:
             - find_quality_issue(kind="naming", filePath="path/to/File.java")
@@ -197,6 +209,21 @@ public class FindQualityIssueTool extends AbstractTool {
 
         schema.put("properties", properties);
         // kind OR family — validated in executeWithService (a static `required` can't express "one of").
+        Map<String, Object> action = new LinkedHashMap<>();
+        action.put("type", "string");
+        action.put("enum", List.of("run", "start", "status", "cancel"));
+        action.put("description",
+            "run (default) = synchronous. start = run a FAMILY sweep asynchronously (returns a "
+                + "sweepId immediately — a sweep can outlive a client timeout; the result stays "
+                + "retrievable). status = progress while running, the FULL result once finished "
+                + "(repeatable). cancel = honest partial (partial: true).");
+        properties.put("action", action);
+
+        Map<String, Object> sweepId = new LinkedHashMap<>();
+        sweepId.put("type", "string");
+        sweepId.put("description", "Sweep handle from action=start; required for status/cancel.");
+        properties.put("sweepId", sweepId);
+
         schema.put("required", List.of());
 
         return withProjectKey(schema);
@@ -204,6 +231,15 @@ public class FindQualityIssueTool extends AbstractTool {
 
     @Override
     protected ToolResponse executeWithService(IJdtService service, JsonNode arguments) {
+        // Sprint 25 Stage 14a (C0-F2 cure): async family sweeps. A family
+        // sweep can outlive a client's timeout; before this, the server kept
+        // computing and the RESPONSE was silently lost ("an empty result on
+        // failure is a lie"). start/status/cancel make the result
+        // retrievable and cancellation honest.
+        String action = getStringParam(arguments, "action");
+        if (action != null && !action.isBlank() && !"run".equals(action)) {
+            return handleSweepAction(service, action, arguments);
+        }
         String kind = getStringParam(arguments, "kind");
         String family = getStringParam(arguments, "family");
         boolean hasKind = kind != null && !kind.isBlank();
@@ -231,6 +267,181 @@ public class FindQualityIssueTool extends AbstractTool {
             .map(detector -> filterExcludedPaths(detector.detect(service, arguments), arguments))
             .orElseGet(() -> ToolResponse.invalidParameter("kind",
                 "Unknown kind '" + kind + "'. Allowed: " + catalog.kinds()));
+    }
+
+    // ==================================================================
+    // Sprint 25 Stage 14a — async family sweeps (start / status / cancel)
+    // ==================================================================
+
+    /** One background family sweep. Results stay retrievable until evicted. */
+    private static final class SweepSession {
+        final String id;
+        final String family;
+        final int kindsTotal;
+        final AtomicInteger kindsDone = new AtomicInteger();
+        final AtomicBoolean cancelRequested = new AtomicBoolean();
+        volatile boolean finished;
+        volatile boolean cancelled;
+        volatile ToolResponse result;
+        final long startedAtMillis = System.currentTimeMillis();
+
+        SweepSession(String id, String family, int kindsTotal) {
+            this.id = id;
+            this.family = family;
+            this.kindsTotal = kindsTotal;
+        }
+    }
+
+    /** Sessions by id; bounded by {@link #MAX_SWEEP_SESSIONS} (oldest finished evicted). */
+    private static final Map<String, SweepSession> SWEEP_SESSIONS = new ConcurrentHashMap<>();
+    private static final AtomicLong SWEEP_COUNTER = new AtomicLong();
+    private static final int MAX_SWEEP_SESSIONS = 8;
+
+    private ToolResponse handleSweepAction(IJdtService service, String action, JsonNode arguments) {
+        switch (action) {
+            case "start": {
+                String family = getStringParam(arguments, "family");
+                if (family == null || family.isBlank()) {
+                    return ToolResponse.invalidParameter("family",
+                        "action=start runs a FAMILY sweep asynchronously — provide `family`.");
+                }
+                List<String> kinds = catalog.kinds(family);
+                if (kinds.isEmpty()) {
+                    return ToolResponse.invalidParameter("family",
+                        "Unknown family '" + family + "'. One of: quality, fowler, solid, kerievsky.");
+                }
+                evictOldestFinishedSweeps();
+                String id = "sweep-" + System.currentTimeMillis() + "-" + SWEEP_COUNTER.incrementAndGet();
+                SweepSession session = new SweepSession(id, family, kinds.size());
+                SWEEP_SESSIONS.put(id, session);
+                Thread worker = new Thread(() -> {
+                    ToolResponse r;
+                    try {
+                        r = runFamily(service, family, arguments,
+                            session.kindsDone::set, session.cancelRequested);
+                        String baseline = getStringParam(arguments, "baseline");
+                        if (r.isSuccess() && baseline != null && !baseline.isBlank()
+                                && !session.cancelRequested.get()) {
+                            r = applyBaseline(service, family, baseline, r);
+                        }
+                        if (r.isSuccess()) {
+                            r = paginateFamily(r, arguments);
+                        }
+                    } catch (RuntimeException e) {
+                        r = ToolResponse.internalError(
+                            "async sweep '" + id + "' failed: " + e.getMessage());
+                    }
+                    session.cancelled = session.cancelRequested.get();
+                    session.result = r;
+                    session.finished = true;
+                }, "jawata-sweep-" + id);
+                worker.setDaemon(true);
+                worker.start();
+                Map<String, Object> data = new LinkedHashMap<>();
+                data.put("operation", "find_quality_issue");
+                data.put("action", "start");
+                data.put("sweepId", id);
+                data.put("family", family);
+                data.put("kindsTotal", kinds.size());
+                data.put("hint", "Poll find_quality_issue(action=status, sweepId=…); the finished "
+                    + "result stays retrievable — a client timeout loses nothing.");
+                return ToolResponse.success(data,
+                    ResponseMeta.builder().totalCount(1).returnedCount(1).build());
+            }
+            case "status": {
+                SweepSession session = sweepFor(arguments);
+                if (session == null) {
+                    return unknownSweep(arguments);
+                }
+                if (!session.finished) {
+                    Map<String, Object> data = new LinkedHashMap<>();
+                    data.put("operation", "find_quality_issue");
+                    data.put("action", "status");
+                    data.put("sweepId", session.id);
+                    data.put("state", "running");
+                    data.put("family", session.family);
+                    data.put("kindsDone", session.kindsDone.get());
+                    data.put("kindsTotal", session.kindsTotal);
+                    data.put("elapsedMillis", System.currentTimeMillis() - session.startedAtMillis);
+                    return ToolResponse.success(data,
+                        ResponseMeta.builder().totalCount(1).returnedCount(1).build());
+                }
+                // Finished (or cancelled): wrap the FULL result with the session
+                // envelope; repeatable retrieval is the point of the feature.
+                ToolResponse r = session.result;
+                if (r != null && r.isSuccess() && r.getData() instanceof Map<?, ?> raw) {
+                    Map<String, Object> data = new LinkedHashMap<>();
+                    data.put("sweepId", session.id);
+                    data.put("state", session.cancelled ? "cancelled" : "finished");
+                    if (session.cancelled) {
+                        data.put("kindsDone", session.kindsDone.get());
+                        data.put("kindsTotal", session.kindsTotal);
+                        data.put("partial", true);
+                    }
+                    raw.forEach((k, v) -> data.put(String.valueOf(k), v));
+                    return ToolResponse.success(data,
+                        ResponseMeta.builder().totalCount(1).returnedCount(1).build());
+                }
+                return r != null ? r
+                    : ToolResponse.internalError("sweep '" + session.id + "' finished without a result");
+            }
+            case "cancel": {
+                SweepSession session = sweepFor(arguments);
+                if (session == null) {
+                    return unknownSweep(arguments);
+                }
+                session.cancelRequested.set(true);
+                Map<String, Object> data = new LinkedHashMap<>();
+                data.put("operation", "find_quality_issue");
+                data.put("action", "cancel");
+                data.put("sweepId", session.id);
+                data.put("state", session.finished
+                    ? (session.cancelled ? "cancelled" : "finished")
+                    : "cancel_requested");
+                data.put("hint", "action=status returns the honest partial (partial: true) once the "
+                    + "worker observes the cancellation between kinds.");
+                return ToolResponse.success(data,
+                    ResponseMeta.builder().totalCount(1).returnedCount(1).build());
+            }
+            default:
+                return ToolResponse.invalidParameter("action",
+                    "Unknown action '" + action + "'. One of: run (default), start, status, cancel.");
+        }
+    }
+
+    private SweepSession sweepFor(JsonNode arguments) {
+        String id = getStringParam(arguments, "sweepId");
+        return id == null || id.isBlank() ? null : SWEEP_SESSIONS.get(id);
+    }
+
+    private ToolResponse unknownSweep(JsonNode arguments) {
+        String id = getStringParam(arguments, "sweepId");
+        return ToolResponse.invalidParameter("sweepId",
+            (id == null || id.isBlank())
+                ? "Provide the sweepId from action=start."
+                : "Unknown sweepId '" + id + "' — expired (bounded registry of "
+                    + MAX_SWEEP_SESSIONS + ") or never started.");
+    }
+
+    private static void evictOldestFinishedSweeps() {
+        while (SWEEP_SESSIONS.size() >= MAX_SWEEP_SESSIONS) {
+            SWEEP_SESSIONS.values().stream()
+                .filter(s -> s.finished)
+                .min((a, b) -> Long.compare(a.startedAtMillis, b.startedAtMillis))
+                .map(s -> SWEEP_SESSIONS.remove(s.id))
+                .orElseGet(() -> {
+                    // Nothing finished to evict: refuse silently-unbounded growth
+                    // by evicting the OLDEST running one's record (its worker
+                    // finishes into the void — recorded in the hint).
+                    return SWEEP_SESSIONS.values().stream()
+                        .min((a, b) -> Long.compare(a.startedAtMillis, b.startedAtMillis))
+                        .map(s -> SWEEP_SESSIONS.remove(s.id))
+                        .orElse(null);
+                });
+            if (SWEEP_SESSIONS.isEmpty()) {
+                break;
+            }
+        }
     }
 
     /** v2.8.1 (dogfood 2026-07-11): parse the optional excludePaths array. */
@@ -285,19 +496,38 @@ public class FindQualityIssueTool extends AbstractTool {
     }
 
     /** Run every detector in {@code family} and merge their {@code findings} into one response. */
-    @SuppressWarnings("unchecked")
     private ToolResponse runFamily(IJdtService service, String family, JsonNode arguments) {
+        return runFamily(service, family, arguments, null, null);
+    }
+
+    /**
+     * Sprint 25 Stage 14a: the async worker's variant — {@code progress}
+     * receives the completed-kind count after each detector; a set
+     * {@code cancelRequested} stops BETWEEN kinds (honest partial, never a
+     * torn detector run).
+     */
+    @SuppressWarnings("unchecked")
+    private ToolResponse runFamily(IJdtService service, String family, JsonNode arguments,
+                                   IntConsumer progress, AtomicBoolean cancelRequested) {
         List<String> kinds = catalog.kinds(family);
         if (kinds.isEmpty()) {
             return ToolResponse.invalidParameter("family",
                 "Unknown family '" + family + "'. One of: quality, fowler, solid, kerievsky.");
         }
         List<Object> merged = new ArrayList<>();
+        int done = 0;
         for (String k : kinds) {
+            if (cancelRequested != null && cancelRequested.get()) {
+                break;
+            }
             ToolResponse r = catalog.get(k).map(d -> d.detect(service, arguments)).orElse(null);
             if (r != null && r.isSuccess() && r.getData() instanceof Map<?, ?> data
                 && data.get("findings") instanceof List<?> fs) {
                 merged.addAll((List<Object>) fs);
+            }
+            done++;
+            if (progress != null) {
+                progress.accept(done);
             }
         }
         // v2.8.1: excludePaths filters BEFORE conflicts/counts, so prevalence,
