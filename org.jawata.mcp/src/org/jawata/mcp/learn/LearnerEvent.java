@@ -26,4 +26,8 @@ public record LearnerEvent(String sessionId, String kind, String tool, String de
     public static final String KIND_COMPILE_AFTER_TOUCH_FAIL = "compile_after_touch_fail";
     /** A watch finding was emitted (Stage 2 writes these; fate arrives as a later event). */
     public static final String KIND_WATCH_FINDING = "watch_finding";
+    /** An observed .java edit arrived (observe_edit) — held pending until its consequence. */
+    public static final String KIND_EDIT_OBSERVED = "edit_observed";
+    /** Pending edits were resolved by their consequence (a gate outcome or an undo). */
+    public static final String KIND_EDIT_RESOLVED = "edit_resolved";
 }

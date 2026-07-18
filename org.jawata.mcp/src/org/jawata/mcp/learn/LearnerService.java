@@ -57,6 +57,71 @@ public final class LearnerService {
         learners.get(EDIT_SWITCH).observe(x, actuallyStructural, ruleSaidStructural);
     }
 
+    // ---- The consequence-labeled edit feed (Sprint 26 C7) ----------------
+    //
+    // observe_edit posts an edit's before/after; the TRUE label is not known
+    // yet, so the features are held PENDING per session. The session's next
+    // gate outcome (or an undo) resolves every pending edit with the
+    // consequence label: clean gate → trivial-ok, failing gate or undo →
+    // structural-mishandled. Bounded both ways so an abandoned session can
+    // never grow the map.
+
+    private static final int MAX_PENDING_SESSIONS = 64;
+    private static final int MAX_PENDING_PER_SESSION = 32;
+
+    private record PendingEdit(double[] features, boolean ruleSaysStructural) {
+    }
+
+    private final Map<String, List<PendingEdit>> pendingBySession =
+        new LinkedHashMap<>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, List<PendingEdit>> e) {
+                return size() > MAX_PENDING_SESSIONS;
+            }
+        };
+
+    /**
+     * Register an observed edit as pending in its session and answer the
+     * edit switch's advice for it (rule verdict computed from the same
+     * features when the caller has none).
+     */
+    public synchronized Learner.Advice pendingEdit(String sessionId, String before,
+            String after, Boolean ruleVerdictOrNull) {
+        double[] x = FeatureVector.extract(before, after);
+        boolean rule = ruleVerdictOrNull != null ? ruleVerdictOrNull
+            : FeatureVector.ruleSaysStructural(x);
+        List<PendingEdit> list = pendingBySession.computeIfAbsent(sessionId,
+            k -> new ArrayList<>());
+        if (list.size() < MAX_PENDING_PER_SESSION) {
+            list.add(new PendingEdit(x, rule));
+        }
+        return learners.get(EDIT_SWITCH).serve(x, rule);
+    }
+
+    /**
+     * Resolve every pending edit in the session with its consequence:
+     * {@code cleanOutcome} true = the gate passed (label trivial-ok), false =
+     * the gate failed or an undo followed (label structural-mishandled).
+     * Returns how many edits were labeled.
+     */
+    public synchronized int resolvePending(String sessionId, boolean cleanOutcome) {
+        List<PendingEdit> list = pendingBySession.remove(sessionId);
+        if (list == null || list.isEmpty()) {
+            return 0;
+        }
+        Learner editSwitch = learners.get(EDIT_SWITCH);
+        for (PendingEdit p : list) {
+            editSwitch.observe(p.features(), !cleanOutcome, p.ruleSaysStructural());
+        }
+        return list.size();
+    }
+
+    /** Pending edits currently held for a session (test/status visibility). */
+    public synchronized int pendingCount(String sessionId) {
+        List<PendingEdit> list = pendingBySession.get(sessionId);
+        return list == null ? 0 : list.size();
+    }
+
     /** The /train command core: a forced pass over every learner + the report. */
     public Map<String, Object> train() {
         for (Learner l : learners.values()) {

@@ -35,8 +35,9 @@ public final class ExperienceTool implements Tool {
             "wipe", "promote", "export", "import", "prune", "dedup", "compact", "stats",
             "fallback_report",
             // Sprint 26: the learning layer's client surface (/train, /memorize's
-            // status sibling) — kinds on this door, never a new tool.
-            "train", "learner_status");
+            // status sibling, the observer hook's edit feed) — kinds on this
+            // door, never a new tool.
+            "train", "learner_status", "observe_edit");
 
     private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
         new com.fasterxml.jackson.databind.ObjectMapper();
@@ -295,9 +296,54 @@ public final class ExperienceTool implements Tool {
                     "The learning layer is not wired (degraded store?)",
                     "Check the resident log; the experience store must be H2-backed.")
             ;
+            // Sprint 26 C7: the edit feed's front half. The observer hook posts a
+            // .java edit's before/after; the SESSION correlation (pending →
+            // consequence label) happens at the event tap, which sees this same
+            // call with its session id — this tool stays session-blind and only
+            // validates + answers the edit switch's advice.
+            case "observe_edit" -> observeEdit(args);
             default -> ToolResponse.invalidParameter("kind",
                 "Unknown kind '" + kind + "'. Allowed: " + KINDS);
         };
+    }
+
+    /** Sprint 26 C7: validate an observed edit and answer the edit switch's advice. */
+    private ToolResponse observeEdit(JsonNode args) {
+        if (learnerService == null) {
+            return ToolResponse.error("LEARNERS_UNAVAILABLE",
+                "The learning layer is not wired (degraded store?)",
+                "Check the resident log; the experience store must be H2-backed.");
+        }
+        String before = text(args, "before");
+        String after = text(args, "after");
+        if ((before == null || before.isBlank()) && (after == null || after.isBlank())) {
+            return ToolResponse.invalidParameter("before/after",
+                "observe_edit needs the edit's before and/or after fragment");
+        }
+        String b = before == null ? "" : before;
+        String a = after == null ? "" : after;
+        Boolean rule = args.has("ruleStructural") ? args.path("ruleStructural").asBoolean() : null;
+        boolean ruleVerdict = rule != null ? rule
+            : org.jawata.mcp.learn.FeatureVector.ruleSaysStructural(
+                org.jawata.mcp.learn.FeatureVector.extract(b, a));
+        org.jawata.mcp.learn.Learner.Advice advice = learnerService.adviseEdit(b, a, ruleVerdict);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("observed", true);
+        out.put("structural", advice.positive());
+        out.put("modelDecided", advice.modelDecided());
+        out.put("note", advice.note());
+        // The hook path (C7): the observer correlates edit → gate outcome in ITS
+        // OWN session (a hook's HTTP post cannot share the agent's MCP session),
+        // so it delivers the edit ALREADY LABELED: outcome=clean|failed. Labeled
+        // edits train immediately; unlabeled ones go pending at the event tap.
+        String outcome = text(args, "outcome");
+        if (outcome != null && !outcome.isBlank()) {
+            boolean clean = "clean".equals(outcome);
+            learnerService.observeEdit(b, a, !clean, ruleVerdict);
+            out.put("labeled", true);
+            out.put("actualStructural", !clean);
+        }
+        return ToolResponse.success(out);
     }
 
     private ToolResponse load(JsonNode args) {

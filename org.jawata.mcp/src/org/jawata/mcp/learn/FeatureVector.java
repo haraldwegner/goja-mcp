@@ -58,6 +58,18 @@ public final class FeatureVector {
         };
     }
 
+    /**
+     * The Sprint-22 hand rule the edit switch competes against: an edit is
+     * STRUCTURAL unless it is statement-only or structurally identical (a
+     * comment/literal/javadoc touch). This is the rule verdict served beside
+     * the model and the baseline of the rolling record.
+     */
+    public static boolean ruleSaysStructural(double[] x) {
+        int statementOnly = NAMES.indexOf("statementOnlyChange");
+        int identical = NAMES.indexOf("identicalStructure");
+        return x[statementOnly] == 0 && x[identical] == 0;
+    }
+
     /** Structural shape of a fragment — counts only, no names, no tokens. */
     private record Shape(int methods, int types, int controlFlow, int invocations,
                          int statements, List<String> signatureShapes) {

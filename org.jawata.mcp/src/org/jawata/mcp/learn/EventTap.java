@@ -26,9 +26,17 @@ public class EventTap {
     private final SessionLedger ledger;
     private final LearnerEventStore events;
 
+    /** Sprint 26 C7: the pending-edit correlator — null until the application wires it. */
+    private LearnerService learnerService;
+
     public EventTap(SessionLedger ledger, LearnerEventStore events) {
         this.ledger = ledger;
         this.events = events;
+    }
+
+    /** Sprint 26 C7: install the learner service the edit feed resolves through. */
+    public void setLearnerService(LearnerService service) {
+        this.learnerService = service;
     }
 
     public SessionLedger ledger() {
@@ -48,10 +56,39 @@ public class EventTap {
                 "{\"error\":true}"));
             return;
         }
+        // The edit feed's FIRST half (C7): an observed .java edit arrives via
+        // experience(kind=observe_edit) — session-aware here at the tap, so
+        // the tool itself stays session-blind. Held pending until its
+        // consequence.
+        if ("experience".equals(name) && arguments != null
+                && "observe_edit".equals(arguments.path("kind").asText(""))
+                && learnerService != null) {
+            String outcome = arguments.path("outcome").asText("");
+            if (!outcome.isBlank()) {
+                // The hook path: the observer correlated the consequence in its
+                // own (client) session and delivered the edit already labeled —
+                // the tool trained it; here it is journaled as both halves.
+                events.append(new LearnerEvent(sessionId, LearnerEvent.KIND_EDIT_OBSERVED, name,
+                    "{\"labeled\":true}"));
+                events.append(new LearnerEvent(sessionId, LearnerEvent.KIND_EDIT_RESOLVED, name,
+                    "{\"resolved\":1,\"clean\":" + "clean".equals(outcome) + "}"));
+            } else {
+                Boolean rule = arguments.has("ruleStructural")
+                    ? arguments.path("ruleStructural").asBoolean() : null;
+                learnerService.pendingEdit(sessionId,
+                    arguments.path("before").asText(""),
+                    arguments.path("after").asText(""), rule);
+                events.append(new LearnerEvent(sessionId, LearnerEvent.KIND_EDIT_OBSERVED, name,
+                    "{\"pending\":" + learnerService.pendingCount(sessionId) + "}"));
+            }
+        }
         if ("refactoring".equals(name) && arguments != null
                 && arguments.path("action").asText("").startsWith("undo")) {
             events.append(new LearnerEvent(sessionId, LearnerEvent.KIND_UNDO, name,
                 "{\"action\":\"" + arguments.path("action").asText() + "\"}"));
+            // The edit feed's SECOND half: an undo is the strongest
+            // structural-mishandled consequence for everything pending.
+            resolvePending(sessionId, false, name);
         }
         if (filesModified > 0 && MechanicalChangeJournal.EXEMPT_TOOLS.contains(name)) {
             events.append(new LearnerEvent(sessionId, LearnerEvent.KIND_MECHANICAL_TOUCH, name,
@@ -69,6 +106,21 @@ public class EventTap {
                     LearnerEvent.KIND_COMPILE_AFTER_TOUCH_FAIL, name,
                     "{\"errors\":" + errorCount + "}"));
             }
+            // The edit feed's SECOND half: the gate outcome IS the label for
+            // every edit pending in this session.
+            resolvePending(sessionId, errorCount == 0, name);
+        }
+    }
+
+    /** Resolves pending edits with their consequence label and journals the count. */
+    private void resolvePending(String sessionId, boolean cleanOutcome, String tool) {
+        if (learnerService == null) {
+            return;
+        }
+        int resolved = learnerService.resolvePending(sessionId, cleanOutcome);
+        if (resolved > 0) {
+            events.append(new LearnerEvent(sessionId, LearnerEvent.KIND_EDIT_RESOLVED, tool,
+                "{\"resolved\":" + resolved + ",\"clean\":" + cleanOutcome + "}"));
         }
     }
 

@@ -164,8 +164,9 @@ public class JawataApplication implements IApplication {
                 new org.jawata.mcp.knowledge.LearnerEventStore(h2);
             org.jawata.mcp.learn.SessionLedger sessionLedger =
                 new org.jawata.mcp.learn.SessionLedger();
-            toolRegistry.setEventTap(new org.jawata.mcp.learn.EventTap(
-                sessionLedger, learnerEvents));
+            org.jawata.mcp.learn.EventTap eventTap = new org.jawata.mcp.learn.EventTap(
+                sessionLedger, learnerEvents);
+            toolRegistry.setEventTap(eventTap);
             // D4/D5/D3: the server-side lane — defects file into the store.
             org.jawata.mcp.learn.ServerChecks serverChecks =
                 new org.jawata.mcp.learn.ServerChecks(learnerEvents,
@@ -185,6 +186,10 @@ public class JawataApplication implements IApplication {
             org.jawata.mcp.learn.LearnerService learnerService =
                 new org.jawata.mcp.learn.LearnerService(learnerEvents);
             experienceTool.setLearnerService(learnerService);
+            // C7: the consequence-labeled edit feed — observe_edit registers
+            // pending at the tap (session-aware); the session's next gate
+            // outcome or undo resolves the TRUE label into the edit switch.
+            eventTap.setLearnerService(learnerService);
             // D1: the automatic architect — detectors bound to the quality
             // tool's own single-file path (no second detector surface).
             toolRegistry.setWatchEngine(new org.jawata.mcp.learn.WatchEngine(
