@@ -46,8 +46,20 @@ import java.util.TreeMap;
  */
 public final class PurityCheck {
 
+    /**
+     * Rule id: a return/throw/break/continue/branch appeared on a path — the
+     * count of control-flow outcomes increased between before and after.
+     */
     public static final String NEW_CONTROL_FLOW_OUTCOME = "NEW_CONTROL_FLOW_OUTCOME";
+    /**
+     * Rule id: the multiset of invoked methods and constructors changed — a
+     * call was added, removed, or repointed.
+     */
     public static final String CHANGED_OUTBOUND_CALLS = "CHANGED_OUTBOUND_CALLS";
+    /**
+     * Rule id: the multiset of statement-level side effects (assignments and
+     * expression-statement calls) changed between before and after.
+     */
     public static final String RELOCATED_SIDE_EFFECT = "RELOCATED_SIDE_EFFECT";
 
     /** One purity concern for the caller to resolve. */
@@ -55,10 +67,34 @@ public final class PurityCheck {
 
     private PurityCheck() {}
 
+    /**
+     * Diffs a method's before/after shapes against the three purity rules,
+     * with step index {@code 0} carried into any findings.
+     *
+     * @param before the method declaration before the step; {@code null} or a
+     *     missing body counts as an empty shape
+     * @param after the method declaration after the step; {@code null} or a
+     *     missing body counts as an empty shape
+     * @return one {@link PurityFinding} per violated rule; empty when the
+     *     shapes agree
+     */
     public static List<PurityFinding> check(MethodDeclaration before, MethodDeclaration after) {
         return check(0, before, after);
     }
 
+    /**
+     * Diffs a method's before/after shapes against the three purity rules:
+     * {@link #NEW_CONTROL_FLOW_OUTCOME}, {@link #CHANGED_OUTBOUND_CALLS} and
+     * {@link #RELOCATED_SIDE_EFFECT}.
+     *
+     * @param stepIndex the plan-step index carried into each finding
+     * @param before the method declaration before the step; {@code null} or a
+     *     missing body counts as an empty shape
+     * @param after the method declaration after the step; {@code null} or a
+     *     missing body counts as an empty shape
+     * @return one {@link PurityFinding} per violated rule; empty when the
+     *     shapes agree
+     */
     public static List<PurityFinding> check(int stepIndex, MethodDeclaration before, MethodDeclaration after) {
         Shape b = shape(before);
         Shape a = shape(after);

@@ -25,22 +25,42 @@ public record RecallQuery(String symbol, String packageName, String operation,
             && blank(symptom) && blank(externalSystem);
     }
 
+    /**
+     * Whether the {@code symbol} cue is set.
+     * @return {@code true} when {@code symbol} is non-null and non-blank
+     */
     public boolean hasSymbol() {
         return !blank(symbol);
     }
 
+    /**
+     * Whether the {@code packageName} cue is set.
+     * @return {@code true} when {@code packageName} is non-null and non-blank
+     */
     public boolean hasPackage() {
         return !blank(packageName);
     }
 
+    /**
+     * Whether the {@code operation} cue is set.
+     * @return {@code true} when {@code operation} is non-null and non-blank
+     */
     public boolean hasOperation() {
         return !blank(operation);
     }
 
+    /**
+     * Whether the {@code symptom} cue is set.
+     * @return {@code true} when {@code symptom} is non-null and non-blank
+     */
     public boolean hasSymptom() {
         return !blank(symptom);
     }
 
+    /**
+     * Whether the {@code externalSystem} cue is set.
+     * @return {@code true} when {@code externalSystem} is non-null and non-blank
+     */
     public boolean hasExternalSystem() {
         return !blank(externalSystem);
     }
