@@ -21,6 +21,17 @@ public final class SessionLedger {
     public record CallRecord(String tool, boolean ok, int filesModified, long ts) {
     }
 
+    /** Sprint 26 D4: notified when a session is LRU-evicted (its "end"). */
+    public interface EvictionListener {
+        void onEvicted(String sessionId, List<CallRecord> calls);
+    }
+
+    private EvictionListener evictionListener;
+
+    public void setEvictionListener(EvictionListener listener) {
+        this.evictionListener = listener;
+    }
+
     static final int MAX_SESSIONS = 64;
     static final int MAX_CALLS = 200;
 
@@ -28,7 +39,16 @@ public final class SessionLedger {
         new LinkedHashMap<>(16, 0.75f, true) {
             @Override
             protected boolean removeEldestEntry(Map.Entry<String, Deque<CallRecord>> eldest) {
-                return size() > MAX_SESSIONS;
+                boolean evict = size() > MAX_SESSIONS;
+                if (evict && evictionListener != null) {
+                    try {
+                        evictionListener.onEvicted(eldest.getKey(),
+                            new ArrayList<>(eldest.getValue()));
+                    } catch (Exception e) {
+                        // an eviction listener must never break the ledger
+                    }
+                }
+                return evict;
             }
         };
 

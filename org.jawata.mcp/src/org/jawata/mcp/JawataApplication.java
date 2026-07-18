@@ -162,8 +162,25 @@ public class JawataApplication implements IApplication {
         if (experienceStore instanceof org.jawata.mcp.knowledge.H2ExperienceStore h2) {
             org.jawata.mcp.knowledge.LearnerEventStore learnerEvents =
                 new org.jawata.mcp.knowledge.LearnerEventStore(h2);
+            org.jawata.mcp.learn.SessionLedger sessionLedger =
+                new org.jawata.mcp.learn.SessionLedger();
             toolRegistry.setEventTap(new org.jawata.mcp.learn.EventTap(
-                new org.jawata.mcp.learn.SessionLedger(), learnerEvents));
+                sessionLedger, learnerEvents));
+            // D4/D5/D3: the server-side lane — defects file into the store.
+            org.jawata.mcp.learn.ServerChecks serverChecks =
+                new org.jawata.mcp.learn.ServerChecks(learnerEvents,
+                    (summary, details) -> {
+                        try {
+                            experienceStore.put(org.jawata.mcp.knowledge.SymbolFact
+                                .of("defect", summary + " — " + details,
+                                    org.jawata.mcp.knowledge.Confidence.HIGH).build());
+                        } catch (Exception e) {
+                            log.error("DEFECT FILING FAILED — the relax label is now"
+                                + " unaccompanied: {}", summary, e);
+                        }
+                    });
+            toolRegistry.setServerChecks(serverChecks);
+            sessionLedger.setEvictionListener(serverChecks::onSessionEvicted);
             // D2/D3: the seven learners behind experience(kind=train|learner_status).
             org.jawata.mcp.learn.LearnerService learnerService =
                 new org.jawata.mcp.learn.LearnerService(learnerEvents);

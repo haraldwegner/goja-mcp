@@ -56,6 +56,14 @@ public class ToolRegistry {
     /** Sprint 26 (D1): the watch engine — null until the application wires it. */
     private org.jawata.mcp.learn.WatchEngine watchEngine;
 
+    /** Sprint 26 (D4/D5): the server-side checks — null until wired. */
+    private org.jawata.mcp.learn.ServerChecks serverChecks;
+
+    /** Sprint 26: install the server-side checks (application wiring). */
+    public void setServerChecks(org.jawata.mcp.learn.ServerChecks checks) {
+        this.serverChecks = checks;
+    }
+
     /** Install the post-project-mutation hook (Sprint 21e). Null = no hook (tests). */
     public void setProjectsMutatedHook(Runnable hook) {
         this.projectsMutatedHook = hook;
@@ -309,6 +317,18 @@ public class ToolRegistry {
             // through the watch engine; NEW findings ride the answer. Never
             // on the quality tool itself (recursion) and never fatally.
             watch(sessionId, name, syncDelta, response);
+            // Sprint 26 (D4/D5/D3): the server-side enforcement lane.
+            if (serverChecks != null && eventTap != null) {
+                try {
+                    String block = serverChecks.onCall(sessionId, name, arguments,
+                        response, eventTap.ledger());
+                    if (block != null) {
+                        response.appendSteering(block);
+                    }
+                } catch (Exception e) {
+                    log.error("Server checks failed after {}", name, e);
+                }
+            }
             return response;
         } catch (Exception e) {
             log.error("Tool {} failed with exception", name, e);
