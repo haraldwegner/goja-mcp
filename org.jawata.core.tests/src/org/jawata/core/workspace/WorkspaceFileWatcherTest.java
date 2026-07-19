@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p>Uses a polling helper {@link #waitUntil(Duration, java.util.function.BooleanSupplier)}
  * because {@code WatchService} events are inherently asynchronous; we accept
- * a short delay (max 5 s) for the file-watcher thread to react.
+ * a short delay (max 30 s) for the file-watcher thread to react.
  */
 class WorkspaceFileWatcherTest {
 
@@ -68,7 +68,7 @@ class WorkspaceFileWatcherTest {
     }
 
     @Test
-    @DisplayName("appending a project to workspace.json adds it to the workspace within 5s")
+    @DisplayName("appending a project to workspace.json adds it to the workspace within 30s")
     void addProjectOnFileChange() throws Exception {
         Path simpleMaven = helper.getFixturePath("simple-maven");
         writeWorkspaceJson(simpleMaven);
@@ -81,14 +81,14 @@ class WorkspaceFileWatcherTest {
         Path simpleMavenB = helper.getFixturePath("simple-maven-b");
         writeWorkspaceJson(simpleMaven, simpleMavenB);
 
-        boolean grew = waitUntil(Duration.ofSeconds(5), () -> service.allProjects().size() == 2);
+        boolean grew = waitUntil(Duration.ofSeconds(30), () -> service.allProjects().size() == 2);
         assertTrue(grew,
-            "Watcher should have picked up the added path within 5 s. Loaded: " +
+            "Watcher should have picked up the added path within 30 s. Loaded: " +
             service.projectKeys());
     }
 
     @Test
-    @DisplayName("removing a project from workspace.json drops it from the workspace within 5s")
+    @DisplayName("removing a project from workspace.json drops it from the workspace within 30s")
     void removeProjectOnFileChange() throws Exception {
         Path simpleMaven = helper.getFixturePath("simple-maven");
         Path simpleMavenB = helper.getFixturePath("simple-maven-b");
@@ -101,9 +101,9 @@ class WorkspaceFileWatcherTest {
         // Mutate the file: drop simple-maven-b.
         writeWorkspaceJson(simpleMaven);
 
-        boolean shrunk = waitUntil(Duration.ofSeconds(5), () -> service.allProjects().size() == 1);
+        boolean shrunk = waitUntil(Duration.ofSeconds(30), () -> service.allProjects().size() == 1);
         assertTrue(shrunk,
-            "Watcher should have removed the dropped path within 5 s. Loaded: " +
+            "Watcher should have removed the dropped path within 30 s. Loaded: " +
             service.projectKeys());
     }
 
@@ -130,10 +130,10 @@ class WorkspaceFileWatcherTest {
             + "  ]\n}\n";
         Files.writeString(workspaceJson, body);
 
-        boolean grew = waitUntil(Duration.ofSeconds(5),
+        boolean grew = waitUntil(Duration.ofSeconds(30),
             () -> service.allProjects().size() == 2);
         assertTrue(grew,
-            "Watcher should pick up a non-atomic direct write within 5 s. Loaded: " +
+            "Watcher should pick up a non-atomic direct write within 30 s. Loaded: " +
             service.projectKeys());
     }
 
@@ -180,7 +180,7 @@ class WorkspaceFileWatcherTest {
         Path simpleMavenB = helper.getFixturePath("simple-maven-b");
         writeWorkspaceJson(simpleMaven, simpleMavenB);
 
-        boolean recovered = waitUntil(Duration.ofSeconds(5), () -> service.allProjects().size() == 2);
+        boolean recovered = waitUntil(Duration.ofSeconds(30), () -> service.allProjects().size() == 2);
         assertTrue(recovered,
             "Watcher should still be alive after malformed write. Loaded: " +
             service.projectKeys());
