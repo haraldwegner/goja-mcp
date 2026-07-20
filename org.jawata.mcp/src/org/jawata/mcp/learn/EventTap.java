@@ -29,6 +29,10 @@ public class EventTap {
     /** Sprint 26 C7: the pending-edit correlator — null until the application wires it. */
     private LearnerService learnerService;
 
+    /** Sprint 26a D2: the experience-loop capture — null until the application
+     *  wires it (and independent of the learner service, which D4 retires). */
+    private ToolExperienceRecorder toolExperience;
+
     public EventTap(SessionLedger ledger, LearnerEventStore events) {
         this.ledger = ledger;
         this.events = events;
@@ -37,6 +41,11 @@ public class EventTap {
     /** Sprint 26 C7: install the learner service the edit feed resolves through. */
     public void setLearnerService(LearnerService service) {
         this.learnerService = service;
+    }
+
+    /** Sprint 26a D2: install the experience-loop recorder (selective capture). */
+    public void setToolExperienceRecorder(ToolExperienceRecorder recorder) {
+        this.toolExperience = recorder;
     }
 
     public SessionLedger ledger() {
@@ -48,6 +57,11 @@ public class EventTap {
         int filesModified = filesModified(response);
         ledger.record(sessionId, new SessionLedger.CallRecord(
             name, response.isSuccess(), filesModified, System.currentTimeMillis()));
+        // Sprint 26a D2: the experience loop's selective capture — independent of
+        // the learner-event store below and of the learner models (retired in D4).
+        if (toolExperience != null) {
+            toolExperience.onCall(sessionId, name, arguments, response);
+        }
         if (events == null) {
             return;
         }

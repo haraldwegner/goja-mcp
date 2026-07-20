@@ -172,6 +172,13 @@ public class JawataApplication implements IApplication {
                 new org.jawata.mcp.learn.SessionLedger();
             org.jawata.mcp.learn.EventTap eventTap = new org.jawata.mcp.learn.EventTap(
                 sessionLedger, learnerEvents);
+            // Sprint 26a D2: the experience loop's selective capture lane —
+            // outcome-bearing events (a mutate's compile result, a tool error) →
+            // tool_experience, read back by the baseline retriever (Stage 2).
+            org.jawata.mcp.knowledge.ToolExperienceStore toolExperienceStore =
+                new org.jawata.mcp.knowledge.ToolExperienceStore(h2);
+            eventTap.setToolExperienceRecorder(
+                new org.jawata.mcp.learn.ToolExperienceRecorder(toolExperienceStore));
             toolRegistry.setEventTap(eventTap);
             // D4/D5/D3: the server-side lane — defects file into the store.
             org.jawata.mcp.learn.ServerChecks serverChecks =
