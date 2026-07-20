@@ -93,8 +93,36 @@ public final class ToolExperienceRecorder {
             && args.path("action").asText("").startsWith("undo");
     }
 
+    /** Target-only salient keys (the thing being worked on) — the retrieval
+     *  query, so precedent matches ACROSS tools (kind is not a target). */
+    private static final String[] TARGET_KEYS =
+        {"symbol", "typeName", "filePath", "name", "query"};
+
+    /**
+     * The retrieval query for the CURRENT call: the single most salient target
+     * identifier (the thing being worked on), tool-independent — so a precedent
+     * on the same target surfaces whatever tool produced it. Blank when the call
+     * has no target (e.g. {@code compile_workspace}); the push skips those.
+     */
+    public static String target(String name, JsonNode args) {
+        if (args == null) {
+            return "";
+        }
+        for (String key : TARGET_KEYS) {
+            String v = args.path(key).asText("");
+            if (!v.isBlank()) {
+                if ("filePath".equals(key)) {
+                    int slash = Math.max(v.lastIndexOf('/'), v.lastIndexOf('\\'));
+                    v = slash >= 0 ? v.substring(slash + 1) : v;
+                }
+                return v;
+            }
+        }
+        return "";
+    }
+
     /** A keyword-rich key: the tool plus whatever salient args are present. */
-    static String situation(String name, JsonNode args) {
+    public static String situation(String name, JsonNode args) {
         StringBuilder sb = new StringBuilder(name == null ? "" : name);
         if (args != null) {
             for (String key : SALIENT) {

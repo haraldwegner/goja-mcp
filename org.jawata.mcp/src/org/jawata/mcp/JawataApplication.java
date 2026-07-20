@@ -179,6 +179,10 @@ public class JawataApplication implements IApplication {
                 new org.jawata.mcp.knowledge.ToolExperienceStore(h2);
             eventTap.setToolExperienceRecorder(
                 new org.jawata.mcp.learn.ToolExperienceRecorder(toolExperienceStore));
+            // Sprint 26a D2: the weighted precedent push reads the SAME lane
+            // through the baseline keyword retriever (Sprint 27 → embeddings).
+            toolRegistry.setPrecedentRetriever(
+                new org.jawata.mcp.learn.KeywordPrecedentRetriever(toolExperienceStore));
             toolRegistry.setEventTap(eventTap);
             // D4/D5/D3: the server-side lane — defects file into the store.
             org.jawata.mcp.learn.ServerChecks serverChecks =

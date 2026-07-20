@@ -59,6 +59,9 @@ public class ToolRegistry {
     /** Sprint 26 (D4/D5): the server-side checks — null until wired. */
     private org.jawata.mcp.learn.ServerChecks serverChecks;
 
+    /** Sprint 26a (D2): the weighted precedent push's retrieval seam (nullable). */
+    private org.jawata.mcp.learn.PrecedentRetriever precedentRetriever;
+
     /** v3.2.1 (dogfood #1): supplier of the degraded-store notice — non-null
      *  return = the store is degraded and EVERY answer must say so. */
     private java.util.function.Supplier<String> storeNotice;
@@ -316,6 +319,11 @@ public class ToolRegistry {
             // Sprint 22 (POST layer): central steering injection — every success
             // result names the next grounded step (see steeringFor).
             response.applySteering(steeringFor(name));
+            // Sprint 26a (D2): the WEIGHTED PRECEDENT push — for the thing this
+            // call is working on, what did tools do in similar cases before?
+            // Runs BEFORE the tap so it reflects PAST experience, not this call's
+            // own outcome; appended, never replacing the tool's own line.
+            precedent(name, arguments, response);
             // Sprint 26: the event tap — every outcome becomes a learner label
             // as a side effect of the call itself (D7: training is a side
             // effect of use). Tap failures are the tap's own concern (loud
@@ -368,6 +376,38 @@ public class ToolRegistry {
             tap(sessionId, name, arguments, error);
             return error;
         }
+    }
+
+    /**
+     * Sprint 26a (D2): the weighted precedent push. Builds the current target,
+     * retrieves past tool outcomes for it through the swappable
+     * {@link org.jawata.mcp.learn.PrecedentRetriever}, and appends a weighted
+     * steer (never replacing the tool's own line). No retriever, no target, or
+     * no clear signal → silent. Never fails the call.
+     */
+    private void precedent(String name, JsonNode arguments, ToolResponse response) {
+        if (precedentRetriever == null) {
+            return;
+        }
+        try {
+            String target = org.jawata.mcp.learn.ToolExperienceRecorder.target(name, arguments);
+            if (target == null || target.isBlank()) {
+                return;
+            }
+            java.util.List<org.jawata.mcp.learn.ToolExperience> hits =
+                precedentRetriever.retrieve(target, 20);
+            String steer = org.jawata.mcp.learn.PrecedentSteer.compose(name, hits);
+            if (steer != null) {
+                response.appendSteering(steer);
+            }
+        } catch (Exception e) {
+            log.error("Precedent push failed after {}", name, e);
+        }
+    }
+
+    /** Sprint 26a D2: the swappable retrieval seam (Sprint 27 → embeddings). */
+    public void setPrecedentRetriever(org.jawata.mcp.learn.PrecedentRetriever retriever) {
+        this.precedentRetriever = retriever;
     }
 
     /** Sprint 26 (D1): runs the watch engine over the call's delta. */
