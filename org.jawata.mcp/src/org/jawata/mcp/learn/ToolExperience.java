@@ -7,7 +7,8 @@ package org.jawata.mcp.learn;
  * {@code ToolExperience} (a mutate's compile result, or a tool error). A
  * routine successful read/search never produces one — the tool always answers,
  * so it carries no experience. A jawata-fallback is captured studio-side as a
- * {@code failure_mode} entry (which the retriever also reads), NOT at this tap —
+ * {@code failure_mode} entry (read by the GENERAL experience recall, not by the
+ * precedent retriever's {@code tool_experience} lane), NOT at this tap —
  * {@link #OUTCOME_FALLBACK} exists for that cross-lane value, and no code path
  * writes it into {@code tool_experience}.
  *
