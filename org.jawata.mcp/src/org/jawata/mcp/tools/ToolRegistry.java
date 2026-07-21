@@ -68,6 +68,11 @@ public class ToolRegistry {
     private org.jawata.mcp.learn.PrecedentLedger precedentLedger =
         new org.jawata.mcp.learn.PrecedentLedger();
 
+    /** Sprint 27 (D6): measurement of what the steering surfaces actually do.
+     *  NULL = not installed; the choke behaves identically either way, because a
+     *  counter that changes what it counts measures nothing. */
+    private org.jawata.mcp.knowledge.QualityLedger qualityLedger;
+
     /** Sprint 26a (D3b): the deterministic architect-involvement gate (nullable). */
     private org.jawata.mcp.learn.ArchitectGate architectGate;
 
@@ -439,8 +444,12 @@ public class ToolRegistry {
                 org.jawata.mcp.learn.PrecedentSteer.evaluate(name, identity);
             if (verdict.steer() != null) {
                 response.appendSteering(verdict.steer());
+                measure(q -> q.fired(
+                    org.jawata.mcp.knowledge.QualityLedger.SURFACE_CHOKE_PRECEDENT));
             }
             if (similar != null) {
+                measure(q -> q.fired(
+                    org.jawata.mcp.knowledge.QualityLedger.SURFACE_CHOKE_ADVISORY));
                 response.appendSteering("Similar past case (a DIFFERENT target — "
                     + "advisory only, judge the transfer): `" + similar.tool() + "` "
                     + ("compiled".equals(similar.outcome()) ? "worked" : similar.outcome())
@@ -452,6 +461,7 @@ public class ToolRegistry {
             // would be enforcement by ambush.
             if (verdict.warnedTool() != null && precedentLedger != null) {
                 precedentLedger.warn(sessionId, verdict.warnedTool(), target);
+                measure(org.jawata.mcp.knowledge.QualityLedger::warned);
             }
         } catch (Exception e) {
             log.error("Precedent push failed after {}", name, e);
@@ -482,6 +492,7 @@ public class ToolRegistry {
                 // Paid. The agent MAY defect from precedent — it may not defect
                 // SILENTLY. Clear the charge so the reason is owed only once.
                 precedentLedger.clear(sessionId, name, target);
+                measure(org.jawata.mcp.knowledge.QualityLedger::defected);
                 log.info("Precedent defection on {} for target {} justified: {}",
                     name, target, reason);
                 return null;
@@ -526,6 +537,33 @@ public class ToolRegistry {
     /** v3.3.1: install the precedent ledger (application wiring / tests). */
     public void setPrecedentLedger(org.jawata.mcp.learn.PrecedentLedger ledger) {
         this.precedentLedger = ledger;
+    }
+
+    /** Sprint 27 D6: install the quality ledger (application wiring / tests). */
+    public void setQualityLedger(org.jawata.mcp.knowledge.QualityLedger ledger) {
+        this.qualityLedger = ledger;
+    }
+
+    /** The ledger the choke warns into — the outcome-after join reads it. */
+    public org.jawata.mcp.learn.PrecedentLedger precedentLedger() {
+        return precedentLedger;
+    }
+
+    /**
+     * Run a measurement if one is installed, and never let it reach the caller:
+     * the choke's behaviour must be identical with and without counting.
+     */
+    private void measure(
+            java.util.function.Consumer<org.jawata.mcp.knowledge.QualityLedger> m) {
+        org.jawata.mcp.knowledge.QualityLedger q = qualityLedger;
+        if (q == null) {
+            return;
+        }
+        try {
+            m.accept(q);
+        } catch (RuntimeException e) {
+            log.warn("quality measurement failed; the call itself is unaffected", e);
+        }
     }
 
     /** Sprint 26 (D1): runs the watch engine over the call's delta. Returns

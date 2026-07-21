@@ -304,6 +304,13 @@ final class SchemaMigrations {
             s.execute("ALTER TABLE tool_experience ADD COLUMN IF NOT EXISTS embedder_identity VARCHAR(128)");
             s.execute("CREATE INDEX IF NOT EXISTS idx_tool_experience_embedder"
                 + " ON tool_experience(embedder_identity)");
+            // Sprint 27 D6 — the quality ledger's persistence rides v7 (no v8).
+            // One narrow table: a counter name and its count. Deliberately NOT
+            // an event log — 27's boundary is read-only measurement, and a
+            // per-event table would invite exactly the analysis Sprint 33 is
+            // supposed to decide on evidence rather than inherit as machinery.
+            s.execute("CREATE TABLE IF NOT EXISTS quality_counter ("
+                + "name VARCHAR(160) PRIMARY KEY, count BIGINT NOT NULL DEFAULT 0)");
         }
     }
 

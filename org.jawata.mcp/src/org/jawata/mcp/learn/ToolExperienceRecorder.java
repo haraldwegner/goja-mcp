@@ -36,14 +36,48 @@ public final class ToolExperienceRecorder {
 
     private final ToolExperienceStore store;
 
-    /** Per-session pending mutate: its outcome resolves at the next gate/undo. */
-    private record Pending(String tool, String situation) {
+    /** Per-session pending mutate: its outcome resolves at the next gate/undo.
+     *  Sprint 27 D6 added {@code target} — the outcome-after counter has to know
+     *  WHICH target the outcome landed on to join it against a steer. */
+    private record Pending(String tool, String situation, String target) {
     }
 
     private final Map<String, Pending> pending = new ConcurrentHashMap<>();
 
+    /** Sprint 27 D6: measurement (nullable — capture behaves identically without it). */
+    private org.jawata.mcp.knowledge.QualityLedger quality;
+    /** Sprint 27 D6: answers "was this pair steered?" for the outcome-after join. */
+    private PrecedentLedger steers;
+
     public ToolExperienceRecorder(ToolExperienceStore store) {
         this.store = store;
+    }
+
+    /** Sprint 27 D6: install measurement. Both must be present for it to count. */
+    public void setQualityLedger(org.jawata.mcp.knowledge.QualityLedger quality,
+            PrecedentLedger steers) {
+        this.quality = quality;
+        this.steers = steers;
+    }
+
+    /**
+     * Count an outcome that landed on a target this session had been STEERED on
+     * — the D6 outcome-after signal. Outcomes on un-steered targets are not
+     * counted here, because "what happened after a steer" is the question; a
+     * count of every outcome would answer a different one.
+     */
+    private void countOutcomeAfterSteer(String sid, String tool, String target,
+            String outcome) {
+        if (quality == null || steers == null || target == null || target.isBlank()) {
+            return;
+        }
+        try {
+            if (steers.wasWarned(sid, tool, target)) {
+                quality.outcomeAfter(outcome);
+            }
+        } catch (RuntimeException e) {
+            // Measurement never breaks capture.
+        }
     }
 
     /** Called after every completed tool call (success or structured error). */
@@ -56,6 +90,8 @@ public final class ToolExperienceRecorder {
         if (!response.isSuccess()) {
             store.append(new ToolExperience(sid, situation(name, arguments), name,
                 ToolExperience.OUTCOME_ERROR, "{\"error\":true}"));
+            countOutcomeAfterSteer(sid, name, target(name, arguments),
+                ToolExperience.OUTCOME_ERROR);
             return;
         }
 
@@ -63,9 +99,11 @@ public final class ToolExperienceRecorder {
             Pending p = pending.remove(sid);
             if (p != null) {
                 long errors = errorCount(response);
-                store.append(new ToolExperience(sid, p.situation(), p.tool(),
-                    errors == 0 ? ToolExperience.OUTCOME_COMPILED : ToolExperience.OUTCOME_REVERTED,
+                String outcome = errors == 0
+                    ? ToolExperience.OUTCOME_COMPILED : ToolExperience.OUTCOME_REVERTED;
+                store.append(new ToolExperience(sid, p.situation(), p.tool(), outcome,
                     "{\"gate\":\"" + name + "\",\"errors\":" + errors + "}"));
+                countOutcomeAfterSteer(sid, p.tool(), p.target(), outcome);
             }
             return;
         }
@@ -75,6 +113,8 @@ public final class ToolExperienceRecorder {
             if (p != null) {
                 store.append(new ToolExperience(sid, p.situation(), p.tool(),
                     ToolExperience.OUTCOME_REVERTED, "{\"undo\":true}"));
+                countOutcomeAfterSteer(sid, p.tool(), p.target(),
+                    ToolExperience.OUTCOME_REVERTED);
             }
             return;
         }
@@ -83,7 +123,8 @@ public final class ToolExperienceRecorder {
             // A mutate — remember it; its outcome resolves at the next gate/undo.
             // (A second mutate before any gate replaces the first: we capture the
             // outcome of the LAST mutate before the gate — an honest baseline.)
-            pending.put(sid, new Pending(name, situation(name, arguments)));
+            pending.put(sid, new Pending(name, situation(name, arguments),
+                target(name, arguments)));
         }
         // Everything else — a routine successful read/search — captures NOTHING.
     }

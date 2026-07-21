@@ -53,9 +53,23 @@ public final class ExperienceTool implements Tool {
     private final ExperienceStore store;
     private final ExperienceRetrieval retrieval;
     private final ExperienceMaintenance maintenance;
+    /** Sprint 27 D6: measurement (nullable — every other path is unchanged). */
+    private org.jawata.mcp.knowledge.QualityLedger quality;
 
     public ExperienceTool(Supplier<IJdtService> serviceSupplier, ExperienceStore store) {
         this(serviceSupplier, store, List::of);
+    }
+
+    /**
+     * Sprint 27 D6: install measurement. The ledger is handed to the retrieval
+     * this tool owns as well, so the recall surfaces count without the caller
+     * having to know they exist.
+     */
+    public void setQualityLedger(org.jawata.mcp.knowledge.QualityLedger ledger) {
+        this.quality = ledger;
+        if (retrieval != null) {
+            retrieval.setQualityLedger(ledger);
+        }
     }
 
     /** Sprint 21a (item C): {@code defaultRoots} feed no-path {@code load} / {@code reseed}. */
@@ -250,6 +264,10 @@ public final class ExperienceTool implements Tool {
         props.put("external_system", Map.of("type", "string",
             "description", "record: the external dependency, when the fault is external."));
         props.put("status", Map.of("type", "string", "description", "record: default candidate."));
+        props.put("surface", Map.of("type", "string",
+            "description", "recall: which surface is asking — 'seat' when a driven seat"
+                + " run recalls, omitted for an ordinary question. Affects only the"
+                + " quality counters (stats), never what is retrieved."));
         props.put("exceptions", Map.of("type", "array", "items", Map.of("type", "string"),
             "description", "record: exceptions / caveats."));
 
@@ -279,11 +297,29 @@ public final class ExperienceTool implements Tool {
             case "prune" -> prune(args);
             case "dedup" -> ToolResponse.success(maintenance.dedup(bool(args, "confirm")));
             case "compact" -> ToolResponse.success(store.compact());
-            case "stats" -> ToolResponse.success(store.stats());
+            case "stats" -> ToolResponse.success(stats());
             case "fallback_report" -> fallbackReport();
             default -> ToolResponse.invalidParameter("kind",
                 "Unknown kind '" + kind + "'. Allowed: " + KINDS);
         };
+    }
+
+    /**
+     * Sprint 27 D6: the store's stats plus, when measurement is installed, the
+     * {@code quality} block — what the recall system has actually been doing.
+     *
+     * <p>The block is read-only (the 27→33 boundary) and always carries its own
+     * how-to-read sentence: these are counts of what happened, never evidence of
+     * what caused it.</p>
+     */
+    private java.util.Map<String, Object> stats() {
+        java.util.Map<String, Object> out =
+            new java.util.LinkedHashMap<>(store.stats());
+        org.jawata.mcp.knowledge.QualityLedger q = quality;
+        if (q != null) {
+            out.put("quality", q.statsBlock());
+        }
+        return out;
     }
 
     private ToolResponse load(JsonNode args) {
@@ -550,7 +586,13 @@ public final class ExperienceTool implements Tool {
             text(args, "operation"),
             text(args, "symptom"),
             text(args, "external_system"));
-        Map<String, Object> result = retrieval.recall(q);
+        // Sprint 27 D6: the caller may name the surface it is asking from
+        // ("seat" for a seat run's recall). Absent = the ordinary question hook.
+        // Retrieval is identical either way; only the counter differs.
+        String surface = text(args, "surface");
+        Map<String, Object> result = retrieval.recall(q,
+            surface == null || surface.isBlank()
+                ? org.jawata.mcp.knowledge.QualityLedger.SURFACE_QUESTION_HOOK : surface);
         ToolResponse response = respond(args, result);
         if (ExperienceRetrieval.RESULT_MATCH.equals(result.get("result"))) {
             response.applySteering(CLASSIFY_STEERING);

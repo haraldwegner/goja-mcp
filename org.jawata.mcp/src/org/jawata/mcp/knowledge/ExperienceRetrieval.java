@@ -61,6 +61,9 @@ public final class ExperienceRetrieval {
     /** Sprint 27: the meaning nominator. NULL is the supported degrade state —
      *  with no index this class behaves exactly as it did in v3.3.1. */
     private final EmbeddingIndex index;
+    /** Sprint 27 D6: measurement. NULL = not installed; retrieval is identical
+     *  either way, because a counter must never change what it counts. */
+    private QualityLedger quality;
 
     public ExperienceRetrieval(ExperienceStore store, Supplier<IJdtService> jdt) {
         this(store, jdt, null);
@@ -73,8 +76,31 @@ public final class ExperienceRetrieval {
         this.index = index;
     }
 
+    /** Sprint 27 D6: install the quality ledger (application wiring / tests). */
+    public void setQualityLedger(QualityLedger ledger) {
+        this.quality = ledger;
+    }
+
+    private void count(Runnable measurement) {
+        if (quality != null) {
+            measurement.run();
+        }
+    }
+
     /** Terminal recall — a {@code match} document with the fit set, or an {@code absence}. */
     public Map<String, Object> recall(RecallQuery q) {
+        return recall(q, QualityLedger.SURFACE_QUESTION_HOOK);
+    }
+
+    /**
+     * Recall, naming the SURFACE it is being asked from (Sprint 27 D6).
+     *
+     * <p>Retrieval is identical whatever the surface is — the name only decides
+     * which counter advances. It is a parameter because the mcp cannot infer it:
+     * a seat's recall and a prompt hook's recall arrive as the same call, and
+     * guessing would make one of the two counters permanently wrong.</p>
+     */
+    public Map<String, Object> recall(RecallQuery q, String surface) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("cue", cueMap(q));
         if (q == null || q.isEmpty()) {
@@ -140,6 +166,7 @@ public final class ExperienceRetrieval {
             // Not an absence: nothing is asserted about this cue, but comparable
             // experience exists. Said in its own words so a caller can never
             // read an analogy as a gated fact.
+            count(() -> quality.fired(surface));
             out.put("result", RESULT_ANALOGY);
             out.put("count", 0);
             out.put("entries", List.of());
@@ -199,6 +226,7 @@ public final class ExperienceRetrieval {
         for (StoredEntry e : top) {
             entries.add(present(e));
         }
+        count(() -> quality.fired(surface));
         out.put("result", RESULT_MATCH);
         out.put("count", entries.size());
         if (capped) {
@@ -354,6 +382,7 @@ public final class ExperienceRetrieval {
         for (int i = 0; i < domain.size() && i < limit; i++) {
             entries.add(present(domain.get(i)));
         }
+        count(() -> quality.fired(QualityLedger.SURFACE_PRIMER));
         out.put("result", RESULT_PRIMER);
         out.put("count", entries.size());
         out.put("entries", entries);
@@ -511,18 +540,44 @@ public final class ExperienceRetrieval {
             q.hasSymbol() || q.hasPackage() || q.hasSymptom() || q.hasExternalSystem();
         if (!subjectPresent) {
             // Operation-only (refinement) query: fit iff the entry is that operation.
-            return q.hasOperation() && eqIgnoreCase(e.operation(), q.operation());
+            boolean only = q.hasOperation() && eqIgnoreCase(e.operation(), q.operation());
+            count(() -> quality.gate("operation", only));
+            return only;
         }
-        boolean subjectFit = (q.hasSymbol() && symbolFits(e, q.symbol()))
-            || (q.hasPackage() && packageFits(e, q.packageName()))
-            || (q.hasSymptom() && symptomFits(e, q.symptom()))
-            || (q.hasExternalSystem() && eqIgnoreCase(e.externalSystem(), q.externalSystem()));
-        if (!subjectFit) {
+        // Sprint 27 D6: each criterion is counted for what IT said, not for what
+        // the disjunction concluded — a criterion that never admits anything is
+        // only visible when it is measured separately. Evaluated eagerly here
+        // (no short-circuit) so a later criterion is not silently uncounted;
+        // all four are cheap in-memory string checks.
+        boolean symbolOk = q.hasSymbol() && symbolFits(e, q.symbol());
+        boolean packageOk = q.hasPackage() && packageFits(e, q.packageName());
+        boolean symptomOk = q.hasSymptom() && symptomFits(e, q.symptom());
+        boolean externalOk = q.hasExternalSystem()
+            && eqIgnoreCase(e.externalSystem(), q.externalSystem());
+        count(() -> {
+            if (q.hasSymbol()) {
+                quality.gate("symbol", symbolOk);
+            }
+            if (q.hasPackage()) {
+                quality.gate("package", packageOk);
+            }
+            if (q.hasSymptom()) {
+                quality.gate("symptom", symptomOk);
+            }
+            if (q.hasExternalSystem()) {
+                quality.gate("external_system", externalOk);
+            }
+        });
+        if (!(symbolOk || packageOk || symptomOk || externalOk)) {
             return false;
         }
         // Refinement: an entry that declares a DIFFERENT operation is not about this one.
-        return !(q.hasOperation() && e.operation() != null && !e.operation().isBlank()
+        boolean refined = !(q.hasOperation() && e.operation() != null && !e.operation().isBlank()
             && !eqIgnoreCase(e.operation(), q.operation()));
+        if (q.hasOperation()) {
+            count(() -> quality.gate("operation", refined));
+        }
+        return refined;
     }
 
     /** Symbol cue fits when the entry is scoped to that symbol (equal/enclosing), is a

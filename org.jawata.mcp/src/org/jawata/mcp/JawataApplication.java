@@ -177,8 +177,28 @@ public class JawataApplication implements IApplication {
             // tool_experience, read back by the baseline retriever (Stage 2).
             org.jawata.mcp.knowledge.ToolExperienceStore toolExperienceStore =
                 new org.jawata.mcp.knowledge.ToolExperienceStore(h2);
-            eventTap.setToolExperienceRecorder(
-                new org.jawata.mcp.learn.ToolExperienceRecorder(toolExperienceStore));
+            org.jawata.mcp.learn.ToolExperienceRecorder toolExperienceRecorder =
+                new org.jawata.mcp.learn.ToolExperienceRecorder(toolExperienceStore);
+            eventTap.setToolExperienceRecorder(toolExperienceRecorder);
+            // Sprint 27 D6: the quality ledger — every counter advances as a side
+            // effect of normal use, which is the only way Sprint 33 gets evidence
+            // nobody had to remember to collect. Installed on all four producers
+            // here, in one place, so no surface can be shipped uncounted.
+            org.jawata.mcp.knowledge.QualityLedger qualityLedger =
+                new org.jawata.mcp.knowledge.QualityLedger(h2);
+            toolRegistry.setQualityLedger(qualityLedger);
+            toolExperienceRecorder.setQualityLedger(qualityLedger,
+                toolRegistry.precedentLedger());
+            if (experienceTool != null) {
+                experienceTool.setQualityLedger(qualityLedger);
+            } else {
+                // registerTools() runs above, so this cannot happen today — and if
+                // a reordering ever makes it happen, the symptom would be a quality
+                // block that stays empty and reads like "nothing has happened yet".
+                // Say it instead.
+                log.error("Quality ledger NOT wired to the experience tool — the recall"
+                    + " surfaces will not be counted and stats will show no quality block");
+            }
             // Sprint 27 D3: the seam swap this interface was built for — the
             // semantic retriever gathers keyword ∪ meaning-near captures. The
             // identity/advisory split lives at the choke (IdentityMatch); a
