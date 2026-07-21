@@ -203,11 +203,11 @@ public class JawataApplication implements IApplication {
                     });
             toolRegistry.setServerChecks(serverChecks);
             sessionLedger.setEvictionListener(serverChecks::onSessionEvicted);
-            // Sprint 26a D4: the edit-switch model is RETIRED (the deterministic
-            // architect gate + the experience loop replace it). experience(kind=
-            // train|learner_status|observe_edit) report the retired state honestly,
-            // with the live experience-loop capture count.
-            experienceTool.setToolExperienceStore(toolExperienceStore);
+            // Sprint 26a D4 / v3.3.1: the edit-switch model is RETIRED and its
+            // reporting kinds (train|learner_status|observe_edit) are GONE with the
+            // /train command, so the experience tool no longer needs the capture
+            // lane. The deterministic architect gate + the experience loop replace
+            // the model; the loop's own capture wiring is below, unaffected.
             // D1: the automatic architect — detectors bound to the quality
             // tool's own single-file path (no second detector surface).
             toolRegistry.setWatchEngine(new org.jawata.mcp.learn.WatchEngine(

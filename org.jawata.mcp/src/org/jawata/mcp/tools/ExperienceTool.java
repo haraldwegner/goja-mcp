@@ -30,14 +30,21 @@ import java.util.function.Supplier;
  */
 public final class ExperienceTool implements Tool {
 
+    /**
+     * The kinds this door accepts — the schema enum and the error messages.
+     *
+     * <p>v3.3.1: {@code train} / {@code learner_status} / {@code observe_edit} are
+     * GONE, along with the {@code /train} command. Sprint 26a (D4) deleted every ML
+     * model class, leaving those kinds able to answer nothing but "retired".
+     * Advertising them told every agent that a capability exists which does not,
+     * and keeping tombstone branches alive for a hypothetical caller who does not
+     * exist is dead weight. An unknown kind now answers with the allowed list —
+     * the honest response for a kind that no longer exists.</p>
+     */
     private static final List<String> KINDS =
         List.of("record", "recall", "primer", "list", "load", "reseed", "refresh",
             "wipe", "promote", "export", "import", "prune", "dedup", "compact", "stats",
-            "fallback_report",
-            // Sprint 26: the learning layer's client surface (/train, /memorize's
-            // status sibling, the observer hook's edit feed) — kinds on this
-            // door, never a new tool.
-            "train", "learner_status", "observe_edit");
+            "fallback_report");
 
     private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
         new com.fasterxml.jackson.databind.ObjectMapper();
@@ -46,16 +53,6 @@ public final class ExperienceTool implements Tool {
     private final ExperienceStore store;
     private final ExperienceRetrieval retrieval;
     private final ExperienceMaintenance maintenance;
-
-    /** Sprint 26a D4: the experience loop's capture lane, for the honest
-     *  learner_status count (the edit-switch model that train/status once drove
-     *  is retired). Nullable (degraded store). */
-    private org.jawata.mcp.knowledge.ToolExperienceStore toolExperienceStore;
-
-    /** Sprint 26a: application wiring for the retired-learner status kinds. */
-    public void setToolExperienceStore(org.jawata.mcp.knowledge.ToolExperienceStore store) {
-        this.toolExperienceStore = store;
-    }
 
     public ExperienceTool(Supplier<IJdtService> serviceSupplier, ExperienceStore store) {
         this(serviceSupplier, store, List::of);
@@ -284,46 +281,9 @@ public final class ExperienceTool implements Tool {
             case "compact" -> ToolResponse.success(store.compact());
             case "stats" -> ToolResponse.success(store.stats());
             case "fallback_report" -> fallbackReport();
-            // Sprint 26a D4: the injector's ML learner models are RETIRED. These
-            // kinds stay VALID and answer HONESTLY (they say retired — never an
-            // empty-result lie), pointing to what replaced them: the experience
-            // loop (kind=recall) + the deterministic architect-involvement gate.
-            case "train" -> ToolResponse.success(retiredLearnerReport(
-                "Nothing to train. The edit-switch model was retired in Sprint 26a;"
-                    + " the experience loop captures tool outcomes automatically (no"
-                    + " training step), and retrieval is baseline keyword recall"
-                    + " (Sprint 27 upgrades it to embeddings)."));
-            case "learner_status" -> ToolResponse.success(retiredLearnerReport(
-                "The injector's ML learner models were retired in Sprint 26a. The"
-                    + " experience loop (capture→retrieve→surface) and the"
-                    + " deterministic architect-involvement gate replace them."));
-            // Sprint 26a D4: observe_edit is retired — the experience loop captures
-            // edit→compile outcomes automatically at the tool choke. Kept VALID and
-            // honest so any lingering caller gets a clean answer, not an error.
-            case "observe_edit" -> ToolResponse.success(retiredLearnerReport(
-                "observe_edit is retired. Edit outcomes are captured automatically"
-                    + " by the experience loop at the tool choke — no manual observe"
-                    + " step is needed."));
             default -> ToolResponse.invalidParameter("kind",
                 "Unknown kind '" + kind + "'. Allowed: " + KINDS);
         };
-    }
-
-    /** Sprint 26a D4: the honest retired-learner report — SAYS retired, names
-     *  what replaced the models, and carries the live experience-loop capture
-     *  count (never an empty-result lie). */
-    private Map<String, Object> retiredLearnerReport(String note) {
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("status", "retired");
-        out.put("models", List.of());
-        out.put("note", note);
-        out.put("replacedBy", List.of(
-            "the experience loop (experience kind=recall over captured tool outcomes)",
-            "the deterministic architect-involvement gate"));
-        if (toolExperienceStore != null) {
-            out.put("capturedExperiences", toolExperienceStore.count());
-        }
-        return out;
     }
 
     private ToolResponse load(JsonNode args) {

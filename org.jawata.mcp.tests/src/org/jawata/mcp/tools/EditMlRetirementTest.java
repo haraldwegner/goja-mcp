@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -39,37 +40,38 @@ class EditMlRetirementTest {
         }
     }
 
+    /**
+     * v3.3.1: the retired kinds are GONE, not merely unadvertised. v3.3.0 kept
+     * them answering "retired" for a lingering caller — but there is no installed
+     * base, so that branch served nobody and was dead weight. A kind that no
+     * longer exists must say so, and must say what DOES exist.
+     */
     @Test
-    void learner_status_says_retired_not_an_empty_lie() {
+    void the_retired_learning_kinds_are_gone_and_the_refusal_names_the_alternatives() {
         H2ExperienceStore store = H2ExperienceStore.openMemory();
         try {
             ExperienceTool tool = new ExperienceTool(() -> null, store);
-            tool.setToolExperienceStore(new ToolExperienceStore(store));
-            ToolResponse r = tool.execute(OM.createObjectNode().put("kind", "learner_status"));
-            assertTrue(r.isSuccess(), "learner_status is a valid kind, not an error");
-            Map<?, ?> data = (Map<?, ?>) r.getData();
-            assertEquals("retired", data.get("status"), "it SAYS retired");
-            assertEquals(List.of(), data.get("models"), "no model rows");
-            assertNotNull(data.get("replacedBy"), "it names what replaced the models");
-            assertTrue(((Number) data.get("capturedExperiences")).longValue() >= 0,
-                "the live experience-loop capture count is reported (not a fabricated number)");
+            for (String kind : List.of("train", "learner_status", "observe_edit")) {
+                ToolResponse r = tool.execute(OM.createObjectNode().put("kind", kind));
+                assertFalse(r.isSuccess(), kind + " is retired — it must not answer as a kind");
+                assertNotNull(r.getError(), kind + " refuses with a structured error");
+                String said = r.getError().getMessage() + " " + r.getError().getHint();
+                assertTrue(said.contains("recall"),
+                    kind + " refusal points at the kinds that DO exist: " + said);
+            }
         } finally {
             store.close();
         }
     }
 
+    /** The advertised schema must not name a capability that no longer exists. */
     @Test
-    void train_and_observe_edit_answer_retired_not_error() {
-        H2ExperienceStore store = H2ExperienceStore.openMemory();
-        try {
-            ExperienceTool tool = new ExperienceTool(() -> null, store);
-            for (String kind : List.of("train", "observe_edit")) {
-                ToolResponse r = tool.execute(OM.createObjectNode().put("kind", kind));
-                assertTrue(r.isSuccess(), kind + " stays a valid, honest kind — not an error");
-                assertEquals("retired", ((Map<?, ?>) r.getData()).get("status"), kind);
-            }
-        } finally {
-            store.close();
+    void the_schema_no_longer_advertises_the_retired_kinds() {
+        ExperienceTool tool = new ExperienceTool(() -> null, null);
+        String schema = String.valueOf(tool.getInputSchema());
+        for (String kind : List.of("train", "learner_status", "observe_edit")) {
+            assertFalse(schema.contains(kind),
+                "the schema still advertises the retired kind '" + kind + "'");
         }
     }
 
