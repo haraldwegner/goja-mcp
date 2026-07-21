@@ -41,6 +41,9 @@ class EmbedPackagePurityTest {
         // on any JVM. Excluding it would have left the one backend most likely
         // to reach for a shortcut unchecked.
         "org.jawata.mcp.embed.VectorApiMatMul",
+        "org.jawata.mcp.embed.SafeTensors",
+        "org.jawata.mcp.embed.EmbedderIdentity",
+        "org.jawata.mcp.embed.MiniLmEmbedder",
     };
 
     @Test
