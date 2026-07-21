@@ -1,0 +1,92 @@
+{
+ "_contract": "E2's judging rule, Harald's GATE-2 decision (option A, 2026-07-21). A calibration cue PASSES when BOTH hold: (1) the winning entry is in that cue's accept_set, and (2) the designated entry is inside the nomination window (top-K, K=12). Judged on the UNION (keyword/identity + embeddings), which is what Stage 4 ships - cue 11 exists precisely because embeddings alone fail it while the symbol path answers it exactly.",
+ "_frozen": "2026-07-21, at C0, BEFORE any Stage-4 retrieval code exists. Freezing before the code is what stops the gate becoming self-marking. Changing a set later requires the change and its reason to be recorded in dossier-27 and re-audited.",
+ "_method": "For each cue the top-8 semantic candidates were read on their CONTENT and judged individually; uncertain candidates were opened in full before a verdict. Sets are deliberately CONSERVATIVE: a wrongly-omitted entry makes the gate stricter (a false failure), a wrongly-included one makes it laxer - so doubt resolves to exclusion.",
+ "_baseline_at_C0": {
+  "winner_in_accept_set": "10 of 12 (union; 9 of 12 on embeddings alone - cue 11 is rescued by the symbol path)",
+  "designated_in_top_12": "10 of 12",
+  "keyword_baseline": "1 of 12",
+  "named_failures": ["cue-01", "cue-09"]
+ },
+ "cues": [
+  {"id": "cue-01", "class": "domain-prose",
+   "cue": "the position monitor alarms about a mismatch whenever we bet against a stock",
+   "designated": "d20ce2c6", "accept_set": ["d20ce2c6"],
+   "rejected_considered": {"6ee44e12": "backtest-vs-live gap summary, not the drift alarm",
+                           "02b21dd4": "specific AVGO/APP discrepancies, not the short-sign bug",
+                           "1fc39474": "entryValue semantics, unrelated"},
+   "status_at_C0": "FAIL - winner 6ee44e12 is not acceptable"},
+
+  {"id": "cue-02", "class": "domain-prose",
+   "cue": "removing the record from the lookup table too early meant a late confirmation reached the wrong owner",
+   "designated": "8932f5b6", "accept_set": ["8932f5b6", "9b2dc078", "573d4536"],
+   "accept_reasons": {"9b2dc078": "the orderToSlot identity map rule used by broker-event routing - the same lookup table the cue describes",
+                      "573d4536": "inline po-remove broke wrapped onCanceled - premature removal breaking a callback, same class"},
+   "status_at_C0": "PASS - winner 9b2dc078 acceptable; designated rank 11 (inside K=12)"},
+
+  {"id": "cue-03", "class": "domain-prose",
+   "cue": "a lost websocket acknowledgement leaves an order that can never be called off",
+   "designated": "5d48ce19", "accept_set": ["5d48ce19", "5082dd19", "d15903f1"],
+   "accept_reasons": {"5082dd19": "cancel-defer-until-NEW - the fix for exactly this",
+                      "d15903f1": "the dropped-NEW incident itself"},
+   "rejected_considered": {"c2a8691b": "background on REST vs WebSocket",
+                           "b122c64a": "held_for_orders race, a different defect"},
+   "status_at_C0": "PASS - winner is the designated entry"},
+
+  {"id": "cue-04", "class": "21c-carried",
+   "cue": "never cancel before broker confirms",
+   "designated": "5e07e60f",
+   "accept_set": ["5e07e60f", "b217d3c3", "9fca1b32", "d3fd7a9c", "d0fe2a4c", "79d59a3a", "8932f5b6"],
+   "note": "SEVEN entries legitimately state this rule. This cue is the concrete reason option A exists - a single-designated gate would fail six correct answers.",
+   "status_at_C0": "PASS - winner b217d3c3 acceptable; designated rank 4"},
+
+  {"id": "cue-05", "class": "21c-carried",
+   "cue": "browser window comes up empty",
+   "designated": "7646de22", "accept_set": ["7646de22"],
+   "rejected_considered": {"4609814d": "DPMS monitor wake failure - a black SCREEN, not a blank webview"},
+   "status_at_C0": "PASS - rank 1"},
+
+  {"id": "cue-06", "class": "code-symptom",
+   "cue": "the app starts but nothing paints inside the frame",
+   "designated": "7646de22", "accept_set": ["7646de22"],
+   "status_at_C0": "PASS - rank 1"},
+
+  {"id": "cue-07", "class": "process-prose",
+   "cue": "how close should two vectors be before we call them the same thing",
+   "designated": "fef49c17", "accept_set": ["fef49c17"],
+   "status_at_C0": "PASS - rank 1"},
+
+  {"id": "cue-08", "class": "domain-prose",
+   "cue": "opening a new trade killed the protective stop on the other side and left shares unguarded",
+   "designated": "1999c6a8", "accept_set": ["1999c6a8", "125fe437", "4229e90d"],
+   "accept_reasons": {"125fe437": "the netting / wash-trade guard that governs this case",
+                      "4229e90d": "the orphaned-inventory reconciliation of the same incident"},
+   "status_at_C0": "PASS - winner 125fe437 acceptable; designated rank 6"},
+
+  {"id": "cue-09", "class": "domain-prose",
+   "cue": "which long term java release do we move the trading platform to and why",
+   "designated": "9437dccd", "accept_set": ["9437dccd"],
+   "rejected_considered": {"d6e15af3": "'Java trading platform JAR development' - lexical pull on java+trading+platform, says nothing about an LTS choice",
+                           "e9fd7e94": "ECLIPSE train mechanics, a different subject from the JDK LTS decision"},
+   "status_at_C0": "FAIL - winner d6e15af3 is wrong; designated rank 23, outside K=12"},
+
+  {"id": "cue-10", "class": "domain-prose",
+   "cue": "is the tick recorder costing us anything while trading live",
+   "designated": "47465012", "accept_set": ["47465012"],
+   "rejected_considered": {"d8d98b4e": "whether the feed LOSES ticks - a different question from what recording COSTS"},
+   "status_at_C0": "PASS - rank 1"},
+
+  {"id": "cue-11", "class": "short-target",
+   "cue": "com.jats2.gateways.alpol.alpaca.orders.OrderProcessor#getAllPositions",
+   "designated": "d20ce2c6", "accept_set": ["d20ce2c6"],
+   "note": "THE UNION CASE. Embeddings rank the designated entry 299th and hand the win to c1e9667e (wrong). The symbol/identity path returns d20ce2c6 exactly. An FQN is an ADDRESS, not meaning - judged on the union this PASSES, on embeddings alone it fails.",
+   "status_at_C0": "PASS on the union / FAIL on embeddings alone"},
+
+  {"id": "cue-12", "class": "short-target",
+   "cue": "AlgoManager",
+   "designated": "8932f5b6", "accept_set": ["8932f5b6", "932a563f"],
+   "accept_reasons": {"932a563f": "the AlgoManager removal/slot-refactoring task - genuinely about the named type"},
+   "note": "Keyword returns five unrelated AISL-timeout notes here (a WRONG result, not a miss); embeddings rank the designated entry 3rd.",
+   "status_at_C0": "PASS - winner 932a563f acceptable; designated rank 3"}
+ ]
+}
