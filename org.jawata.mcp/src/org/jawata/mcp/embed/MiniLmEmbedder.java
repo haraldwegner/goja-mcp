@@ -122,6 +122,13 @@ public final class MiniLmEmbedder {
         return bundled(MatMuls.active());
     }
 
+    /**
+     * The bundled embedder on a caller-chosen matrix backend — fp16 first,
+     * fp32 if that resource is absent.
+     *
+     * @param matMul the multiply implementation to use (see {@link MatMuls})
+     * @return the embedder, or {@code null} when no weights are bundled
+     */
     public static MiniLmEmbedder bundled(MatMul matMul) {
         for (String resource : new String[] {F16_RESOURCE, F32_RESOURCE}) {
             MiniLmEmbedder e = fromResource(resource, matMul);
@@ -166,6 +173,7 @@ public final class MiniLmEmbedder {
         return matMul.name();
     }
 
+    /** What this embedder's vectors may be compared against. */
     public EmbedderIdentity identity() {
         return EmbedderIdentity.current();
     }

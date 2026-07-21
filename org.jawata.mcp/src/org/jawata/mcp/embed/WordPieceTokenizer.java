@@ -59,6 +59,12 @@ public final class WordPieceTokenizer {
     private final int clsId;
     private final int sepId;
 
+    /**
+     * @param vocab token → id, which must contain {@code [UNK]}, {@code [CLS]}
+     *              and {@code [SEP]}
+     * @throws IllegalArgumentException when one of those three is missing —
+     *         a tokenizer without them cannot encode anything the model reads
+     */
     public WordPieceTokenizer(Map<String, Integer> vocab) {
         this.vocab = Map.copyOf(vocab);
         this.unkId = requireToken(UNK);
@@ -114,6 +120,7 @@ public final class WordPieceTokenizer {
         return new WordPieceTokenizer(v);
     }
 
+    /** How many tokens this tokenizer knows. */
     public int vocabSize() {
         return vocab.size();
     }

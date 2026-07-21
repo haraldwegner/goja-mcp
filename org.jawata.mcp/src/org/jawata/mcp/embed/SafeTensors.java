@@ -147,10 +147,12 @@ public final class SafeTensors {
         return s.clone();
     }
 
+    /** Whether a tensor of this name is present in the file. */
     public boolean has(String name) {
         return tensors.containsKey(name);
     }
 
+    /** How many tensors the file declares. */
     public int tensorCount() {
         return tensors.size();
     }

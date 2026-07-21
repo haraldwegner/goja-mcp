@@ -1,7 +1,7 @@
 package org.jawata.mcp.embed;
 
 /**
- * What produced a vector: {model, dimension, version}.
+ * What produced a vector: model, dimension and pipeline version.
  *
  * <p>Every stored vector carries one. The rule it exists to enforce is
  * absolute: <b>vectors of different identities are never compared.</b> Cosine
@@ -27,6 +27,7 @@ public record EmbedderIdentity(String model, int dim, int version) {
     /** Bumped when OUR pipeline starts producing different vectors for the same text. */
     public static final int CURRENT_VERSION = 1;
 
+    /** The bundled checkpoint's name, as the model registry spells it. */
     public static final String MINILM_L6_V2 = "sentence-transformers/all-MiniLM-L6-v2";
 
     /** The identity this build produces. */
@@ -34,6 +35,11 @@ public record EmbedderIdentity(String model, int dim, int version) {
         return new EmbedderIdentity(MINILM_L6_V2, 384, CURRENT_VERSION);
     }
 
+    /**
+     * @throws IllegalArgumentException when the model is unnamed or the
+     *         dimension is not positive — an identity that cannot be compared
+     *         is worse than none, because it would still look like one.
+     */
     public EmbedderIdentity {
         if (model == null || model.isBlank()) {
             throw new IllegalArgumentException("model must be named");

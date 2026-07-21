@@ -36,7 +36,18 @@ jobs:
       timeout-minutes: 75
       shell: bash
       run: |
-        java -Djawata.test.fixtures="$PWD/org.jawata.core.tests/test-resources/sample-projects" \
+        # Sprint 27 D1: the embedder's Vector API backend, GUARDED. A JVM given
+        # --add-modules for a module it lacks REFUSES TO START, and CI spans
+        # several OS images — probe, never assume. Absent = the scalar backend,
+        # which is correct and only slower, so this never fails the build.
+        VECTOR=""
+        if java --add-modules jdk.incubator.vector -version >/dev/null 2>&1; then
+          VECTOR="--add-modules jdk.incubator.vector"
+        else
+          echo "note: jdk.incubator.vector unavailable — scalar backend"
+        fi
+        java $VECTOR \
+             -Djawata.test.fixtures="$PWD/org.jawata.core.tests/test-resources/sample-projects" \
              -Djawata.experience.shared.dir="$RUNNER_TEMP/jawata-test-store" \
              -jar build/dist/target/dist/jawata.jar -runTests 2>&1 | tee test-run.log
         test ${PIPESTATUS[0]} -eq 0

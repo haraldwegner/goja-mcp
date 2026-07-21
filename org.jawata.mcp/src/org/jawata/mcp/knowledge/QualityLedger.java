@@ -52,11 +52,17 @@ public final class QualityLedger {
 
     private static final Logger log = LoggerFactory.getLogger(QualityLedger.class);
 
-    /** The surfaces a recall can reach the agent through. */
+    // The surfaces a recall can reach the agent through.
+    /** An ordinary recall: a question asked, an answer returned. */
     public static final String SURFACE_QUESTION_HOOK = "question_hook";
+    /** The choke warning that a tool went wrong on THIS target before. */
     public static final String SURFACE_CHOKE_PRECEDENT = "choke_precedent";
+    /** The choke's advisory tier: a similar case on a DIFFERENT target. */
     public static final String SURFACE_CHOKE_ADVISORY = "choke_advisory";
+    /** The session-start domain primer. */
     public static final String SURFACE_PRIMER = "primer";
+    /** A driven seat run's recall — the caller must NAME this one
+     *  ({@code surface: "seat"}); it is indistinguishable on the wire. */
     public static final String SURFACE_SEAT = "seat";
 
     /** The honesty label the stats surface renders with every quality block. */
@@ -71,6 +77,9 @@ public final class QualityLedger {
     private final java.util.Set<String> reportedFailures =
         java.util.concurrent.ConcurrentHashMap.newKeySet();
 
+    /**
+     * @param store the H2 store whose v7 schema carries {@code quality_counter}
+     */
     public QualityLedger(H2ExperienceStore store) {
         this.store = store;
     }

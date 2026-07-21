@@ -210,6 +210,36 @@ public class HealthCheckTool implements Tool {
             "diagnostics", true
         ));
 
+        // Sprint 27 D1: the embedder, reported as what it IS rather than as
+        // what was configured. The launch flag only makes the Vector API
+        // backend POSSIBLE — whether it loaded is a fact of this JVM, and the
+        // difference is invisible in results (both backends produce identical
+        // vectors) while being a ~3x difference in speed. So it is stated
+        // here, and stated as measured: `backend` is the implementation that
+        // actually answered a probe multiplication at startup, not an
+        // inference from the command line.
+        Map<String, Object> embedder = new LinkedHashMap<>();
+        embedder.put("backend", org.jawata.mcp.embed.MatMuls.activeName());
+        embedder.put("vectorApi",
+            !"scalar".equalsIgnoreCase(org.jawata.mcp.embed.MatMuls.activeName()));
+        try {
+            org.jawata.mcp.knowledge.EmbeddingService svc =
+                org.jawata.mcp.knowledge.EmbeddingService.shared();
+            embedder.put("available", svc.available());
+            if (svc.available()) {
+                embedder.put("identity", svc.identityKey());
+            } else {
+                // An unavailable embedder is a REASON, not a bare false: the
+                // semantic half of recall is off and somebody has to know why.
+                embedder.put("note", "semantic recall is OFF — recall falls back to"
+                    + " keyword/alias matching exactly as it did before Sprint 27");
+            }
+        } catch (RuntimeException e) {
+            embedder.put("available", false);
+            embedder.put("note", "embedder status could not be read: " + e.getMessage());
+        }
+        status.put("embedder", embedder);
+
         // Configuration
         status.put("configuration", Map.of(
             "timeoutSeconds", getTimeoutSeconds(),

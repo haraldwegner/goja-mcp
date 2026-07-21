@@ -81,6 +81,22 @@ END {
 CORES=$(nproc)
 SLICE=$(( CORES / SHARDS )); [ "$SLICE" -lt 2 ] && SLICE=2
 JVM_OPTS="${JVM_OPTS:--XX:ActiveProcessorCount=$SLICE -Xmx3g}"
+# Sprint 27 D1: the embedder's Vector API backend, GUARDED — a JVM given
+# --add-modules for a module it lacks refuses to start (exit 1), so probing
+# beats assuming. Without it the tests still pass on the scalar backend; the
+# suite is simply slower where it embeds.
+#
+# JAWATA_VECTOR=0 forces the scalar path. That exists so the flagless run is
+# actually runnable: it is the configuration every user without the flag gets,
+# and a suite that has only ever run one way has not tested the other.
+if [ "${JAWATA_VECTOR:-1}" = "0" ]; then
+    echo "note: JAWATA_VECTOR=0 — running the SCALAR backend deliberately" >&2
+elif java --add-modules jdk.incubator.vector -version >/dev/null 2>&1; then
+    JVM_OPTS="--add-modules jdk.incubator.vector $JVM_OPTS"
+else
+    echo "note: jdk.incubator.vector is not available in this JVM — the suite" \
+         "runs on the scalar backend (correct, slower)" >&2
+fi
 START=$(date +%s)
 PIDS=()
 for s in $(seq 0 $((SHARDS - 1))); do

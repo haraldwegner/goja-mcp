@@ -59,6 +59,13 @@ public final class EmbeddingIndex {
     private final H2ExperienceStore store;
     private final EmbeddingService embeddings;
 
+    /**
+     * @param store      the H2 store holding the vectors (the CONCRETE one — in
+     *                   production reach it through
+     *                   {@link RecoveringExperienceStore#currentDelegate()})
+     * @param embeddings the embedder; an unavailable one makes every query
+     *                   return empty rather than fail
+     */
     public EmbeddingIndex(H2ExperienceStore store, EmbeddingService embeddings) {
         this.store = store;
         this.embeddings = embeddings;
@@ -68,6 +75,8 @@ public final class EmbeddingIndex {
     public record Hit(String id, double score) {
     }
 
+    /** Whether meaning nomination can answer at all. False = the keyword
+     *  degrade path, which is a supported state and not an error. */
     public boolean available() {
         return embeddings.available();
     }
@@ -82,6 +91,8 @@ public final class EmbeddingIndex {
         return nearest("tool_experience", "id", cue, k, floor);
     }
 
+    /** Meaning-nearest entries at the plan's volume caps ({@link #DEFAULT_K},
+     *  {@link #NOMINATION_FLOOR}) — the ordinary nomination call. */
     public List<Hit> nearestEntries(String cue) {
         return nearestEntries(cue, DEFAULT_K, NOMINATION_FLOOR);
     }
