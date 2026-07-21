@@ -1,15 +1,16 @@
 {
- "cache_dir": "/home/harald/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/snapshots/1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+ "model": "sentence-transformers/all-MiniLM-L6-v2",
+ "license": "apache-2.0",
  "files": [
-  {
-   "file": "pytorch_model.bin",
-   "bytes": 90888945,
-   "sha256": "c3a85f238711653950f6a79ece63eb0ea93d76f6a6284be04019c53733baf256"
-  },
   {
    "file": "model.safetensors",
    "bytes": 90868376,
    "sha256": "53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db"
+  },
+  {
+   "file": "pytorch_model.bin",
+   "bytes": 90888945,
+   "sha256": "c3a85f238711653950f6a79ece63eb0ea93d76f6a6284be04019c53733baf256"
   },
   {
    "file": "tokenizer.json",
@@ -42,5 +43,8 @@
    "sha256": "fc1993fde0a95c24ec6c022539d41cf6e2f7c9721e5415d6fb6897472a9cd4b7"
   }
  ],
- "bundle_fp32_bytes": 91335750
+ "bundle_fp32_bytes": 91567258,
+ "bundle_fp16_bytes": 46158714,
+ "fp16_weights_bytes_measured": 45459832,
+ "fp16_method": "state_dict().half() serialized and measured"
 }

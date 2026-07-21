@@ -3,174 +3,1325 @@
  "dim": 384,
  "corpus_entries": 2054,
  "embedded_text": "summary + details",
- "latency_ms": {
-  "single_p50": 43.1,
-  "single_p95": 124.1,
-  "batched_per_entry": 25.03,
-  "corpus_total_s": 51.4
+ "sample_n": 900,
+ "rng_seed": 27,
+ "latency_ms_reference_python": {
+  "single_p50": 31.1,
+  "single_p95": 48.5,
+  "batched_per_entry": 15.82,
+  "corpus_total_s": 32.5
  },
  "calibration": [
   {
    "cue": "the position monitor alarms about a mismatch whenever we bet against a stock",
    "class": "domain-prose",
+   "keyword_cue_field": "symptom",
+   "keyword_baseline": "miss",
    "designated": "d20ce2c6",
+   "designated_summary": "Drift watchdog (cfa5634, CMCSA sprint) inverts SHORT positions: Alpaca's positions API returns qty ALREADY SIGNED (\"-444\" + side:\"short\"); getAllPosit",
    "score": 0.4271,
    "rank": 3,
    "top1_id": "6ee44e12",
    "top1_score": 0.4646,
+   "top1_summary": "Single-day diagnostic summary (2026-04-10)",
    "top1_is_designated": false
   },
   {
-   "cue": "we discarded the order record before the exchange acknowledged it and a later message went to the wrong place",
+   "cue": "removing the record from the lookup table too early meant a late confirmation reached the wrong owner",
    "class": "domain-prose",
+   "keyword_cue_field": "symptom",
+   "keyword_baseline": "miss",
    "designated": "8932f5b6",
-   "score": 0.2703,
-   "rank": 203,
-   "top1_id": "5d48ce19",
-   "top1_score": 0.5001,
+   "designated_summary": "AlgoManager must never remove algos from maps until broker confirms fill or cancel — premature removal causes stale callbacks to route to wrong algo o",
+   "score": 0.3193,
+   "rank": 11,
+   "top1_id": "9b2dc078",
+   "top1_score": 0.3745,
+   "top1_summary": "The rule (documented at [SlotManager.java:152-154](../strategies/src/pipeline/SlotManager.java#L152-L154))",
    "top1_is_designated": false
+  },
+  {
+   "cue": "a lost websocket acknowledgement leaves an order that can never be called off",
+   "class": "domain-prose",
+   "keyword_cue_field": "symptom",
+   "keyword_baseline": "miss",
+   "designated": "5d48ce19",
+   "designated_summary": "\"Alpaca REST reconcile recovers an order's status internally but does NOT propagate OPEN-order truth (NEW/placed) to the OrderManager → a dropped WS N",
+   "score": 0.5696,
+   "rank": 1,
+   "top1_id": "5d48ce19",
+   "top1_score": 0.5696,
+   "top1_summary": "\"Alpaca REST reconcile recovers an order's status internally but does NOT propagate OPEN-order truth (NEW/placed) to the OrderManager → a dropped WS N",
+   "top1_is_designated": true
   },
   {
    "cue": "never cancel before broker confirms",
    "class": "21c-carried",
+   "keyword_cue_field": "symptom",
+   "keyword_baseline": "miss",
    "designated": "5e07e60f",
+   "designated_summary": "Never act on a cancel (freeSlot, reuse, cleanup) until the broker confirms via onOrderCancelled callback. Critical for live trading with async executi",
    "score": 0.5596,
    "rank": 4,
    "top1_id": "b217d3c3",
    "top1_score": 0.5995,
+   "top1_summary": "Issue 1 — inline cancel-send violates the broker-confirm methodology",
    "top1_is_designated": false
   },
   {
    "cue": "browser window comes up empty",
    "class": "21c-carried",
+   "keyword_cue_field": "symptom",
+   "keyword_baseline": "miss",
    "designated": "7646de22",
+   "designated_summary": "WebKitGTK 2.42+ DMABUF compositor path fails silently on certain GPU/driver combos (especially aarch64 + NVIDIA Grace, also some x86_64 stacks). Windo",
    "score": 0.2856,
    "rank": 1,
    "top1_id": "7646de22",
    "top1_score": 0.2856,
+   "top1_summary": "WebKitGTK 2.42+ DMABUF compositor path fails silently on certain GPU/driver combos (especially aarch64 + NVIDIA Grace, also some x86_64 stacks). Windo",
    "top1_is_designated": true
   },
   {
    "cue": "the app starts but nothing paints inside the frame",
    "class": "code-symptom",
+   "keyword_cue_field": "symptom",
+   "keyword_baseline": "miss",
    "designated": "7646de22",
+   "designated_summary": "WebKitGTK 2.42+ DMABUF compositor path fails silently on certain GPU/driver combos (especially aarch64 + NVIDIA Grace, also some x86_64 stacks). Windo",
    "score": 0.3889,
    "rank": 1,
    "top1_id": "7646de22",
    "top1_score": 0.3889,
+   "top1_summary": "WebKitGTK 2.42+ DMABUF compositor path fails silently on certain GPU/driver combos (especially aarch64 + NVIDIA Grace, also some x86_64 stacks). Windo",
    "top1_is_designated": true
   },
   {
    "cue": "how close should two vectors be before we call them the same thing",
    "class": "process-prose",
+   "keyword_cue_field": "symptom",
+   "keyword_baseline": "miss",
    "designated": "fef49c17",
+   "designated_summary": "Cosine bands must never swap jobs: ≥0.999 = implementation PARITY (arithmetic, predefined); ~0.9 = DEDUP (same meaning); the broad band = SIMILAR (the",
    "score": 0.2083,
    "rank": 1,
    "top1_id": "fef49c17",
    "top1_score": 0.2083,
+   "top1_summary": "Cosine bands must never swap jobs: ≥0.999 = implementation PARITY (arithmetic, predefined); ~0.9 = DEDUP (same meaning); the broad band = SIMILAR (the",
    "top1_is_designated": true
   },
   {
-   "cue": "OrderProcessor#getAllPositions",
+   "cue": "opening a new trade killed the protective stop on the other side and left shares unguarded",
+   "class": "domain-prose",
+   "keyword_cue_field": "symptom",
+   "keyword_baseline": "miss",
+   "designated": "1999c6a8",
+   "designated_summary": "Live bug 2026-04-09: new entry cancels opposing SL exit via Branch 3, orphaning CHTR position. Fix: block entry, preserve exit. Full analysis in docs/",
+   "score": 0.4466,
+   "rank": 6,
+   "top1_id": "125fe437",
+   "top1_score": 0.4987,
+   "top1_summary": "Netting / Wash-Trade Guard — R2 + R3 Rework (ARM 2026-04-21)",
+   "top1_is_designated": false
+  },
+  {
+   "cue": "which long term java release do we move the trading platform to and why",
+   "class": "domain-prose",
+   "keyword_cue_field": "symptom",
+   "keyword_baseline": "miss",
+   "designated": "9437dccd",
+   "designated_summary": "\"Migration of the JATS platform from JDK 21 to Java 25 LTS is on the development path (decided 2026-06-24). Driver: final Foreign Function & Memory AP",
+   "score": 0.4585,
+   "rank": 23,
+   "top1_id": "d6e15af3",
+   "top1_score": 0.6902,
+   "top1_summary": "Java trading platform JAR development",
+   "top1_is_designated": false
+  },
+  {
+   "cue": "is the tick recorder costing us anything while trading live",
+   "class": "domain-prose",
+   "keyword_cue_field": "symptom",
+   "keyword_baseline": "miss",
+   "designated": "47465012",
+   "designated_summary": "Live MD recording was already OFF (persisted pref false); default flipped true→false for fresh-machine hygiene; the recorder enqueue was never a live ",
+   "score": 0.5129,
+   "rank": 1,
+   "top1_id": "47465012",
+   "top1_score": 0.5129,
+   "top1_summary": "Live MD recording was already OFF (persisted pref false); default flipped true→false for fresh-machine hygiene; the recorder enqueue was never a live ",
+   "top1_is_designated": true
+  },
+  {
+   "cue": "com.jats2.gateways.alpol.alpaca.orders.OrderProcessor#getAllPositions",
    "class": "short-target",
+   "keyword_cue_field": "symbol",
+   "keyword_baseline": "hit",
    "designated": "d20ce2c6",
-   "score": 0.1852,
-   "rank": 306,
-   "top1_id": "4a00eeaa",
-   "top1_score": 0.44,
+   "designated_summary": "Drift watchdog (cfa5634, CMCSA sprint) inverts SHORT positions: Alpaca's positions API returns qty ALREADY SIGNED (\"-444\" + side:\"short\"); getAllPosit",
+   "score": 0.2622,
+   "rank": 299,
+   "top1_id": "c1e9667e",
+   "top1_score": 0.5466,
+   "top1_summary": "16. Basket / Instrument Universe",
    "top1_is_designated": false
   },
   {
    "cue": "AlgoManager",
    "class": "short-target",
+   "keyword_cue_field": "symptom",
+   "keyword_baseline": "wrong",
    "designated": "8932f5b6",
+   "designated_summary": "AlgoManager must never remove algos from maps until broker confirms fill or cancel — premature removal causes stale callbacks to route to wrong algo o",
    "score": 0.3787,
    "rank": 3,
    "top1_id": "932a563f",
    "top1_score": 0.4095,
+   "top1_summary": "Task 23: AlgoManager Removal + Slot Refactoring — DONE (2026-03-31)",
    "top1_is_designated": false
   }
  ],
+ "controls": [
+  {
+   "cue": "blank tauri webview on linux",
+   "expect": "7646de22"
+  },
+  {
+   "cue": "broker_position_drift on short position",
+   "expect": "d20ce2c6"
+  },
+  {
+   "cue": "cosine threshold",
+   "expect": "fef49c17"
+  },
+  {
+   "cue": "algomanager broker-confirm cleanup",
+   "expect": "8932f5b6"
+  }
+ ],
  "designated": {
-  "n": 8,
-  "min": 0.1852,
-  "p05": 0.1932,
-  "median": 0.3321,
-  "max": 0.5596,
-  "rank1_count": 3,
-  "rank_le_12": 6
+  "n": 12,
+  "min": 0.2083,
+  "median": 0.408,
+  "max": 0.5696,
+  "distinct_entries": 9,
+  "rank1": 5,
+  "rank_le_4": 8,
+  "rank_le_12": 10
  },
  "unrelated": {
-  "n": 3199,
-  "median": 0.0554,
-  "p95": 0.2608,
-  "p99": 0.3651,
-  "max": 0.5829
+  "n": 4798,
+  "median": 0.0856,
+  "p95": 0.2976,
+  "p99": 0.3875,
+  "max": 0.6902
  },
- "near_duplicate_pairs_ge_0.80": {
-  "count": 92,
-  "min_score": 0.8022,
-  "examples": [
+ "near_duplicates": {
+  "scan": "nearest-neighbour over a 900-entry sample, score >= 0.78",
+  "identical_text_pairs": 32,
+  "distinct_text_pairs": 134,
+  "bands": {
+   "0.78-0.80": 35,
+   "0.80-0.85": 66,
+   "0.85-0.90": 26,
+   "0.90-0.95": 7,
+   "0.95-1.00": 0
+  },
+  "labeled_pairs_distinct_text": [
+   {
+    "score": 0.9282,
+    "a": "47297321",
+    "b": "181fcbfc",
+    "a_summary": "jawata-fallback slip: Bash: locating method bodies for reading",
+    "b_summary": "jawata-fallback slip: Bash: locating method bodies for reading (cwd was lost)"
+   },
+   {
+    "score": 0.9282,
+    "a": "181fcbfc",
+    "b": "47297321",
+    "a_summary": "jawata-fallback slip: Bash: locating method bodies for reading (cwd was lost)",
+    "b_summary": "jawata-fallback slip: Bash: locating method bodies for reading"
+   },
+   {
+    "score": 0.9221,
+    "a": "b7e10a3b",
+    "b": "07ba6201",
+    "a_summary": "jawata-fallback slip: Bash: a real reason",
+    "b_summary": "jawata-fallback slip: Bash: "
+   },
+   {
+    "score": 0.9208,
+    "a": "b0808688",
+    "b": "072c9050",
+    "a_summary": "Fix (landed 2026-04-15)",
+    "b_summary": "Fix (applied 2026-04-15)"
+   },
+   {
+    "score": 0.9208,
+    "a": "072c9050",
+    "b": "b0808688",
+    "a_summary": "Fix (applied 2026-04-15)",
+    "b_summary": "Fix (landed 2026-04-15)"
+   },
+   {
+    "score": 0.9079,
+    "a": "4b782e3c",
+    "b": "495a153f",
+    "a_summary": "jawata-fallback slip: Bash: fixture data file outside any loaded workspace",
+    "b_summary": "jawata-fallback slip: Bash: fixture data files, not workspace sources)"
+   },
+   {
+    "score": 0.9079,
+    "a": "495a153f",
+    "b": "4b782e3c",
+    "a_summary": "jawata-fallback slip: Bash: fixture data files, not workspace sources)",
+    "b_summary": "jawata-fallback slip: Bash: fixture data file outside any loaded workspace"
+   },
+   {
+    "score": 0.8972,
+    "a": "e8a6f118",
+    "b": "7b28702a",
+    "a_summary": "jawata-fallback slip: Bash: locating dispatch method; window open",
+    "b_summary": "jawata-fallback slip: Bash: dispatch shape; window open"
+   },
+   {
+    "score": 0.8972,
+    "a": "7b28702a",
+    "b": "e8a6f118",
+    "a_summary": "jawata-fallback slip: Bash: dispatch shape; window open",
+    "b_summary": "jawata-fallback slip: Bash: locating dispatch method; window open"
+   },
+   {
+    "score": 0.897,
+    "a": "ce2516c3",
+    "b": "1b802d9a",
+    "a_summary": "ORB Strategy — Sprint 5 (CLOSED 2026-04-13)",
+    "b_summary": "ORB Strategy — Sprint 7"
+   },
+   {
+    "score": 0.897,
+    "a": "1b802d9a",
+    "b": "ce2516c3",
+    "a_summary": "ORB Strategy — Sprint 7",
+    "b_summary": "ORB Strategy — Sprint 5 (CLOSED 2026-04-13)"
+   },
+   {
+    "score": 0.8937,
+    "a": "280d019b",
+    "b": "baf223e6",
+    "a_summary": "Sources",
+    "b_summary": "Architecture (Target State for Live)"
+   },
+   {
+    "score": 0.8937,
+    "a": "baf223e6",
+    "b": "280d019b",
+    "a_summary": "Architecture (Target State for Live)",
+    "b_summary": "Sources"
+   },
+   {
+    "score": 0.8929,
+    "a": "d0ae593c",
+    "b": "50930f78",
+    "a_summary": "jawata-fallback slip: Bash: read-only audit text scan of miss paths",
+    "b_summary": "jawata-fallback slip: Bash: read-only audit text scan"
+   },
+   {
+    "score": 0.8929,
+    "a": "50930f78",
+    "b": "d0ae593c",
+    "a_summary": "jawata-fallback slip: Bash: read-only audit text scan",
+    "b_summary": "jawata-fallback slip: Bash: read-only audit text scan of miss paths"
+   },
+   {
+    "score": 0.881,
+    "a": "f7f63056",
+    "b": "8b8e0a66",
+    "a_summary": "jawata-fallback slip: Bash: DebugTool constructors + the experience store recall-by-symbol API",
+    "b_summary": "jawata-fallback slip: Bash: the ExperienceStore interface recall/by-symbol methods"
+   },
+   {
+    "score": 0.881,
+    "a": "8b8e0a66",
+    "b": "f7f63056",
+    "a_summary": "jawata-fallback slip: Bash: the ExperienceStore interface recall/by-symbol methods",
+    "b_summary": "jawata-fallback slip: Bash: DebugTool constructors + the experience store recall-by-symbol API"
+   },
+   {
+    "score": 0.8753,
+    "a": "57b08bf7",
+    "b": "50930f78",
+    "a_summary": "jawata-fallback slip: Bash: read-only audit text scan for the session-outcome record of evaluate",
+    "b_summary": "jawata-fallback slip: Bash: read-only audit text scan"
+   },
+   {
+    "score": 0.8728,
+    "a": "e9b6701d",
+    "b": "336d4fb6",
+    "a_summary": "NEVER put AI attribution (Co-Authored-By Claude/Anthropic, \\\"Generated with Claude\\\", noreply@anthropic.com) in git commits — overrides the harness de",
+    "b_summary": "HARD PROHIBITION (Harald, standing for months, violated 2026-07-19 → fury): NEVER put AI attribution in a git commit — no \"Co-Authored-By: Claude/Anth"
+   },
+   {
+    "score": 0.8728,
+    "a": "336d4fb6",
+    "b": "e9b6701d",
+    "a_summary": "HARD PROHIBITION (Harald, standing for months, violated 2026-07-19 → fury): NEVER put AI attribution in a git commit — no \"Co-Authored-By: Claude/Anth",
+    "b_summary": "NEVER put AI attribution (Co-Authored-By Claude/Anthropic, \\\"Generated with Claude\\\", noreply@anthropic.com) in git commits — overrides the harness de"
+   },
+   {
+    "score": 0.8724,
+    "a": "3eae8ea4",
+    "b": "afd9db1a",
+    "a_summary": "Task 39: Strategy Persistence / Warm Restart",
+    "b_summary": "Task 39 — Strategy persistence / warm restart (MEDIUM, ~1.5 days)"
+   },
+   {
+    "score": 0.8724,
+    "a": "afd9db1a",
+    "b": "3eae8ea4",
+    "a_summary": "Task 39 — Strategy persistence / warm restart (MEDIUM, ~1.5 days)",
+    "b_summary": "Task 39: Strategy Persistence / Warm Restart"
+   },
+   {
+    "score": 0.8705,
+    "a": "82c749cc",
+    "b": "2a3fdbdb",
+    "a_summary": "6. To verify on the backtest machine (cleansed data)",
+    "b_summary": "4. Backtest filter — first-code only (default path)"
+   },
+   {
+    "score": 0.8705,
+    "a": "2a3fdbdb",
+    "b": "82c749cc",
+    "a_summary": "4. Backtest filter — first-code only (default path)",
+    "b_summary": "6. To verify on the backtest machine (cleansed data)"
+   },
+   {
+    "score": 0.8653,
+    "a": "11a3dfbb",
+    "b": "e8a6f118",
+    "a_summary": "jawata-fallback slip: Bash: reading one known method; window open",
+    "b_summary": "jawata-fallback slip: Bash: locating dispatch method; window open"
+   },
+   {
+    "score": 0.8614,
+    "a": "5f7378be",
+    "b": "a1caa887",
+    "a_summary": "Root cause",
+    "b_summary": "Root cause chain"
+   },
+   {
+    "score": 0.8614,
+    "a": "a1caa887",
+    "b": "5f7378be",
+    "a_summary": "Root cause chain",
+    "b_summary": "Root cause"
+   },
+   {
+    "score": 0.8594,
+    "a": "fbb483d1",
+    "b": "3f99ecb5",
+    "a_summary": "jawata-fallback slip: Bash: RecallQuery API for the store-stays-general test (construction-site grep)",
+    "b_summary": "jawata-fallback slip: Bash: RecallQuery construction API"
+   },
+   {
+    "score": 0.8594,
+    "a": "3f99ecb5",
+    "b": "fbb483d1",
+    "a_summary": "jawata-fallback slip: Bash: RecallQuery construction API",
+    "b_summary": "jawata-fallback slip: Bash: RecallQuery API for the store-stays-general test (construction-site grep)"
+   },
+   {
+    "score": 0.8584,
+    "a": "4d730859",
+    "b": "ce2516c3",
+    "a_summary": "ORB Strategy — Sprint 5 (CLOSED 2026-04-13)",
+    "b_summary": "ORB Strategy — Sprint 5 (CLOSED 2026-04-13)"
+   },
+   {
+    "score": 0.8548,
+    "a": "de40be2f",
+    "b": "7b28702a",
+    "a_summary": "jawata-fallback slip: Bash: response-shape convention peek; window open",
+    "b_summary": "jawata-fallback slip: Bash: dispatch shape; window open"
+   },
+   {
+    "score": 0.8509,
+    "a": "edfaad44",
+    "b": "8e4534f5",
+    "a_summary": "jawata-fallback slip: Bash: read-only audit text scan for a literal string (hits.jsonl), not a Java symbol",
+    "b_summary": "jawata-fallback slip: Bash: read-only audit text scan for literal strings/numbers, not Java symbols"
+   },
+   {
+    "score": 0.8509,
+    "a": "8e4534f5",
+    "b": "edfaad44",
+    "a_summary": "jawata-fallback slip: Bash: read-only audit text scan for literal strings/numbers, not Java symbols",
+    "b_summary": "jawata-fallback slip: Bash: read-only audit text scan for a literal string (hits.jsonl), not a Java symbol"
+   },
+   {
+    "score": 0.8455,
+    "a": "126db6ee",
+    "b": "22e9e0ef",
+    "a_summary": "2. Direction 1 – Make the project compile (JATS2 classes on classpath)",
+    "b_summary": "1. Current setup (what I see)"
+   },
+   {
+    "score": 0.8455,
+    "a": "cebb3863",
+    "b": "70dca3c0",
+    "a_summary": "jawata-fallback slip: Bash: registration-path check; window open",
+    "b_summary": "jawata-fallback slip: Bash: path format origin; window open"
+   },
+   {
+    "score": 0.8455,
+    "a": "70dca3c0",
+    "b": "cebb3863",
+    "a_summary": "jawata-fallback slip: Bash: path format origin; window open",
+    "b_summary": "jawata-fallback slip: Bash: registration-path check; window open"
+   },
+   {
+    "score": 0.8455,
+    "a": "22e9e0ef",
+    "b": "126db6ee",
+    "a_summary": "1. Current setup (what I see)",
+    "b_summary": "2. Direction 1 – Make the project compile (JATS2 classes on classpath)"
+   },
+   {
+    "score": 0.8387,
+    "a": "943b7e7b",
+    "b": "de40be2f",
+    "a_summary": "jawata-fallback slip: Bash: ctor signature peek; window open",
+    "b_summary": "jawata-fallback slip: Bash: response-shape convention peek; window open"
+   },
+   {
+    "score": 0.8372,
+    "a": "949e15de",
+    "b": "2abf14c0",
+    "a_summary": "19.7 Integration Tests — Mocked JATS + Real ORB Logic",
+    "b_summary": "5.3 Tier 2 — JATS Strategy with Mocked Infrastructure (JatsStrategyTestHarness)"
+   },
+   {
+    "score": 0.8372,
+    "a": "2abf14c0",
+    "b": "949e15de",
+    "a_summary": "5.3 Tier 2 — JATS Strategy with Mocked Infrastructure (JatsStrategyTestHarness)",
+    "b_summary": "19.7 Integration Tests — Mocked JATS + Real ORB Logic"
+   },
+   {
+    "score": 0.8365,
+    "a": "2d5569f5",
+    "b": "225e4c5f",
+    "a_summary": "6. Current status",
+    "b_summary": "7. Next steps"
+   },
+   {
+    "score": 0.8365,
+    "a": "225e4c5f",
+    "b": "2d5569f5",
+    "a_summary": "7. Next steps",
+    "b_summary": "6. Current status"
+   },
+   {
+    "score": 0.8299,
+    "a": "90b56715",
+    "b": "5f58e861",
+    "a_summary": "Layer 5: Native Library Handling",
+    "b_summary": "4. Finding libTorch.so — two options"
+   },
+   {
+    "score": 0.8299,
+    "a": "5f58e861",
+    "b": "90b56715",
+    "a_summary": "4. Finding libTorch.so — two options",
+    "b_summary": "Layer 5: Native Library Handling"
+   },
+   {
+    "score": 0.8288,
+    "a": "4c96e1db",
+    "b": "42c16ed5",
+    "a_summary": "Trade-condition filtering — code 37 (Odd Lot), live vs backtest",
+    "b_summary": "13. 2026-06-10 — ROOT CAUSE (supersedes §12): live gateway condition filter drops multi-condition trades"
+   },
+   {
+    "score": 0.8288,
+    "a": "42c16ed5",
+    "b": "4c96e1db",
+    "a_summary": "13. 2026-06-10 — ROOT CAUSE (supersedes §12): live gateway condition filter drops multi-condition trades",
+    "b_summary": "Trade-condition filtering — code 37 (Odd Lot), live vs backtest"
+   },
+   {
+    "score": 0.8277,
+    "a": "9cc681ca",
+    "b": "22e9e0ef",
+    "a_summary": "5. Suggested order of steps",
+    "b_summary": "1. Current setup (what I see)"
+   },
+   {
+    "score": 0.8263,
+    "a": "b09b2636",
+    "b": "de40be2f",
+    "a_summary": "jawata-fallback slip: Bash: response-field format check; window open",
+    "b_summary": "jawata-fallback slip: Bash: response-shape convention peek; window open"
+   },
+   {
+    "score": 0.8243,
+    "a": "10d1523b",
+    "b": "280d019b",
+    "a_summary": "2. Parameter Hierarchy: StrategyParams override trading_config.json",
+    "b_summary": "Sources"
+   },
+   {
+    "score": 0.8242,
+    "a": "172c854e",
+    "b": "1b802d9a",
+    "a_summary": "ORB Strategy — Sprint 7",
+    "b_summary": "ORB Strategy — Sprint 7"
+   },
+   {
+    "score": 0.8239,
+    "a": "e6f5920f",
+    "b": "c2c8a57d",
+    "a_summary": "jawata-fallback slip: Bash: checking imports present before adding",
+    "b_summary": "jawata-fallback slip: Bash: import-block check for a one-line fix"
+   },
+   {
+    "score": 0.8239,
+    "a": "c2c8a57d",
+    "b": "e6f5920f",
+    "a_summary": "jawata-fallback slip: Bash: import-block check for a one-line fix",
+    "b_summary": "jawata-fallback slip: Bash: checking imports present before adding"
+   },
+   {
+    "score": 0.8236,
+    "a": "8feec34e",
+    "b": "5487774f",
+    "a_summary": "Sprint 6c — Volume Filtering (cleanse fix + label re-gen + filter variants)",
+    "b_summary": "Sprint 6c Phase 1 — Results (companion to `ORB_Strategy_Sprint6c_VolumeFiltering.md`)"
+   },
+   {
+    "score": 0.8236,
+    "a": "0a4f913e",
+    "b": "1beca286",
+    "a_summary": "6. Why agents fail at exactly this — root cause, not mechanism",
+    "b_summary": "Root cause (ratified 2026-07-07) — the goal-translation prior"
+   },
+   {
+    "score": 0.8236,
+    "a": "5487774f",
+    "b": "8feec34e",
+    "a_summary": "Sprint 6c Phase 1 — Results (companion to `ORB_Strategy_Sprint6c_VolumeFiltering.md`)",
+    "b_summary": "Sprint 6c — Volume Filtering (cleanse fix + label re-gen + filter variants)"
+   },
+   {
+    "score": 0.8236,
+    "a": "1beca286",
+    "b": "0a4f913e",
+    "a_summary": "Root cause (ratified 2026-07-07) — the goal-translation prior",
+    "b_summary": "6. Why agents fail at exactly this — root cause, not mechanism"
+   },
+   {
+    "score": 0.8235,
+    "a": "0444eff7",
+    "b": "f6acd682",
+    "a_summary": "The Solution",
+    "b_summary": "1. Fix strategies_orb (SlotManager.java & BacktestOrbPipeline.java)"
+   },
+   {
+    "score": 0.8235,
+    "a": "f6acd682",
+    "b": "0444eff7",
+    "a_summary": "1. Fix strategies_orb (SlotManager.java & BacktestOrbPipeline.java)",
+    "b_summary": "The Solution"
+   },
+   {
+    "score": 0.8225,
+    "a": "4b52cec7",
+    "b": "2371bd03",
+    "a_summary": "jawata-fallback slip: Bash: precise multiline pattern match for the silent-skip idiom across tools",
+    "b_summary": "jawata-fallback slip: Bash: final sweep for the unfixed silent-skip idiom"
+   },
+   {
+    "score": 0.8225,
+    "a": "2371bd03",
+    "b": "4b52cec7",
+    "a_summary": "jawata-fallback slip: Bash: final sweep for the unfixed silent-skip idiom",
+    "b_summary": "jawata-fallback slip: Bash: precise multiline pattern match for the silent-skip idiom across tools"
+   },
+   {
+    "score": 0.8215,
+    "a": "d8d3612a",
+    "b": "cee815dc",
+    "a_summary": "jawata-fallback slip: Bash: read-only audit text scan for call sites/test names by literal text",
+    "b_summary": "jawata-fallback slip: Bash: read-only audit text scan for name-form probes across the test tree"
+   },
+   {
+    "score": 0.8215,
+    "a": "cee815dc",
+    "b": "d8d3612a",
+    "a_summary": "jawata-fallback slip: Bash: read-only audit text scan for name-form probes across the test tree",
+    "b_summary": "jawata-fallback slip: Bash: read-only audit text scan for call sites/test names by literal text"
+   },
+   {
+    "score": 0.8213,
+    "a": "f9be44d9",
+    "b": "abaa19b4",
+    "a_summary": "The Root Cause",
+    "b_summary": "2. The bug in EXECSIM (Ignoring the Top K drop entirely)"
+   },
+   {
+    "score": 0.8213,
+    "a": "abaa19b4",
+    "b": "f9be44d9",
+    "a_summary": "2. The bug in EXECSIM (Ignoring the Top K drop entirely)",
+    "b_summary": "The Root Cause"
+   },
+   {
+    "score": 0.8212,
+    "a": "1abad3d5",
+    "b": "1b802d9a",
+    "a_summary": "ORB Strategy — Sprint 6a (mid-sprint hot-fix bundle)",
+    "b_summary": "ORB Strategy — Sprint 7"
+   },
+   {
+    "score": 0.8211,
+    "a": "0387f5f6",
+    "b": "77f2ebae",
+    "a_summary": "Task 45: Parquet Rebuild 2026-02-23 → present",
+    "b_summary": "Required follow-up"
+   },
+   {
+    "score": 0.8211,
+    "a": "77f2ebae",
+    "b": "0387f5f6",
+    "a_summary": "Required follow-up",
+    "b_summary": "Task 45: Parquet Rebuild 2026-02-23 → present"
+   },
+   {
+    "score": 0.8201,
+    "a": "7e9220eb",
+    "b": "58d9412c",
+    "a_summary": "jawata-fallback slip: Bash: read-only audit text scan to locate description clause and its test",
+    "b_summary": "jawata-fallback slip: Bash: read-only audit text scan of schema required lists and front-door descriptions"
+   },
+   {
+    "score": 0.8201,
+    "a": "58d9412c",
+    "b": "7e9220eb",
+    "a_summary": "jawata-fallback slip: Bash: read-only audit text scan of schema required lists and front-door descriptions",
+    "b_summary": "jawata-fallback slip: Bash: read-only audit text scan to locate description clause and its test"
+   },
+   {
+    "score": 0.8182,
+    "a": "354afec0",
+    "b": "dcfb1444",
+    "a_summary": "3.5 Bar Source for Backtest",
+    "b_summary": "3.3 Use of EXECSIM Matching Engine and Data"
+   },
+   {
+    "score": 0.8182,
+    "a": "dcfb1444",
+    "b": "354afec0",
+    "a_summary": "3.3 Use of EXECSIM Matching Engine and Data",
+    "b_summary": "3.5 Bar Source for Backtest"
+   },
+   {
+    "score": 0.8181,
+    "a": "659773ba",
+    "b": "4d730859",
+    "a_summary": "ORB Strategy — Sprint 6",
+    "b_summary": "ORB Strategy — Sprint 5 (CLOSED 2026-04-13)"
+   },
+   {
+    "score": 0.8176,
+    "a": "ca70fa28",
+    "b": "32fdb19c",
+    "a_summary": "jawata-fallback slip: Bash: launcher plumbing, not Java semantics",
+    "b_summary": "jawata-fallback slip: Bash: launcher plumbing lookup"
+   },
+   {
+    "score": 0.8176,
+    "a": "32fdb19c",
+    "b": "ca70fa28",
+    "a_summary": "jawata-fallback slip: Bash: launcher plumbing lookup",
+    "b_summary": "jawata-fallback slip: Bash: launcher plumbing, not Java semantics"
+   },
+   {
+    "score": 0.8169,
+    "a": "165b0e38",
+    "b": "cd0e91bb",
+    "a_summary": "Task 40 / 41 — Static ORB (MEDIUM, gated)",
+    "b_summary": "Task 41: Static ORB Strategy — strategies_orb Port"
+   },
+   {
+    "score": 0.8169,
+    "a": "cd0e91bb",
+    "b": "165b0e38",
+    "a_summary": "Task 41: Static ORB Strategy — strategies_orb Port",
+    "b_summary": "Task 40 / 41 — Static ORB (MEDIUM, gated)"
+   },
+   {
+    "score": 0.8145,
+    "a": "27175d34",
+    "b": "e0c79b17",
+    "a_summary": "15.1 External JARs",
+    "b_summary": "2. What each JAR contains"
+   },
+   {
+    "score": 0.8145,
+    "a": "e0c79b17",
+    "b": "27175d34",
+    "a_summary": "2. What each JAR contains",
+    "b_summary": "15.1 External JARs"
+   },
+   {
+    "score": 0.8138,
+    "a": "348b745e",
+    "b": "53e693ec",
+    "a_summary": "How EXECSIM handled it (Before my recent edit)",
+    "b_summary": "The Fix Needed in EXECSIM"
+   },
+   {
+    "score": 0.8138,
+    "a": "53e693ec",
+    "b": "348b745e",
+    "a_summary": "The Fix Needed in EXECSIM",
+    "b_summary": "How EXECSIM handled it (Before my recent edit)"
+   },
+   {
+    "score": 0.8129,
+    "a": "3a921e52",
+    "b": "bad66e1e",
+    "a_summary": "jawata-fallback slip: Bash: jawata's own source is loaded in NEITHER managed workspace (proven: health_check shows 3 fixture projects, search_symbols ",
+    "b_summary": "jawata-fallback slip: Bash: own source not loaded in either managed workspace; no compiler-accurate lookup available."
+   },
+   {
+    "score": 0.8116,
+    "a": "20ede2f0",
+    "b": "abdc0d10",
+    "a_summary": "Critical-path summary",
+    "b_summary": "Total timeline"
+   },
+   {
+    "score": 0.8116,
+    "a": "abdc0d10",
+    "b": "20ede2f0",
+    "a_summary": "Total timeline",
+    "b_summary": "Critical-path summary"
+   },
+   {
+    "score": 0.8099,
+    "a": "c105cab3",
+    "b": "fa9fad35",
+    "a_summary": "(historical) CURRENT: manager v0.17.0 SHIPPED; fork Sprint 15 → v1.10.0 SHIPPED Latest",
+    "b_summary": "(historical) CURRENT (2026-06-21): javalens content line COMPLETE — fork v1.12.0 SHIPPED Latest; next = GOJA rebrand (Sprint 16)"
+   },
+   {
+    "score": 0.8099,
+    "a": "fa9fad35",
+    "b": "c105cab3",
+    "a_summary": "(historical) CURRENT (2026-06-21): javalens content line COMPLETE — fork v1.12.0 SHIPPED Latest; next = GOJA rebrand (Sprint 16)",
+    "b_summary": "(historical) CURRENT: manager v0.17.0 SHIPPED; fork Sprint 15 → v1.10.0 SHIPPED Latest"
+   },
+   {
+    "score": 0.8086,
+    "a": "8f0d4e6c",
+    "b": "55aaabee",
+    "a_summary": "3.2 SETUP.md (summary)",
+    "b_summary": "Summary of What to Do"
+   },
+   {
+    "score": 0.8086,
+    "a": "55aaabee",
+    "b": "8f0d4e6c",
+    "a_summary": "Summary of What to Do",
+    "b_summary": "3.2 SETUP.md (summary)"
+   },
+   {
+    "score": 0.8082,
+    "a": "c3a9c01c",
+    "b": "84573384",
+    "a_summary": "End-of-day failure — flatten can't reach the dormant slot, then loses the race",
+    "b_summary": "Fix 3 — Flatten path must reach already-aborting slots (REQUIRED for safe overnight)"
+   },
+   {
+    "score": 0.8082,
+    "a": "84573384",
+    "b": "c3a9c01c",
+    "a_summary": "Fix 3 — Flatten path must reach already-aborting slots (REQUIRED for safe overnight)",
+    "b_summary": "End-of-day failure — flatten can't reach the dormant slot, then loses the race"
+   },
+   {
+    "score": 0.8055,
+    "a": "98a14251",
+    "b": "4d730859",
+    "a_summary": "ORB Strategy — Sprint 6 Leftover",
+    "b_summary": "ORB Strategy — Sprint 5 (CLOSED 2026-04-13)"
+   },
+   {
+    "score": 0.8052,
+    "a": "422c738b",
+    "b": "f6acd682",
+    "a_summary": "3. Update the Strategy Layer to Call onRefresh",
+    "b_summary": "1. Fix strategies_orb (SlotManager.java & BacktestOrbPipeline.java)"
+   },
+   {
+    "score": 0.8047,
+    "a": "c3e09019",
+    "b": "9cc681ca",
+    "a_summary": "1. Maven + separate JATS directory",
+    "b_summary": "5. Suggested order of steps"
+   },
+   {
+    "score": 0.804,
+    "a": "31f5e51f",
+    "b": "6ee62871",
+    "a_summary": "jawata-fallback slip: Bash: confirm what the existing config sets",
+    "b_summary": "jawata-fallback slip: Bash: settings-construction pattern lookup"
+   },
+   {
+    "score": 0.804,
+    "a": "6ee62871",
+    "b": "31f5e51f",
+    "a_summary": "jawata-fallback slip: Bash: settings-construction pattern lookup",
+    "b_summary": "jawata-fallback slip: Bash: confirm what the existing config sets"
+   },
+   {
+    "score": 0.8034,
+    "a": "d06de3fc",
+    "b": "6c22c2b2",
+    "a_summary": "jawata-fallback slip: Bash: line-number lookup in an already-open file to place a new method",
+    "b_summary": "jawata-fallback slip: Bash: line-number reconnaissance in an already-open file to place new methods"
+   },
+   {
+    "score": 0.8034,
+    "a": "6c22c2b2",
+    "b": "d06de3fc",
+    "a_summary": "jawata-fallback slip: Bash: line-number reconnaissance in an already-open file to place new methods",
+    "b_summary": "jawata-fallback slip: Bash: line-number lookup in an already-open file to place a new method"
+   },
+   {
+    "score": 0.803,
+    "a": "e9a07e46",
+    "b": "8e194dc9",
+    "a_summary": "How to Fix This",
+    "b_summary": "1) Plan to fix the timeout cross"
+   },
+   {
+    "score": 0.803,
+    "a": "8e194dc9",
+    "b": "e9a07e46",
+    "a_summary": "1) Plan to fix the timeout cross",
+    "b_summary": "How to Fix This"
+   },
+   {
+    "score": 0.8019,
+    "a": "de52982c",
+    "b": "57b08bf7",
+    "a_summary": "jawata-fallback slip: Bash: schema-literal survey, audit continuation)",
+    "b_summary": "jawata-fallback slip: Bash: read-only audit text scan for the session-outcome record of evaluate"
+   },
+   {
+    "score": 0.7999,
+    "a": "91cb645f",
+    "b": "fbb483d1",
+    "a_summary": "jawata-fallback slip: Bash: RecallQuery record fields + SymbolFact.of + StoredEntry for the store-general test",
+    "b_summary": "jawata-fallback slip: Bash: RecallQuery API for the store-stays-general test (construction-site grep)"
+   },
+   {
+    "score": 0.7998,
+    "a": "ba93eab3",
+    "b": "deb1162e",
+    "a_summary": "7. Worked example — 2026-07-07 spurious book-flatten",
+    "b_summary": "1) The refactoring to SOLID / Single Responsibility — what was wrong"
+   },
+   {
+    "score": 0.7998,
+    "a": "deb1162e",
+    "b": "ba93eab3",
+    "a_summary": "1) The refactoring to SOLID / Single Responsibility — what was wrong",
+    "b_summary": "7. Worked example — 2026-07-07 spurious book-flatten"
+   },
+   {
+    "score": 0.7983,
+    "a": "fc9826c4",
+    "b": "8feec34e",
+    "a_summary": "Sprint 6c — Volume Filtering (cleanse fix + label re-gen + filter variants)",
+    "b_summary": "Sprint 6c — Volume Filtering (cleanse fix + label re-gen + filter variants)"
+   },
+   {
+    "score": 0.7982,
+    "a": "4263345a",
+    "b": "50930f78",
+    "a_summary": "jawata-fallback slip: Bash: read-only audit text scan (grep over java only for call-site inventory; jawata MCP serves different workspaces, not this r",
+    "b_summary": "jawata-fallback slip: Bash: read-only audit text scan"
+   },
+   {
+    "score": 0.7963,
+    "a": "8e13e684",
+    "b": "280d019b",
+    "a_summary": "Step 1: Create strategies_orb/input/orb_model_config.json",
+    "b_summary": "Sources"
+   },
+   {
+    "score": 0.7959,
+    "a": "574ab782",
+    "b": "04c73fc4",
+    "a_summary": "18.6 JatsExecutionContext: Adapter to PositionManager",
+    "b_summary": "18.1 JATS API Specifics (from JAR decompilation)"
+   },
+   {
+    "score": 0.7959,
+    "a": "04c73fc4",
+    "b": "574ab782",
+    "a_summary": "18.1 JATS API Specifics (from JAR decompilation)",
+    "b_summary": "18.6 JatsExecutionContext: Adapter to PositionManager"
+   },
+   {
+    "score": 0.7942,
+    "a": "e0c5c395",
+    "b": "d01d4d9e",
+    "a_summary": "1. Symptom",
+    "b_summary": "\"The JATS live \\\"Status market data\\\" red flag (and OrbJatsFunnel open lag) traces to PortfolioStrategy's per-tick fair-value engine (PortfolioManager"
+   },
+   {
+    "score": 0.7942,
+    "a": "d01d4d9e",
+    "b": "e0c5c395",
+    "a_summary": "\"The JATS live \\\"Status market data\\\" red flag (and OrbJatsFunnel open lag) traces to PortfolioStrategy's per-tick fair-value engine (PortfolioManager",
+    "b_summary": "1. Symptom"
+   },
+   {
+    "score": 0.7941,
+    "a": "cb0e29e4",
+    "b": "70dca3c0",
+    "a_summary": "jawata-fallback slip: Bash: locating the state-dir convention; window open",
+    "b_summary": "jawata-fallback slip: Bash: path format origin; window open"
+   },
+   {
+    "score": 0.7937,
+    "a": "6bc639b4",
+    "b": "de52982c",
+    "a_summary": "jawata-fallback slip: Bash: file location + schema literal, audit continuation)",
+    "b_summary": "jawata-fallback slip: Bash: schema-literal survey, audit continuation)"
+   },
+   {
+    "score": 0.7922,
+    "a": "9926effa",
+    "b": "e9b6701d",
+    "a_summary": "Do not add \"Co-Authored-By: Claude\" / \"Generated with Claude Code\" / any Anthropic attribution to commit messages, PR bodies, code comments, docs, or ",
+    "b_summary": "NEVER put AI attribution (Co-Authored-By Claude/Anthropic, \\\"Generated with Claude\\\", noreply@anthropic.com) in git commits — overrides the harness de"
+   },
+   {
+    "score": 0.7913,
+    "a": "47d442cd",
+    "b": "ac6e375b",
+    "a_summary": "find_duplicate_code kills the MCP socket on the jawata-mcp tree (464 files) — reproducible 2/2 (default params and minTokens=120/projectKey), client s",
+    "b_summary": "v2.7.1 fixes VERIFIED LIVE on the running service (2026-07-11): find_duplicate_code on jawata-mcp's own tree — the exact 2/2 socket-killer call — now "
+   },
+   {
+    "score": 0.7913,
+    "a": "ac6e375b",
+    "b": "47d442cd",
+    "a_summary": "v2.7.1 fixes VERIFIED LIVE on the running service (2026-07-11): find_duplicate_code on jawata-mcp's own tree — the exact 2/2 socket-killer call — now ",
+    "b_summary": "find_duplicate_code kills the MCP socket on the jawata-mcp tree (464 files) — reproducible 2/2 (default params and minTokens=120/projectKey), client s"
+   },
+   {
+    "score": 0.7898,
+    "a": "95793d62",
+    "b": "c3e09019",
+    "a_summary": "Layer 3: Deployment to JATS lib folder",
+    "b_summary": "1. Maven + separate JATS directory"
+   },
+   {
+    "score": 0.7889,
+    "a": "859e16e4",
+    "b": "aad18b9b",
+    "a_summary": "Future project to combine maxmart Eclipse MCP, javalens-mcp JDT engine, standalone UI launcher, and VS Code/Cursor plugin for full Java semantic tooli",
+    "b_summary": "Goal"
+   },
+   {
+    "score": 0.7889,
+    "a": "aad18b9b",
+    "b": "859e16e4",
+    "a_summary": "Goal",
+    "b_summary": "Future project to combine maxmart Eclipse MCP, javalens-mcp JDT engine, standalone UI launcher, and VS Code/Cursor plugin for full Java semantic tooli"
+   },
+   {
+    "score": 0.7887,
+    "a": "527868a2",
+    "b": "2abf14c0",
+    "a_summary": "4.0.2 Tier 2 — JATS Strategy with Mocked Infrastructure",
+    "b_summary": "5.3 Tier 2 — JATS Strategy with Mocked Infrastructure (JatsStrategyTestHarness)"
+   },
+   {
+    "score": 0.7867,
+    "a": "f377ccb4",
+    "b": "50930f78",
+    "a_summary": "jawata-fallback slip: Bash: read-only audit text scan to locate journal code regions by literal name before reading them",
+    "b_summary": "jawata-fallback slip: Bash: read-only audit text scan"
+   },
+   {
+    "score": 0.7866,
+    "a": "c221bf46",
+    "b": "1b802d9a",
+    "a_summary": "ORB Strategy — Sprint 4: JATS Live Production",
+    "b_summary": "ORB Strategy — Sprint 7"
+   },
+   {
+    "score": 0.7865,
+    "a": "0ae18f1e",
+    "b": "0387f5f6",
+    "a_summary": "Task 46: Parquet Rebuild 2017-11-08 → 2025-10-31 (8-year historical recovery)",
+    "b_summary": "Task 45: Parquet Rebuild 2026-02-23 → present"
+   },
+   {
+    "score": 0.7851,
+    "a": "ba349e95",
+    "b": "e9a0a764",
+    "a_summary": "strategies_orb Setup Summary",
+    "b_summary": "Part 3: strategies_orb — JATS2 ORB Strategy (Planned)"
+   },
+   {
+    "score": 0.7851,
+    "a": "e9a0a764",
+    "b": "ba349e95",
+    "a_summary": "Part 3: strategies_orb — JATS2 ORB Strategy (Planned)",
+    "b_summary": "strategies_orb Setup Summary"
+   },
+   {
+    "score": 0.7851,
+    "a": "2eee97c8",
+    "b": "07ba6201",
+    "a_summary": "jawata-fallback slip: Bash: locating a constant declaration for insertion; jawata queried this session)",
+    "b_summary": "jawata-fallback slip: Bash: "
+   },
+   {
+    "score": 0.7848,
+    "a": "817d54ce",
+    "b": "d4dd3c3f",
+    "a_summary": "Always read JATS platform source from ~/Projects/jats2/ instead of decompiling JARs. JARs in strategies_orb/jats/ are compile-only copies.",
+    "b_summary": "3.1 Role and Layout"
+   },
+   {
+    "score": 0.7848,
+    "a": "d4dd3c3f",
+    "b": "817d54ce",
+    "a_summary": "3.1 Role and Layout",
+    "b_summary": "Always read JATS platform source from ~/Projects/jats2/ instead of decompiling JARs. JARs in strategies_orb/jats/ are compile-only copies."
+   },
+   {
+    "score": 0.7847,
+    "a": "b575f4e7",
+    "b": "8e194dc9",
+    "a_summary": "2. The Execution Order Bug in EXECSIM",
+    "b_summary": "1) Plan to fix the timeout cross"
+   },
+   {
+    "score": 0.7823,
+    "a": "03cf6dc3",
+    "b": "6ccd6267",
+    "a_summary": "jawata-fallback slip: Bash: find the dimension schema property and description mentions",
+    "b_summary": "jawata-fallback slip: Bash: find the dimension enum in the schema + description to add wall"
+   },
+   {
+    "score": 0.7823,
+    "a": "6ccd6267",
+    "b": "03cf6dc3",
+    "a_summary": "jawata-fallback slip: Bash: find the dimension enum in the schema + description to add wall",
+    "b_summary": "jawata-fallback slip: Bash: find the dimension schema property and description mentions"
+   },
+   {
+    "score": 0.7818,
+    "a": "7a19e7cb",
+    "b": "b7e10a3b",
+    "a_summary": "jawata-fallback slip: Bash: reconciling an issue number across code/docs/build, non-semantic text match)",
+    "b_summary": "jawata-fallback slip: Bash: a real reason"
+   },
+   {
+    "score": 0.7815,
+    "a": "dd9bd75c",
+    "b": "280d019b",
+    "a_summary": "Parameter sources (after consolidation)",
+    "b_summary": "Sources"
+   },
+   {
+    "score": 0.7813,
+    "a": "114c3de5",
+    "b": "7a19e7cb",
+    "a_summary": "jawata-fallback slip: Bash: build-infra file, non-semantic property grep)",
+    "b_summary": "jawata-fallback slip: Bash: reconciling an issue number across code/docs/build, non-semantic text match)"
+   },
+   {
+    "score": 0.7803,
+    "a": "78fb5ebf",
+    "b": "19179c2c",
+    "a_summary": "2. The live incident (motivating case) — PFE −987 naked short, 2026-06-18",
+    "b_summary": "2026-06-18 — PFE −987 naked short (slot-identity race) — Phase C"
+   },
+   {
+    "score": 0.7803,
+    "a": "19179c2c",
+    "b": "78fb5ebf",
+    "a_summary": "2026-06-18 — PFE −987 naked short (slot-identity race) — Phase C",
+    "b_summary": "2. The live incident (motivating case) — PFE −987 naked short, 2026-06-18"
+   }
+  ],
+  "labeled_pairs_identical_text": [
    {
     "score": 1.0,
-    "a": "fc555874",
-    "b": "0232869a"
+    "a": "07ba6201",
+    "b": "bc39df3e",
+    "a_summary": "jawata-fallback slip: Bash: ",
+    "b_summary": "jawata-fallback slip: Bash: "
    },
    {
     "score": 1.0,
-    "a": "eff059e7",
-    "b": "fc555874"
+    "a": "43c184cd",
+    "b": "439bb502",
+    "a_summary": "jawata-fallback slip: Bash: fresh-context audit reads text, resident MCP not available to subagents",
+    "b_summary": "jawata-fallback slip: Bash: fresh-context audit reads text, resident MCP not available to subagents"
+   },
+   {
+    "score": 1.0,
+    "a": "bc39df3e",
+    "b": "07ba6201",
+    "a_summary": "jawata-fallback slip: Bash: ",
+    "b_summary": "jawata-fallback slip: Bash: "
+   },
+   {
+    "score": 1.0,
+    "a": "ca990fad",
+    "b": "e20a9cc8",
+    "a_summary": "jawata-fallback slip: Bash: locating the workspace block in health_check to extend it",
+    "b_summary": "jawata-fallback slip: Bash: locating the workspace block in health_check to extend it"
+   },
+   {
+    "score": 1.0,
+    "a": "439bb502",
+    "b": "43c184cd",
+    "a_summary": "jawata-fallback slip: Bash: fresh-context audit reads text, resident MCP not available to subagents",
+    "b_summary": "jawata-fallback slip: Bash: fresh-context audit reads text, resident MCP not available to subagents"
+   },
+   {
+    "score": 1.0,
+    "a": "fa099c5b",
+    "b": "61437a28",
+    "a_summary": "JAWATA MCP — use it for Java, before shell text tools",
+    "b_summary": "JAWATA MCP — use it for Java, before shell text tools"
+   },
+   {
+    "score": 1.0,
+    "a": "e7ff833f",
+    "b": "8e8a6da5",
+    "a_summary": "goja-fallback slip: Bash: read-only seam collection for plan authoring, resident reflects deployed jar",
+    "b_summary": "goja-fallback slip: Bash: read-only seam collection for plan authoring, resident reflects deployed jar"
+   },
+   {
+    "score": 1.0,
+    "a": "8e8a6da5",
+    "b": "e7ff833f",
+    "a_summary": "goja-fallback slip: Bash: read-only seam collection for plan authoring, resident reflects deployed jar",
+    "b_summary": "goja-fallback slip: Bash: read-only seam collection for plan authoring, resident reflects deployed jar"
+   },
+   {
+    "score": 1.0,
+    "a": "163797f1",
+    "b": "43c184cd",
+    "a_summary": "jawata-fallback slip: Bash: fresh-context audit reads text, resident MCP not available to subagents",
+    "b_summary": "jawata-fallback slip: Bash: fresh-context audit reads text, resident MCP not available to subagents"
+   },
+   {
+    "score": 1.0,
+    "a": "3dad95e4",
+    "b": "43c184cd",
+    "a_summary": "jawata-fallback slip: Bash: fresh-context audit reads text, resident MCP not available to subagents",
+    "b_summary": "jawata-fallback slip: Bash: fresh-context audit reads text, resident MCP not available to subagents"
+   },
+   {
+    "score": 1.0,
+    "a": "e20a9cc8",
+    "b": "ca990fad",
+    "a_summary": "jawata-fallback slip: Bash: locating the workspace block in health_check to extend it",
+    "b_summary": "jawata-fallback slip: Bash: locating the workspace block in health_check to extend it"
    },
    {
     "score": 1.0,
     "a": "dcdb887e",
-    "b": "0232869a"
+    "b": "07ba6201",
+    "a_summary": "jawata-fallback slip: Bash: ",
+    "b_summary": "jawata-fallback slip: Bash: "
+   },
+   {
+    "score": 1.0,
+    "a": "27bafb89",
+    "b": "696ab08f",
+    "a_summary": "jawata-fallback slip: Bash: synthetic D3 probe reason",
+    "b_summary": "jawata-fallback slip: Bash: synthetic D3 probe reason"
+   },
+   {
+    "score": 1.0,
+    "a": "ee9fe0ab",
+    "b": "a814182a",
+    "a_summary": "JAWATA memory — recall before you theorize, record what you learn",
+    "b_summary": "JAWATA memory — recall before you theorize, record what you learn"
+   },
+   {
+    "score": 1.0,
+    "a": "696ab08f",
+    "b": "27bafb89",
+    "a_summary": "jawata-fallback slip: Bash: synthetic D3 probe reason",
+    "b_summary": "jawata-fallback slip: Bash: synthetic D3 probe reason"
+   },
+   {
+    "score": 1.0,
+    "a": "087ff5be",
+    "b": "07ba6201",
+    "a_summary": "jawata-fallback slip: Bash: ",
+    "b_summary": "jawata-fallback slip: Bash: "
+   },
+   {
+    "score": 1.0,
+    "a": "470dd455",
+    "b": "07ba6201",
+    "a_summary": "jawata-fallback slip: Bash: ",
+    "b_summary": "jawata-fallback slip: Bash: "
    },
    {
     "score": 1.0,
     "a": "b392cae2",
-    "b": "0232869a"
+    "b": "07ba6201",
+    "a_summary": "jawata-fallback slip: Bash: ",
+    "b_summary": "jawata-fallback slip: Bash: "
    },
    {
     "score": 1.0,
-    "a": "b257f8bf",
-    "b": "0232869a"
+    "a": "bad66e1e",
+    "b": "1c3900a3",
+    "a_summary": "jawata-fallback slip: Bash: own source not loaded in either managed workspace; no compiler-accurate lookup available.",
+    "b_summary": "jawata-fallback slip: Bash: own source not loaded in either managed workspace; no compiler-accurate lookup available."
    },
    {
     "score": 1.0,
-    "a": "86e659a6",
-    "b": "fc555874"
-   },
-   {
-    "score": 1.0,
-    "a": "852b2b95",
-    "b": "0232869a"
-   },
-   {
-    "score": 1.0,
-    "a": "5b13b09f",
-    "b": "0232869a"
-   },
-   {
-    "score": 1.0,
-    "a": "501aadac",
-    "b": "0232869a"
-   },
-   {
-    "score": 1.0,
-    "a": "39d7765a",
-    "b": "0232869a"
-   },
-   {
-    "score": 1.0,
-    "a": "1ce8b004",
-    "b": "0232869a"
-   },
-   {
-    "score": 1.0,
-    "a": "0232869a",
-    "b": "fc555874"
+    "a": "d44cf802",
+    "b": "d97a12c2",
+    "a_summary": "Editor + Auditor (every sprint doc AND every actionable plan)",
+    "b_summary": "Editor + Auditor (every sprint doc AND every actionable plan)"
    }
   ]
+ },
+ "derived": {
+  "nomination_floor": 0.15,
+  "nomination_floor_basis": "below the observed designated minimum; the designated and unrelated distributions OVERLAP, so no floor separates them - the floor is a volume cap only, the score ranks",
+  "top_k": 12,
+  "dedup_threshold": 0.92,
+  "dedup_threshold_basis": "CONSERVATIVE, and the corpus does NOT support a clean separation. Reading the labeled distinct-text pairs: true re-phrasings and false positives INTERLEAVE across 0.87-0.90 (true: 'Fix (landed)'/'Fix (applied)' 0.9208, the AI-attribution rule 0.8728, 'Task 39' 0.8724; false: 'ORB Sprint 5'/'ORB Sprint 7' 0.8970, 'Sources'/'Architecture' 0.8937). A short-text guard does not fix it - one false pair is heading-only (43/23 chars) but the other carries 567/1012 chars. D5 only PROPOSES a merge (a human confirms), so the threshold is set HIGH where the sampled evidence is clean rather than tuned for recall. Evidence is THIN at that height (1 content pair >= 0.92), so Stage 6 MUST hand-label a duplicate set to calibrate, and D6's per-criterion gate counters measure it in production.",
+  "dedup_threshold_confidence": "low - thin evidence, mixed band, revisit at Stage 6",
+  "retired_placeholders": {
+   "floor": 0.35
+  },
+  "corrections": {
+   "dedup_0.85": "WRONG, self-corrected. Derived from the top-2 pairs of each band, which were unrepresentative. The committed labeled pair list (this file) shows false positives inside 0.85-0.90. The C0 audit's demand that the labeled data be committed is what exposed it - the number moved because the evidence became checkable."
+  }
  }
 }
