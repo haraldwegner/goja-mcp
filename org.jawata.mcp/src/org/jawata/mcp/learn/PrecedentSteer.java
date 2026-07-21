@@ -13,9 +13,17 @@ import java.util.Map;
  * same way.
  *
  * <p>The high-value case is a NEGATIVE precedent (a tool that reverted/errored
- * in a similar case): surfaced with a justification-cost to defect (the guard's
- * mechanism, extended). A consistent POSITIVE precedent is surfaced as lighter
- * reinforcement; a single positive is not enough to push.</p>
+ * in a similar case): surfaced with a justification-cost to defect. A consistent
+ * POSITIVE precedent is surfaced as lighter reinforcement; a single positive is
+ * not enough to push. Either way the steer carries the named tool's one-line
+ * how-to ({@link ToolHowTo}) — a precedent the agent cannot act on is a name,
+ * not a steer.</p>
+ *
+ * <p><b>v3.3.1 scope note:</b> composing the cost is this class's whole job —
+ * the WORDED cost lives here, the ENFORCEMENT (refusing an unjustified defection)
+ * lives at the choke. Until that lands, do not describe this as "the guard's
+ * mechanism, extended": an external review against the signed spec caught
+ * exactly that over-claim in v3.3.0.</p>
  */
 public final class PrecedentSteer {
 
@@ -63,12 +71,22 @@ public final class PrecedentSteer {
             return "⚠ PRECEDENT — `" + bestNegTool + "` was reverted/errored "
                 + bestNeg + "× in a case like this. Prefer what worked before, or if"
                 + " you use it here, note why (defecting from precedent costs a one-line"
-                + " justification, like a jawata-fallback).";
+                + " justification, like a jawata-fallback)." + howTo(bestNegTool);
         }
         if (bestPos >= POSITIVE_THRESHOLD) {
             return "PRECEDENT — `" + bestPosTool + "` worked in " + bestPos
-                + " similar case(s); reach for it here.";
+                + " similar case(s); reach for it here." + howTo(bestPosTool);
         }
         return null;
+    }
+
+    /**
+     * v3.3.1: the named tool's one-line how-to as a trailing clause — naming a
+     * tool without saying how to drive it is a precedent the agent cannot act
+     * on. Empty when the tool has none catalogued (additive, never suppressing).
+     */
+    private static String howTo(String tool) {
+        String hint = ToolHowTo.of(tool);
+        return hint == null ? "" : " How to drive it: " + hint + ".";
     }
 }

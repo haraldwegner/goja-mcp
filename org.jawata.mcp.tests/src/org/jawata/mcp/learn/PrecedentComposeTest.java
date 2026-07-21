@@ -74,6 +74,35 @@ class PrecedentComposeTest {
         store.close();
     }
 
+    /**
+     * v3.3.1 (external audit, finding 2): the signed D2 body says the injector
+     * "surfaces the precedent (WITH THE HOW-TO)" — v3.3.0 named the tool and the
+     * count but never said how to drive it, so the push was a bare name.
+     */
+    @Test
+    void the_push_carries_the_how_to_for_the_named_tool() {
+        String neg = PrecedentSteer.compose("analyze", List.of(
+            row("extract", ToolExperience.OUTCOME_REVERTED)));
+        assertTrue(neg != null && neg.contains("auto_apply=false"),
+            "the negative steer says HOW to drive extract safely (stage the diff): " + neg);
+
+        String pos = PrecedentSteer.compose("analyze", List.of(
+            row("rename_symbol", ToolExperience.OUTCOME_COMPILED),
+            row("rename_symbol", ToolExperience.OUTCOME_COMPILED)));
+        assertTrue(pos != null && pos.contains("ALL references"),
+            "the positive steer says HOW to drive rename_symbol: " + pos);
+    }
+
+    /** A tool with no catalogued how-to still gets its precedent — the hint is
+     *  additive; its absence must never swallow the warning itself. */
+    @Test
+    void an_unknown_tool_still_composes_without_a_how_to() {
+        String steer = PrecedentSteer.compose("analyze", List.of(
+            row("not_a_jawata_tool", ToolExperience.OUTCOME_REVERTED)));
+        assertTrue(steer != null && steer.contains("⚠ PRECEDENT"),
+            "a missing how-to must not suppress the precedent: " + steer);
+    }
+
     @Test
     void target_is_the_salient_identifier_tool_independent() {
         ObjectMapper om = new ObjectMapper();
