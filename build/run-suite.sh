@@ -18,6 +18,21 @@ FIXTURES="$ROOT/org.jawata.core.tests/test-resources/sample-projects"
 OUT="$DIST/suite-shards"
 
 [ -f "$DIST/jawata.jar" ] || { echo "FATAL: dist not built ($DIST/jawata.jar)"; exit 2; }
+
+# issue #1: refuse a contaminated dist BEFORE partitioning — a stale
+# prior-version org.jawata jar beside the current one silently shadows fresh
+# code (the shards run in classlist mode, which skips the boot's discovery
+# guard, so this check is the sharded run's only protection).
+for d in "$DIST/bundles" "$DIST/test-bundles"; do
+    dupes=$(ls "$d"/org.jawata.*.jar 2>/dev/null | sed 's|.*/||; s|-[0-9][^-]*\.jar$||' | sort | uniq -d)
+    if [ -n "$dupes" ]; then
+        echo "FATAL (issue #1): two versions of the same org.jawata bundle in $d:"
+        ls "$d"/org.jawata.*.jar | sed 's|.*/|  |'
+        echo "A stale jar can silently shadow the current one. Rebuild the dist (the purge step removes leftovers)."
+        exit 2
+    fi
+done
+
 rm -rf "$OUT"; mkdir -p "$OUT"
 
 # 1. Discover test classes exactly like the boot does (org.jawata.* test

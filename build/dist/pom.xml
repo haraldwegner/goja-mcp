@@ -23,6 +23,33 @@
 
     <build>
         <plugins>
+            <!-- issue #1: the copy executions below never purged, so a version bump
+                 left the PREVIOUS version's jars beside the new ones and the test
+                 runner silently loaded stale code while reporting green (observed
+                 live 2026-07-21: v3.2.1 bundles shadowing v3.3.0). Purge the three
+                 copy-target dirs BEFORE every package, so the dist is always a
+                 faithful image of the current build — even without `clean`. The
+                 boot refuses a contaminated dir anyway (defense in depth); this
+                 removes the contamination at its source. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-clean-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>purge-dist-jars</id>
+                        <phase>process-resources</phase>
+                        <goals><goal>clean</goal></goals>
+                        <configuration>
+                            <excludeDefaultDirectories>true</excludeDefaultDirectories>
+                            <filesets>
+                                <fileset><directory>${project.build.directory}/dist/bundles</directory></fileset>
+                                <fileset><directory>${project.build.directory}/dist/test-bundles</directory></fileset>
+                                <fileset><directory>${project.build.directory}/dist/tools</directory></fileset>
+                            </filesets>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>

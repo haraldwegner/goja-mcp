@@ -237,15 +237,28 @@ public final class JawataBoot {
      * {@code filter}. Package-visible for unit tests.
      */
     static List<String> discoverTestClasses(Path testBundles, String filter) throws Exception {
+        refuseStaleJawataBundles(testBundles);
         List<String> classNames = new ArrayList<>();
+        // issue #1: the same FQCN in two bundles means which class RUNS is a
+        // classloader coin flip — the observed failure ran a STALE class and
+        // reported green. Ambiguity is an error, never a count.
+        Map<String, String> owner = new HashMap<>();
         try (Stream<Path> jars = Files.list(testBundles)) {
             for (Path jar : jars.filter(p -> p.getFileName().toString().startsWith("org.jawata.")
                     && p.getFileName().toString().endsWith(".jar")).toList()) {
                 try (JarFile jf = new JarFile(jar.toFile())) {
-                    jf.stream().map(java.util.jar.JarEntry::getName)
-                        .filter(n -> n.endsWith("Test.class") && !n.contains("$"))
-                        .map(n -> n.substring(0, n.length() - 6).replace('/', '.'))
-                        .forEach(classNames::add);
+                    for (String n : jf.stream().map(java.util.jar.JarEntry::getName)
+                            .filter(e -> e.endsWith("Test.class") && !e.contains("$")).toList()) {
+                        String cn = n.substring(0, n.length() - 6).replace('/', '.');
+                        String prev = owner.put(cn, jar.getFileName().toString());
+                        if (prev != null) {
+                            throw new IllegalStateException("FATAL (issue #1): test class " + cn
+                                + " exists in BOTH " + prev + " and " + jar.getFileName()
+                                + " — which one runs would be a coin flip. Purge the stale jar"
+                                + " (a clean dist build does this) and re-run.");
+                        }
+                        classNames.add(cn);
+                    }
                 }
             }
         }
@@ -254,6 +267,34 @@ public final class JawataBoot {
             classNames.removeIf(cn -> !cn.contains(filter));
         }
         return classNames;
+    }
+
+    /**
+     * issue #1 guard: refuse a dist directory holding TWO versions of one
+     * {@code org.jawata.*} bundle. The dist copy step never purged, so a version
+     * bump left the previous jars beside the new ones and the runner LOADED the
+     * stale code while reporting green (observed live 2026-07-21, v3.2.1 jars
+     * shadowing v3.3.0). Version is whatever follows the last {@code -} of the
+     * file name; a name with no version part is its own base.
+     */
+    static void refuseStaleJawataBundles(Path dir) throws Exception {
+        Map<String, String> byBase = new HashMap<>();
+        try (Stream<Path> jars = Files.list(dir)) {
+            for (String jar : jars.map(p -> p.getFileName().toString())
+                    .filter(n -> n.startsWith("org.jawata.") && n.endsWith(".jar"))
+                    .sorted().toList()) {
+                int dash = jar.lastIndexOf('-');
+                String base = dash > 0 ? jar.substring(0, dash) : jar;
+                String prev = byBase.put(base, jar);
+                if (prev != null) {
+                    throw new IllegalStateException("FATAL (issue #1): TWO versions of bundle "
+                        + base + " are present: " + prev + " and " + jar
+                        + " — the older one can silently shadow the newer (a green run may"
+                        + " execute STALE code). Purge the stale jar (a clean dist build"
+                        + " does this) and re-run.");
+                }
+            }
+        }
     }
 
     // ------------------------------------------------------------------ common
@@ -276,6 +317,11 @@ public final class JawataBoot {
 
     /** Package-visible for unit tests. */
     static String osgiBundlesList(Path dir) throws Exception {
+        // issue #1: every boot mode — the resident server exactly as much as
+        // -runTests — assembles its classpath here. A stale production bundle
+        // (org.jawata.core/mcp at a previous version beside the current one)
+        // must refuse the boot, not race the resolver.
+        refuseStaleJawataBundles(dir);
         List<String> entries = new ArrayList<>();
         try (Stream<Path> jars = Files.list(dir)) {
             jars.filter(p -> p.getFileName().toString().endsWith(".jar"))
