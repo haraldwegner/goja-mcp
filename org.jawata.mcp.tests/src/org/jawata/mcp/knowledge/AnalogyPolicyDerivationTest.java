@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test;
  * following from the committed evidence.
  *
  * <p>Without this, the constant is only checked against itself. Here it is
- * re-derived from {@code stage0-27a-profiles.tsv} — the measured profiles of
+ * re-derived from {@code stage0-27a-profiles.json} — the measured profiles of
  * the 12 frozen calibration cues, 4 positive controls and 9 nonsense /
  * plausible-but-absent controls over a 2,040-entry snapshot of the live
  * corpus. Change the constant, or change the data, and this fails.</p>
@@ -144,9 +144,15 @@ class AnalogyPolicyDerivationTest {
      * the cue's accept_set AND the designated entry inside the top-12. It is a
      * RANKING measure — upstream of this policy, which is why the policy cannot
      * move it, and why a speak rate must never be reported in its place.
+     *
+     * <p><b>What this can and cannot do.</b> It freezes the RECORDED
+     * measurement, so a hand-edit of the evidence trips it. It does NOT
+     * re-measure the system: a real ranking regression in production code would
+     * not fail this test. The behavioural gate lives at C2 (no-regression) and
+     * C4 (the ≥11/12 bar), through the wired path.</p>
      */
     @Test
-    void the_frozen_contract_count_is_pinned_and_does_not_regress() throws Exception {
+    void the_frozen_contract_count_is_frozen_at_the_recorded_measurement() throws Exception {
         List<String> pass = new ArrayList<>();
         List<String> fail = new ArrayList<>();
         for (Row r : rows()) {
@@ -191,16 +197,30 @@ class AnalogyPolicyDerivationTest {
     @Test
     void the_margin_sits_inside_a_genuinely_empty_band() throws Exception {
         List<Row> rows = rows();
-        double highestSilent = rows.stream().filter(Row::mustAbstain)
-            .mapToDouble(Row::standOut).filter(v -> v < AnalogyPolicy.STANDOUT_MARGIN)
+        // Computed WITHOUT reference to the margin. The first version filtered
+        // by STANDOUT_MARGIN and then asserted the margin lay between the
+        // results — true by construction, incapable of failing. The second
+        // took the WIDEST gap, which picks 0.1879…0.2150 because cue-07 sits
+        // there; that is the ONE calibration cue the frozen bar permits us to
+        // lose, and it is named here rather than silently skipped.
+        //
+        // The real band: bounded above by the lowest cue that must speak AND
+        // is not the permitted loss, below by the highest control beneath it.
+        final String permittedLoss = "cue-07";
+        double lowestSpoken = rows.stream()
+            .filter(r -> !r.mustAbstain() && !r.id().equals(permittedLoss))
+            .mapToDouble(Row::standOut).min().orElseThrow();
+        double highestSilent = rows.stream()
+            .filter(Row::mustAbstain)
+            .mapToDouble(Row::standOut).filter(v -> v < lowestSpoken)
             .max().orElseThrow();
-        double lowestSpoken = rows.stream().filter(r -> !r.mustAbstain())
-            .mapToDouble(Row::standOut).filter(v -> v >= AnalogyPolicy.STANDOUT_MARGIN)
-            .min().orElseThrow();
-
+        assertEquals(0.2945, lowestSpoken, 1e-4,
+            "the lowest cue that must speak moved (was cue-02 at 0.2945)");
+        assertEquals(0.2707, highestSilent, 1e-4,
+            "the highest silenced control below it moved (was ctl-abs-1 at 0.2707)");
         assertTrue(AnalogyPolicy.STANDOUT_MARGIN > highestSilent
                 && AnalogyPolicy.STANDOUT_MARGIN < lowestSpoken,
-            "the margin must sit strictly INSIDE the empty band ("
+            "the margin must sit strictly INSIDE the widest empty band ("
                 + highestSilent + " … " + lowestSpoken + "), never on an edge");
 
         // No cue may sit inside the band — that is what makes it empty.
@@ -209,6 +229,15 @@ class AnalogyPolicyDerivationTest {
             assertFalse(v > highestSilent && v < lowestSpoken,
                 "the band is no longer empty: " + r.id() + " at " + v);
         }
+        // cue-07, the permitted loss, must still sit BELOW the band — if it
+        // ever rose into or above it, the rule would no longer be losing the
+        // cue we accepted losing, and the 11/12 speak rate would be a different
+        // trade than the one recorded.
+        double permitted = rows.stream().filter(r -> r.id().equals(permittedLoss))
+            .mapToDouble(Row::standOut).findFirst().orElseThrow();
+        assertTrue(permitted < highestSilent,
+            "cue-07 no longer sits below the band (" + permitted + ") — the "
+            + "accepted 1-of-12 loss has changed character; re-derive");
         // And it is the MIDPOINT, so the rule is not fitted to either edge.
         assertEquals((highestSilent + lowestSpoken) / 2, AnalogyPolicy.STANDOUT_MARGIN, 0.002,
             "the margin should be the band's midpoint, not a value tuned to a data point");
@@ -259,9 +288,17 @@ class AnalogyPolicyDerivationTest {
         int showingThree = 0;
         for (Row r : rows()) {
             if (r.mustAbstain()) {
-                assertTrue(AnalogyPolicy.speak(profileOf(r)).size()
-                        <= (r.id().equals("ctl-non-2") || r.id().equals("ctl-non-6") ? 3 : 0),
-                    "a control that must stay silent spoke: " + r.id());
+                // The two tracked failures are pinned at the EXACT number of
+                // wrong analogies they emit today. The old "<= 3" allowance was
+                // vacuous: the rule could have degraded to 3 and 3 while the
+                // "countdown to zero" comment read unchanged.
+                int allowed = switch (r.id()) {
+                    case "ctl-non-2" -> 2;
+                    case "ctl-non-6" -> 1;
+                    default -> 0;
+                };
+                assertEquals(allowed, AnalogyPolicy.speak(profileOf(r)).size(),
+                    "control " + r.id() + " changed how much it wrongly says");
                 continue;
             }
             int n = AnalogyPolicy.speak(profileOf(r)).size();

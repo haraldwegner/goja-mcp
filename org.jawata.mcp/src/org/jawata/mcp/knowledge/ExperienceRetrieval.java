@@ -320,19 +320,24 @@ public final class ExperienceRetrieval {
         }
 
         // The UNION: meaning nominates alongside keyword, never instead of it.
-        // Nomination applies the K + floor volume caps to the full scan taken
-        // above; with no index the map is empty and the keyword half still
-        // answers - the degrade path, intact.
+        //
+        // Sprint 27a D1 - the POLICY decides which of the meaning-nominated
+        // entries are worth saying, replacing the fixed floor-and-cap that used
+        // to stand here. It judges each score against THIS cue's own
+        // background, so a nonsense cue - whose profile is flat - yields
+        // nothing, and a real cue yields as many as genuinely stand out rather
+        // than a constant two. EmbeddingIndex.NOMINATION_FLOOR keeps its
+        // original and different job (a volume cap for fact nomination) and no
+        // longer decides what an agent is told.
+        //
+        // The keyword half is deliberately NOT subject to the policy: with no
+        // embedder the profile is empty and the policy would abstain on
+        // everything, which would turn the degrade path into silence. Keyword
+        // analogies must survive exactly as they did in v3.3.1.
         List<String> ids = new ArrayList<>();
-        int k = 0;
-        for (Map.Entry<String, Double> h : topByScore(meaning)) {
-            if (k >= EmbeddingIndex.DEFAULT_K
-                    || h.getValue() < EmbeddingIndex.NOMINATION_FLOOR) {
-                break;
-            }
-            k++;
-            if (seen.add(h.getKey())) {
-                ids.add(h.getKey());
+        for (String id : AnalogyPolicy.speak(meaning)) {
+            if (seen.add(id)) {
+                ids.add(id);
             }
         }
         for (StoredEntry e : store.byIds(ids)) {
@@ -346,14 +351,10 @@ public final class ExperienceRetrieval {
         if (pool.isEmpty()) {
             return List.of();
         }
+        // The ceiling is the policy's, not a fixed two: how many are SAID is
+        // decided above by how many stood out.
         return ExperienceAnalogies.rank(pool, q, meaning,
-            ExperienceAnalogies.DEFAULT_CAP, jdt);
-    }
-
-    private static List<Map.Entry<String, Double>> topByScore(Map<String, Double> scores) {
-        List<Map.Entry<String, Double>> sorted = new ArrayList<>(scores.entrySet());
-        sorted.sort(Map.Entry.<String, Double>comparingByValue().reversed());
-        return sorted;
+            AnalogyPolicy.MAX_SPOKEN, jdt);
     }
 
     /** The text a cue is embedded as — its words, in the order a human would say them. */

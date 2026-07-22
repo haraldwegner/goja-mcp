@@ -1,6 +1,8 @@
 package org.jawata.mcp.knowledge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.LinkedHashMap;
@@ -12,7 +14,7 @@ import org.junit.jupiter.api.Test;
 /**
  * Sprint 27a Stage 1 — the analogy policy, tested against the Stage-0 DERIVED
  * cases (dossier-27a "Stage 0 evidence"; raw numbers in
- * {@code test-resources/embed-goldens/stage0-27a-profiles.tsv}).
+ * {@code test-resources/embed-goldens/stage0-27a-profiles.json}).
  *
  * <p>The cases below replay measured profiles: a real cue's best answer stands
  * clear of that cue's own background, a nonsense cue's does not. The policy is
@@ -58,8 +60,9 @@ class AnalogyPolicyTest {
 
     @Test
     void cue07_the_accepted_miss_abstains() {
-        // measured: 0.215 / 0.210 / 0.207 — the one calibration cue the frozen
-        // bar (>=11 of 12) permits us to lose.
+        // measured: 0.215 / 0.210 / 0.207 — the one calibration cue the SPEAK
+        // RATE (11 of 12) loses. Not the frozen bar, which is a ranking measure
+        // this policy cannot move.
         assertEquals(List.of(), AnalogyPolicy.speak(profile(0.215, 0.210, 0.207)));
     }
 
@@ -136,15 +139,73 @@ class AnalogyPolicyTest {
         assertEquals(List.of(), AnalogyPolicy.speak(highBg));
     }
 
+    /**
+     * PURITY, read off the class file rather than the source.
+     *
+     * <p>The first version of this test asserted that every declared field was
+     * static and every constructor took no arguments. Neither excludes a store:
+     * a {@code private static ExperienceStore} passes both, and a static call
+     * inside a method body is invisible to either. The C1 audit caught it.</p>
+     *
+     * <p>A class file's constant pool names every type the class actually
+     * references, including ones used only inside method bodies — so scanning
+     * it is the check the gate asks for. Same idiom as
+     * {@code EmbedPackagePurityTest}, which guards the embed package.</p>
+     */
     @Test
     void the_policy_is_pure_no_store_or_rendering_dependencies() {
-        for (var f : AnalogyPolicy.class.getDeclaredFields()) {
-            assertTrue(java.lang.reflect.Modifier.isStatic(f.getModifiers()),
-                "AnalogyPolicy must hold no instance state: " + f.getName());
+        byte[] bytes = classBytes("org.jawata.mcp.knowledge.AnalogyPolicy");
+        assertNotNull(bytes, "could not read AnalogyPolicy.class");
+        List<String> foreign = jawataReferencesOtherThanItself(bytes);
+        assertEquals(List.of(), foreign,
+            "AnalogyPolicy must reference NO other jawata type — it decides from "
+            + "a score profile alone. Found: " + foreign);
+    }
+
+    /** The purity check must be able to FAIL, or it proves nothing. */
+    @Test
+    void the_purity_check_can_actually_fail() {
+        byte[] bytes = classBytes("org.jawata.mcp.knowledge.ExperienceRetrieval");
+        assertNotNull(bytes, "could not read ExperienceRetrieval.class");
+        assertFalse(jawataReferencesOtherThanItself(bytes).isEmpty(),
+            "the scanner found nothing in a class that certainly references "
+            + "other jawata types — the check is broken, not the code");
+    }
+
+    private static byte[] classBytes(String fqn) {
+        String path = "/" + fqn.replace('.', '/') + ".class";
+        try (java.io.InputStream in = AnalogyPolicyTest.class.getResourceAsStream(path)) {
+            if (in == null) {
+                return null;
+            }
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            for (int n; (n = in.read(buf)) > 0; ) {
+                out.write(buf, 0, n);
+            }
+            return out.toByteArray();
+        } catch (Exception e) {
+            return null;
         }
-        for (var ctor : AnalogyPolicy.class.getDeclaredConstructors()) {
-            assertEquals(0, ctor.getParameterCount(),
-                "AnalogyPolicy must not be constructed with collaborators");
+    }
+
+    /** Every {@code org/jawata/...} name in the constant pool bar the class's own. */
+    private static List<String> jawataReferencesOtherThanItself(byte[] bytes) {
+        String blob = new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1);
+        List<String> found = new java.util.ArrayList<>();
+        String needle = "org/jawata/";
+        for (int at = blob.indexOf(needle); at >= 0; at = blob.indexOf(needle, at + 1)) {
+            int end = at;
+            while (end < blob.length() && (Character.isLetterOrDigit(blob.charAt(end))
+                    || "/_$".indexOf(blob.charAt(end)) >= 0)) {
+                end++;
+            }
+            String ref = blob.substring(at, end);
+            if (!ref.startsWith("org/jawata/mcp/knowledge/AnalogyPolicy")
+                    && !found.contains(ref)) {
+                found.add(ref);
+            }
         }
+        return found;
     }
 }

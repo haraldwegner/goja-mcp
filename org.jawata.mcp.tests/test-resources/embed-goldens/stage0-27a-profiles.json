@@ -5,11 +5,12 @@
  "_embedder": "sentence-transformers/all-MiniLM-L6-v2/384/v1 — the SHIPPING Java embedder, not the Python reference (parity already proven at 0.999999)",
  "_derived": {
   "rule": "speak when top1 - median >= 0.283",
-  "calibration_spoken": "11/12 (cue-07 drops; frozen bar >=11)",
+  "calibration_spoken": "SPEAK RATE 11/12 (cue-07 drops). This is NOT the frozen bar.",
   "positive_controls_spoken": "4/4",
   "controls_silenced": "7/9 (ctl-non-2, ctl-non-6 still speak — both match content the corpus genuinely holds)",
   "band": "empty between 0.2707 and 0.2945; the margin is its midpoint, not an edge",
-  "criterion_c": "FAILS as measured. The percentage-paraphrase case returns 'Test plan'; the ratchet lesson 5f7373f4 ranks 28th (0.3371). The policy SPEAKS on this cue (standout 0.3280 >= 0.283) but speaks the WRONG answer — a ranking failure, not a policy failure. The exact dogfood-hour wording is not recorded anywhere; cue-para is a reconstruction and is frozen as such."
+  "criterion_c": "FAILS as measured. The percentage-paraphrase case returns 'Test plan'; the ratchet lesson 5f7373f4 ranks 28th (0.3371). The policy SPEAKS on this cue (standout 0.3280 >= 0.283) but speaks the WRONG answer — a ranking failure, not a policy failure. The exact dogfood-hour wording is not recorded anywhere; cue-para is a reconstruction and is frozen as such.",
+  "frozen_contract": "9/12 on embeddings alone, 10/12 with the symbol path — winner in accept_set AND designated within top-12. Unchanged from Sprint 27. This policy CANNOT move it: it decides whether to speak, not who wins. Reporting the speak rate in its place is self-marking (a rule that always speaks scores 12/12)."
  },
  "profiles": [
   {

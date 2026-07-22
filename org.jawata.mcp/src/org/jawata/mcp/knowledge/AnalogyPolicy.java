@@ -36,10 +36,16 @@ public final class AnalogyPolicy {
      * anything is said.
      *
      * <p>DERIVED, not chosen: Sprint 27a Stage 0, against a 2,040-entry snapshot
-     * of the live corpus. It is <em>margin-centred in an empty band</em> —
-     * the highest control that must stay silent sits at 0.2707, the lowest cue
-     * that must speak at 0.2945, and this value is the midpoint of that gap
-     * rather than either edge, so the rule is not fitted to a data point.</p>
+     * of the live corpus. It is <em>margin-centred in an empty band</em> — the
+     * highest control the rule DOES silence sits at 0.2707, the lowest cue it
+     * speaks at 0.2945, and this value is the midpoint of that gap rather than
+     * either edge, so the rule is not fitted to a data point.</p>
+     *
+     * <p>Said precisely, because the looser phrasing hid it: two controls that
+     * SHOULD be silenced sit ABOVE the whole band — ctl-non-6 at 0.3495 and
+     * ctl-non-2 at 0.3350 — so they are spoken, and no threshold silences them
+     * without also silencing real cues. They are tracked failures, not a
+     * property of the band.</p>
      *
      * <p>At this value 11 of the 12 calibration cues SPEAK — which is a speak
      * rate, NOT the frozen bar. The frozen contract (winner in accept_set AND
