@@ -304,12 +304,24 @@ public final class ExperienceRetrieval {
         // whose words the cue does not contain.
         List<StoredEntry> live = new ArrayList<>();
         for (StoredEntry e : store.all()) {
-            if (!ExperienceEntry.REJECTED.equals(e.status())
-                    && !ExperienceEntry.SUPERSEDED.equals(e.status())) {
+            if (isLive(e)) {
                 live.add(e);
             }
         }
         return LexicalIndex.score(cue, live);
+    }
+
+    /**
+     * A row the user has not thrown away.
+     *
+     * <p>Filtered here as well as at the pool, on purpose: rarity is computed
+     * over whatever corpus is handed in, so leaving dead rows in the scan would
+     * distort every surviving row's weight even though the dead ones could not
+     * be returned.</p>
+     */
+    private static boolean isLive(StoredEntry e) {
+        return !ExperienceEntry.REJECTED.equals(e.status())
+            && !ExperienceEntry.SUPERSEDED.equals(e.status());
     }
 
     /**
@@ -381,8 +393,15 @@ public final class ExperienceRetrieval {
         //
         // The keyword half is deliberately NOT subject to the policy: with no
         // embedder the profile is empty and nothing would be nominated at all,
-        // which would turn the degrade path into silence. Keyword analogies
-        // must survive exactly as they did in v3.3.1.
+        // which would turn the degrade path into silence.
+        //
+        // What is NO LONGER true, corrected at the C2b re-audit: this once read
+        // "keyword analogies must survive exactly as they did in v3.3.1". Since
+        // the merged ranking became the primary order, a keyword-turned-away row
+        // sorts BEHIND everything the merge nominated, and at the cap can be
+        // pushed out of the answer entirely. It still ADMITS exactly what it
+        // always did; what changed is where it lands. Saying otherwise would
+        // assert an invariant three lines above the call site that breaks it.
         Map<String, Double> lexical = lexicalScores(q);
         List<String> nominated = AnalogyPolicy.nominate(meaning, lexical);
         List<String> ids = new ArrayList<>();
@@ -395,7 +414,15 @@ public final class ExperienceRetrieval {
             // A FACT that failed its address gate must NOT reappear here -
             // that would smuggle an unverified statement about code past the
             // gate that exists to stop it.
-            if (KnowledgeKind.of(e).isExperience()) {
+            //
+            // And a REJECTED or SUPERSEDED row must not reappear here either.
+            // Each nominating path filters status for itself - the keyword query
+            // in SQL, EmbeddingIndex in SQL, lexicalScores in Java - and the
+            // C2b audit found the third of those had been added without it. This
+            // is the choke point every nomination converges on, so enforcing it
+            // HERE makes the invariant stream-independent: a fourth nominator
+            // cannot reintroduce the bug a fourth time.
+            if (KnowledgeKind.of(e).isExperience() && isLive(e)) {
                 pool.add(e);
             }
         }

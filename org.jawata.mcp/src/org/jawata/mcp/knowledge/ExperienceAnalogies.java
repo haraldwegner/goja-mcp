@@ -122,17 +122,31 @@ public final class ExperienceAnalogies {
             scored.add(new Scored(e, score, List.copyOf(basis)));
         }
 
-        // THE MERGED ORDER WINS when the nominator supplied one. Boosts still
-        // reorder rows the merge left tied (it ranks only what it nominated),
-        // and rows outside it keep the old meaning-then-recency ordering behind
-        // those it did rank.
+        // THE MERGED ORDER LEADS, and equality still MOVES rows within it.
+        //
+        // A first version of this used the merged position as the sole primary
+        // key. Because every nominated id gets a distinct position, nothing was
+        // ever tied — so the boosts below could not reorder anything the merge
+        // had ranked, and rule 1 of this class ("equality boosts rank; it never
+        // gates") became true only of rows the merge did not nominate. The C2b
+        // re-audit caught it: a same-operation entry that used to lead an
+        // operation cue could lose first place to a merely meaning-near row.
+        //
+        // So a boost now promotes a row by a few PLACES rather than by a score:
+        // local, bounded, and unable to jump a row to the front from far down —
+        // the "reorders but never overturns" property the additive form had on
+        // the cosine scale, carried into rank space where the merge now lives.
+        // Which signals promote, and by how much, is settled by measurement in
+        // promotion() rather than by reading the additive weights across.
         Map<String, Integer> mergedRank = new java.util.HashMap<>();
         for (int i = 0; i < nominated.size(); i++) {
             mergedRank.putIfAbsent(nominated.get(i), i);
         }
         scored.sort(Comparator
-            .comparingInt((Scored s) -> mergedRank.getOrDefault(s.entry().id(),
-                Integer.MAX_VALUE))
+            .comparingInt((Scored s) -> {
+                int at = mergedRank.getOrDefault(s.entry().id(), Integer.MAX_VALUE);
+                return at == Integer.MAX_VALUE ? at : at - promotion(s.basis());
+            })
             .thenComparing(Comparator.comparingDouble(Scored::score).reversed())
             .thenComparing(s -> s.entry().createdAt() == null
                 ? 0L : -s.entry().createdAt().toEpochMilli()));
@@ -143,6 +157,35 @@ public final class ExperienceAnalogies {
             out.add(new Analogy(s.entry(), s.basis(), provenanceOf(s.entry(), jdt)));
         }
         return out;
+    }
+
+    /**
+     * How many places an equality signal moves a row up the merged ranking.
+     *
+     * <p>Ordinal images of the additive boosts (0.15 / 0.10 / 0.05), so a row
+     * that matches the cue's operation, symptom and area together moves at most
+     * six places. Bounded on purpose: equality sharpens the order the evidence
+     * produced, it does not replace it.</p>
+     */
+    private static int promotion(List<String> basis) {
+        int places = 0;
+        if (basis.contains("same operation")) {
+            places += 2;
+        }
+        if (basis.contains("same area of the code")) {
+            places += 1;
+        }
+        // SYMPTOM OVERLAP IS DELIBERATELY NOT PROMOTED. Measured: promoting it
+        // cost a calibration cue (the union fell 11/12 -> 10/12, A/B'd against
+        // the identical corpus). The reason is double counting — word overlap
+        // between a symptom cue and a row's symptoms is precisely what the two
+        // ranking streams already weigh, so promoting it again adds the same
+        // evidence twice and drowns the streams' own ordering. Operation and
+        // area are different: they are exact, categorical facts neither a
+        // cosine nor a BM25 weight can see, so they are what equality has to
+        // contribute. The basis line still SAYS "similar symptom" where it
+        // applies — it is true, it is simply not counted twice.
+        return places;
     }
 
     /**

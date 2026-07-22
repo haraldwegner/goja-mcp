@@ -423,6 +423,17 @@ class SemanticRecallTest {
             putExperience("a note about the opening range and the session, number " + i,
                 "the structure of the session, to be used with the range", null);
         }
+        // A RIVAL that also matches lexically but is the wrong answer, recorded
+        // LAST so recency would put it first. Without it the pool held exactly
+        // one candidate and "the right entry, FIRST" could not fail — the C2b
+        // re-audit's finding, and the reason the claim now has something to beat.
+        //
+        // It shares ONE distinctive word with the cue ("cancel"); the target
+        // shares three ("broker", "confirms", "cancel"). A first version of this
+        // rival repeated "broker" and "cancel" twice each and duly won on term
+        // frequency — which proved the scorer works and the fixture did not.
+        putExperience("a queued order was rejected by the exchange yesterday",
+            "unrelated, though it does mention a cancel", null);
 
         Map<String, Object> answer = keywordOnly.recall(
             symptom("we removed it before the broker confirms the cancel"));
@@ -436,6 +447,50 @@ class SemanticRecallTest {
         assertTrue(String.valueOf(got.get(0).get("basis")).contains("shares distinctive wording"),
             "and it must say the basis is words, since no meaning score exists: "
             + got.get(0).get("basis"));
+    }
+
+    /**
+     * Equality still ranks — asserted THROUGH THE PRODUCTION PATH.
+     *
+     * <p>{@code ExperienceAnalogies}' first rule is "equality boosts rank; it
+     * never gates". The C2b re-audit found that rule had quietly become
+     * unreachable in the product: once the merged ranking became the sole
+     * primary sort key, every nominated row held a distinct position, so no two
+     * rows were ever tied and the boosts could not move anything. The only test
+     * of boost ordering called the overload the product had stopped using — the
+     * guarantee was asserted on a path nothing took.</p>
+     */
+    @Test
+    void a_same_operation_entry_still_leads_through_the_front_door() {
+        requireEmbedder();
+        // The cue carries a SUBJECT (a symptom) as well as an operation. That
+        // shape matters and the first version of this test got it wrong: on an
+        // operation-ONLY cue the fit gate treats a matching operation as a FIT,
+        // so the entry is returned as a vouched entry and never reaches the
+        // analogy path where the boosts live. With a subject present, operation
+        // is a refinement — which is exactly the case the boost exists for.
+        String sameOperation = store.put(ExperienceEntry.of(
+            SymbolFact.of("lesson", "renaming across modules needs a full rebuild",
+                Confidence.MEDIUM).details("stale binaries hid the breakage").build())
+            .operation("rename_symbol").build());
+        // Recorded LATER and worded to score at least as well by meaning, so
+        // leading cannot be an artefact of recency or of the meaning score.
+        putExperience("renaming across modules needs a full rebuild as well",
+            "stale binaries hid the breakage here too", null);
+        for (int i = 0; i < 6; i++) {
+            putExperience("an unrelated note number " + i, "about something else", null);
+        }
+
+        Map<String, Object> answer = semantic.recall(new RecallQuery(
+            null, null, "rename_symbol",
+            "a rebuild was needed after moving code between modules", null));
+        List<Map<String, Object>> got = analogies(answer);
+        assertFalse(got.isEmpty(), "precondition: the cue must return analogies");
+        assertEquals(sameOperation, got.get(0).get("id"),
+            "the same-operation entry must lead — equality ranks, and it must do "
+            + "so on the path the product actually takes");
+        assertTrue(String.valueOf(got.get(0).get("basis")).contains("same operation"),
+            "and it must say so: " + got.get(0).get("basis"));
     }
 
     @Test

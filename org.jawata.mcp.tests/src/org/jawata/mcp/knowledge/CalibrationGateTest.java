@@ -74,30 +74,14 @@ class CalibrationGateTest {
             accept = new ObjectMapper().readTree(in);
         }
 
-        H2ExperienceStore store = H2ExperienceStore.openMemory();
-        try {
-            // The corpus is SAMPLED, not truncated, and every entry named in an
-            // accept set is force-included so the gate is never made easier by
-            // dropping the answer. The bound exists because embedding a real
-            // entry costs 124-660 ms (C4-F5) and the in-framework runner halts
-            // a test with no event for 5 minutes - it cannot tell a long test
-            // from a hang, and that safeguard is worth more than a bigger N.
-            // Fewer rivals is WEAKER evidence than the full corpus; the sample
-            // size is printed and recorded rather than glossed.
-            int rivals = Integer.getInteger("jawata.embed.corpus.sample", 700);
-            int loaded = loadCorpus(store, Path.of(corpusPath), rivals, acceptedIds(accept));
-            EmbeddingIndex index = new EmbeddingIndex(store, svc);
-            int embedded = 0;
-            // Embed in slices so a large corpus cannot stall on one call.
-            for (int pass = 0; pass < 200; pass++) {
-                int n = index.backfill(200);
-                embedded += n;
-                if (n == 0) {
-                    break;
-                }
-            }
-            System.out.printf("[E2 GATE] corpus=%d loaded, %d embedded, identity=%s%n",
-                loaded, embedded, svc.identityKey());
+        // The corpus is SAMPLED, not truncated, and every entry named in an
+        // accept set is force-included so the gate is never made easier by
+        // dropping the answer. It is embedded once for the class (see
+        // embedTheCorpusOnce): fewer rivals is WEAKER evidence than the full
+        // corpus, so the sample is printed and recorded rather than glossed.
+        H2ExperienceStore store = sharedStore;
+        EmbeddingIndex index = sharedIndex;
+        {
             // A gate that cannot find its own answers is measuring its fixture,
             // not the product. Prove every accept-set entry actually landed.
             Set<String> presentIds = new LinkedHashSet<>();
@@ -271,9 +255,7 @@ class CalibrationGateTest {
                 + "the bar is " + EMBEDDINGS_ALONE_BAR + ". Gating only the union "
                 + "would let the symbol path mask exactly this. Failing: "
                 + embeddingsFailing);
-        } finally {
-            store.close();
-        }
+        }                                 // the corpus is closed in @AfterAll
     }
 
     /**
@@ -302,15 +284,12 @@ class CalibrationGateTest {
         EmbeddingService svc = EmbeddingService.shared();
         org.junit.jupiter.api.Assumptions.assumeTrue(svc.available(),
             "[CRITERION C] NOT RUN — embedder unavailable: " + svc.unavailableReason());
-        H2ExperienceStore store = H2ExperienceStore.openMemory();
-        try {
-            int rivals = Integer.getInteger("jawata.embed.corpus.sample", 700);
-            loadCorpus(store, Path.of(corpusPath), rivals, Set.of(RATCHET_LESSON));
-            EmbeddingIndex index = new EmbeddingIndex(store, svc);
-            for (int pass = 0; pass < 200 && index.backfill(200) > 0; pass++) {
-                continue;
-            }
-            ExperienceRetrieval recall = new ExperienceRetrieval(store, () -> null, index);
+        {
+            // The SAME corpus the calibration arms are measured against, embedded
+            // once for the class — same rivals, same rarity statistics, so this
+            // probe and the table beside it describe one fixture and not two.
+            ExperienceRetrieval recall =
+                new ExperienceRetrieval(sharedStore, () -> null, sharedIndex);
             Map<String, Object> answer = recall.recall(
                 new RecallQuery(null, null, null, PARAPHRASE_CUE, null));
 
@@ -327,9 +306,16 @@ class CalibrationGateTest {
             assertTrue(ranked.stream().anyMatch(id -> id.startsWith(RATCHET_LESSON)),
                 "D1 criterion (c): the coverage-collapse question must return the "
                 + "ratchet lesson. Returned: " + ranked);
-        } finally {
-            store.close();
-        }
+            // POSITION, not merely presence. The dossier publishes "returns it
+            // FIRST"; presence alone passed when the answer was 4th, so with
+            // only that assertion the whole ordering repair could be reverted
+            // and no test in the suite would fail. The re-audit found exactly
+            // that, on the sprint's headline. This line is the end-to-end
+            // evidence that the merged ranking reaches the agent.
+            assertTrue(ranked.get(0).startsWith(RATCHET_LESSON),
+                "D1 criterion (c): the ratchet lesson must lead the answer, not "
+                + "merely appear in it — leading id was " + ranked.get(0));
+        }                                 // the corpus is closed in @AfterAll
     }
 
     /** The cue as the agent would pose it: a symbol cue by symbol, prose by symptom. */
@@ -352,6 +338,70 @@ class CalibrationGateTest {
             profile.put(h.id(), h.score());
         }
         return profile;
+    }
+
+    /**
+     * The loaded, embedded corpus — built ONCE for the whole class.
+     *
+     * <p>Both gates here need the same corpus embedded, and each building its
+     * own cost minutes of silence. The runner halts a test that emits no event
+     * for five minutes (it cannot tell a hang from work, and JUnit events are
+     * what reset that clock — printing progress does not), so the second gate
+     * tripped the watchdog and the run died at exit 124 with the measurement
+     * never taken. Embedding once halves the work and puts it inside class
+     * setup rather than inside a single test's silent stretch.</p>
+     *
+     * <p>The sample stays what it was: shortening it would make the gate easier,
+     * which is not a fix for a timing problem.</p>
+     */
+    private static H2ExperienceStore sharedStore;
+    private static EmbeddingIndex sharedIndex;
+
+    @org.junit.jupiter.api.BeforeAll
+    static void embedTheCorpusOnce() throws Exception {
+        String corpusPath = System.getProperty(CORPUS_PROPERTY);
+        if (corpusPath == null || !Files.exists(Path.of(corpusPath))
+                || !EmbeddingService.shared().available()) {
+            return;                       // the tests abort with the reason
+        }
+        JsonNode accept;
+        try (InputStream in = CalibrationGateTest.class.getResourceAsStream(ACCEPT_SETS)) {
+            accept = new ObjectMapper().readTree(in);
+        }
+        Set<String> mustInclude = new LinkedHashSet<>(acceptedIds(accept));
+        mustInclude.add(RATCHET_LESSON);  // criterion (c)'s answer, or it cannot be found
+        sharedStore = H2ExperienceStore.openMemory();
+        int rivals = Integer.getInteger("jawata.embed.corpus.sample", 700);
+        int loaded = loadCorpus(sharedStore, Path.of(corpusPath), rivals, mustInclude);
+        sharedIndex = new EmbeddingIndex(sharedStore, EmbeddingService.shared());
+        int embedded = embedAll(sharedIndex, "CORPUS");
+        System.out.printf("[CORPUS] %d loaded, %d embedded, identity=%s%n",
+            loaded, embedded, EmbeddingService.shared().identityKey());
+    }
+
+    @org.junit.jupiter.api.AfterAll
+    static void closeTheCorpus() {
+        if (sharedStore != null) {
+            sharedStore.close();
+            sharedStore = null;
+            sharedIndex = null;
+        }
+    }
+
+    /** Embed the whole loaded corpus, reporting each slice for diagnosis. */
+    private static int embedAll(EmbeddingIndex index, String label) {
+        int embedded = 0;
+        long started = System.currentTimeMillis();
+        for (int pass = 0; pass < 200; pass++) {
+            int n = index.backfill(200);
+            embedded += n;
+            if (n == 0) {
+                break;
+            }
+            System.out.printf("[%s] embedded %d rows (%.0fs)%n",
+                label, embedded, (System.currentTimeMillis() - started) / 1000.0);
+        }
+        return embedded;
     }
 
     /** A recall answer as one ranking: gated entries first, then analogies. */

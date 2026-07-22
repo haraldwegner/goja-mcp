@@ -106,7 +106,7 @@ class LexicalIndexTest {
         for (int i = 0; i < 40; i++) {
             corpus.add(row("filler-" + i, "an unrelated note, number " + i, null));
         }
-        for (int i = 0; i < 10; i++) {          // "coverage": 12 of 52 rows
+        for (int i = 0; i < 10; i++) {          // "coverage": 11 of 52 rows
             corpus.add(row("common-" + i, "a note about coverage numbers", null));
         }
         corpus.add(row("alsoRare", "something that happened overnight", null));
