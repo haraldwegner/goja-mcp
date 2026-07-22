@@ -126,6 +126,22 @@ public final class EmbeddingIndex {
         return nearest("tool_experience", "id", cue, k, floor);
     }
 
+    /**
+     * The FULL unfloored score profile for a cue over the tool-experience lane —
+     * every scored id, for {@link AnalogyPolicy} to decide. Sprint 27a routes
+     * the precedent advisory tier through the policy, and the policy judges the
+     * whole profile, not a pre-floored top-K: pre-truncating would hide the very
+     * distribution the decision is made against.
+     */
+    public java.util.Map<String, Double> toolExperienceProfile(String cue) {
+        java.util.Map<String, Double> profile = new java.util.LinkedHashMap<>();
+        for (Hit h : nearest("tool_experience", "id", cue,
+                Integer.MAX_VALUE, Double.NEGATIVE_INFINITY)) {
+            profile.put(h.id(), h.score());
+        }
+        return profile;
+    }
+
     /** Meaning-nearest entries at the plan's volume caps ({@link #DEFAULT_K},
      *  {@link #NOMINATION_FLOOR}) — the ordinary nomination call. */
     public List<Hit> nearestEntries(String cue) {

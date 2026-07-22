@@ -39,9 +39,31 @@ public final class ExperienceAdvisor implements Advisor {
     private final ExperienceStore store;
     private final ExperienceRetrieval retrieval;
 
+    /**
+     * Keyword-only advisor. Kept for the tests written before meaning recall
+     * existed; production uses the index-bearing constructor below, because a
+     * pre-advice surface with no embedder can only match on exact words.
+     */
     public ExperienceAdvisor(ExperienceStore store, Supplier<IJdtService> jdt) {
+        this(store, jdt, null);
+    }
+
+    /**
+     * Sprint 27a D2 — the pre-advice surface, running the SAME union recall the
+     * front door does. Before this it built a keyword-only retriever, so a
+     * meaning-only lesson never reached the refactoring pre-advice however well
+     * it matched — the surface computed nothing to discard, and then discarded
+     * it (audit finding F3).
+     */
+    public ExperienceAdvisor(ExperienceStore store, Supplier<IJdtService> jdt,
+                             EmbeddingIndex index) {
         this.store = store;
-        this.retrieval = new ExperienceRetrieval(store, jdt);
+        this.retrieval = new ExperienceRetrieval(store, jdt, index);
+    }
+
+    /** Install the quality ledger so this surface's speak/abstain is counted. */
+    public void setQualityLedger(QualityLedger ledger) {
+        retrieval.setQualityLedger(ledger);
     }
 
     @Override
@@ -56,17 +78,33 @@ public final class ExperienceAdvisor implements Advisor {
         if (q.isEmpty()) {
             return List.of();
         }
-        Map<String, Object> r = retrieval.recall(q);
-        if (!ExperienceRetrieval.RESULT_MATCH.equals(r.get("result"))) {
-            return List.of();                        // absence → nothing to advise
-        }
-        List<Map<String, Object>> entries = (List<Map<String, Object>>) r.get("entries");
+        // The SAME union recall the front door runs, counted to the pre-advice
+        // surface — so the quality ledger records when this surface actually
+        // reaches the agent, and when it stays silent, as a side effect of the
+        // normal call rather than through a separate feed.
+        Map<String, Object> r = retrieval.recall(q, QualityLedger.SURFACE_CHOKE_ADVISORY);
+
+        // A vouched entry leads; failing that, the meaning/word NOMINEES recall
+        // already computed. Before Sprint 27a this method read `entries` only
+        // and returned nothing on RESULT_ANALOGY, so every analogy the recall
+        // produced here was thrown away (F3). Both are rendered through the one
+        // carrier, so the ontology's rules cannot hold on the front door and
+        // lapse here.
+        List<Map<String, Object>> vouched = (List<Map<String, Object>>) r.get("entries");
+        List<Map<String, Object>> nominees =
+            (List<Map<String, Object>>) r.getOrDefault("analogies", List.of());
         List<String> advice = new ArrayList<>();
-        for (Map<String, Object> e : entries) {
+        for (Map<String, Object> e : vouched) {
             if (advice.size() >= MAX_ADVICE) {
                 break;
             }
             advice.add(renderAdvice(e));
+        }
+        for (Map<String, Object> a : nominees) {
+            if (advice.size() >= MAX_ADVICE) {
+                break;
+            }
+            advice.add(renderAdvice(a));
         }
         return advice;
     }
@@ -142,6 +180,23 @@ public final class ExperienceAdvisor implements Advisor {
         }
         if (e.get("resolved_pointer") instanceof Map<?, ?> p && Boolean.TRUE.equals(p.get("stale"))) {
             sb.append(" [pointer stale]");
+        }
+        // Sprint 27a D2: when this is an analogy (a nominee, not a vouched
+        // entry), it MUST carry its basis in words and its provenance — the
+        // rendering contract's positive half. A bare summary would let a nominee
+        // read as a vouched fact, the distinction the whole retrieval ontology
+        // turns on.
+        if (e.get("basis") instanceof List<?> basis && !basis.isEmpty()) {
+            sb.append(" — ").append(String.join(", ",
+                basis.stream().map(String::valueOf).toList()));
+        }
+        Object provenance = e.get("provenance");
+        if (provenance != null) {
+            sb.append(" (").append(provenance).append(')');
+        }
+        Object framing = e.get("framing");
+        if (framing != null) {
+            sb.append(" [").append(framing).append(']');
         }
         return sb.toString();
     }

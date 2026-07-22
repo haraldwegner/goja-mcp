@@ -92,6 +92,21 @@ public final class QualityLedger {
     }
 
     /**
+     * A recall through {@code surface} found nothing to say and STAYED SILENT.
+     *
+     * <p>The symmetric counterpart of {@link #fired}, and not new machinery —
+     * the same per-surface bump, a second key. Sprint 27a wires it; Sprint 33
+     * reads it. Without it a surface's silence is invisible, and "how often does
+     * this surface actually reach the agent" — {@code fired / (fired + silent)}
+     * — cannot be computed at all: a surface that never speaks and a surface
+     * that is never consulted look identical, which is the honesty gap the whole
+     * ledger exists to close.</p>
+     */
+    public void silent(String surface) {
+        bump("silent." + safe(surface));
+    }
+
+    /**
      * A negative precedent was SURFACED for a (tool, target) — the steer was
      * shown and the justification-cost is now owed if it is used anyway.
      *

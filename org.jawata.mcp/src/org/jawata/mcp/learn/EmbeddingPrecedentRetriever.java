@@ -5,6 +5,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.jawata.mcp.knowledge.AnalogyPolicy;
 import org.jawata.mcp.knowledge.EmbeddingIndex;
 import org.jawata.mcp.knowledge.ToolExperienceStore;
 
@@ -22,8 +23,9 @@ import org.jawata.mcp.knowledge.ToolExperienceStore;
  */
 public final class EmbeddingPrecedentRetriever implements PrecedentRetriever {
 
-    /** Semantic widening is capped small: precedents advise, they never flood. */
-    private static final int SEMANTIC_K = 5;
+    // Semantic widening was capped at a fixed five with a fixed floor; Sprint
+    // 27a hands that judgement to AnalogyPolicy, which caps and floors by the
+    // one rule every surface shares.
 
     private final ToolExperienceStore store;
     private final EmbeddingIndex index;      // may be null: keyword-only degrade
@@ -48,11 +50,14 @@ public final class EmbeddingPrecedentRetriever implements PrecedentRetriever {
         }
         List<ToolExperience> out = new ArrayList<>(keyword);
         try {
-            List<String> ids = new ArrayList<>();
-            for (EmbeddingIndex.Hit h : index.nearestToolExperience(
-                    query, SEMANTIC_K, EmbeddingIndex.NOMINATION_FLOOR)) {
-                ids.add(h.id());
-            }
+            // Sprint 27a D2: the advisory tier passes THE POLICY before speaking,
+            // replacing the fixed cap-of-five and the old nomination floor. The
+            // policy judges the whole score profile — a similar-case advisory
+            // appears when one genuinely stands out, and nothing when none does,
+            // the same rule the recall front door obeys. Meaning-only here: the
+            // lexical stream is over the experience store, not this lane.
+            List<String> ids = AnalogyPolicy.nominate(
+                index.toolExperienceProfile(query), java.util.Map.of());
             for (ToolExperience e : store.byIds(ids)) {
                 if (seen.add(e.situation() + "|" + e.tool() + "|" + e.outcome())) {
                     out.add(e);

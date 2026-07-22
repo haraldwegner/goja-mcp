@@ -105,6 +105,8 @@ public class JawataApplication implements IApplication {
     private FindQualityIssueTool findQualityIssueTool;
     /** Sprint 21b (item D): held for the automatic post-project-load refresh. */
     private ExperienceTool experienceTool;
+    /** Sprint 27a D2: held so the quality ledger reaches the pre-advice surface. */
+    private ExperienceAdvisor experienceAdvisor;
     private McpProtocolHandler protocolHandler;
     private volatile WorkspaceFileWatcher workspaceWatcher;
     private volatile Transport activeTransport;
@@ -189,6 +191,13 @@ public class JawataApplication implements IApplication {
             toolRegistry.setQualityLedger(qualityLedger);
             toolExperienceRecorder.setQualityLedger(qualityLedger,
                 toolRegistry.precedentLedger());
+            if (experienceAdvisor != null) {
+                // Sprint 27a D2: the fourth producer. Without this the pre-advice
+                // surface reaches the agent uncounted — built, wired, and
+                // invisible to the honesty surface, which is the shape this
+                // ledger exists to prevent.
+                experienceAdvisor.setQualityLedger(qualityLedger);
+            }
             if (experienceTool != null) {
                 experienceTool.setQualityLedger(qualityLedger);
             } else {
@@ -308,6 +317,22 @@ public class JawataApplication implements IApplication {
      * half-embedded answers half the questions it should, and a silent partial
      * state is indistinguishable from a broken one.</p>
      */
+    /**
+     * The embedding index over the experience store, or {@code null} when the
+     * store is not an H2 one (the meaning path needs the H2 vector column).
+     *
+     * <p>One place that builds it, so every surface that runs meaning recall —
+     * the front door, the pre-advice, dispatch — is wired the same way and none
+     * silently gets the keyword-only retriever.</p>
+     */
+    private org.jawata.mcp.knowledge.EmbeddingIndex experienceEmbeddingIndex() {
+        if (experienceStore instanceof org.jawata.mcp.knowledge.H2ExperienceStore h2) {
+            return new org.jawata.mcp.knowledge.EmbeddingIndex(h2,
+                org.jawata.mcp.knowledge.EmbeddingService.shared());
+        }
+        return null;
+    }
+
     private void startEmbeddingBackfill(org.jawata.mcp.knowledge.H2ExperienceStore h2) {
         final int batch = 1000;
         Thread t = new Thread(() -> {
@@ -870,8 +895,15 @@ public class JawataApplication implements IApplication {
         // inspect lifecycle (changes + undo handles in refactoringChangeCache, 1h TTL, LRU).
         // Sprint 21 (v2.0): inject the store-backed advisor so the plan lifecycle consults +
         // records against the knowledge store (fills the Sprint-18 seam; was NoOpAdvisor).
+        // Sprint 27a D2: the pre-advice surface runs the SAME union recall the
+        // front door does — so it is given the embedding index, not left
+        // keyword-only. Held in a field so the quality ledger (wired later in
+        // start()) reaches it; a surface whose speak/abstain is uncounted is
+        // exactly the "component available: true" blindness v3.4.0 shipped.
+        experienceAdvisor = new ExperienceAdvisor(experienceStore, () -> jdtService,
+            experienceEmbeddingIndex());
         toolRegistry.register(new RefactoringTool(() -> jdtService, refactoringChangeCache,
-            new ExperienceAdvisor(experienceStore, () -> jdtService)));
+            experienceAdvisor));
         // Sprint 14b: composite closing the find_duplicate_code loop.
         toolRegistry.register(new ReplaceDuplicatesTool(() -> jdtService, refactoringChangeCache));
 

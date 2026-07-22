@@ -183,6 +183,10 @@ public final class ExperienceRetrieval {
 
         if (fitting.isEmpty()) {
             if (analogies.isEmpty()) {
+                // Sprint 27a D2: the surface was consulted and STAYED SILENT.
+                // Counted as the abstain counterpart of a speak, so a silent
+                // surface is distinguishable from one never consulted.
+                count(() -> quality.silent(surface));
                 out.put("result", RESULT_ABSENCE);
                 out.put("reason", candidates.isEmpty() ? "no candidates" : "no candidate fit the cue's scope");
                 out.put("message", "No known knowledge for this cue.");
