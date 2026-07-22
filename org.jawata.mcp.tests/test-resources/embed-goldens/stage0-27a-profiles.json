@@ -8,7 +8,8 @@
   "calibration_spoken": "11/12 (cue-07 drops; frozen bar >=11)",
   "positive_controls_spoken": "4/4",
   "controls_silenced": "7/9 (ctl-non-2, ctl-non-6 still speak — both match content the corpus genuinely holds)",
-  "band": "empty between 0.2707 and 0.2945; the margin is its midpoint, not an edge"
+  "band": "empty between 0.2707 and 0.2945; the margin is its midpoint, not an edge",
+  "criterion_c": "FAILS as measured. The percentage-paraphrase case returns 'Test plan'; the ratchet lesson 5f7373f4 ranks 28th (0.3371). The policy SPEAKS on this cue (standout 0.3280 >= 0.283) but speaks the WRONG answer — a ranking failure, not a policy failure. The exact dogfood-hour wording is not recorded anywhere; cue-para is a reconstruction and is frozen as such."
  },
  "profiles": [
   {
@@ -25,7 +26,8 @@
    "sd": 0.0959,
    "designated_score": 0.427,
    "designated_rank": 3,
-   "top1_in_accept": false
+   "top1_in_accept": false,
+   "cue_text": "the position monitor alarms about a mismatch whenever we bet against a stock"
   },
   {
    "cue_id": "cue-02",
@@ -41,7 +43,8 @@
    "sd": 0.0917,
    "designated_score": 0.3195,
    "designated_rank": 11,
-   "top1_in_accept": true
+   "top1_in_accept": true,
+   "cue_text": "removing the record from the lookup table too early meant a late confirmation reached the wrong owner"
   },
   {
    "cue_id": "cue-03",
@@ -57,7 +60,8 @@
    "sd": 0.1071,
    "designated_score": 0.5696,
    "designated_rank": 1,
-   "top1_in_accept": true
+   "top1_in_accept": true,
+   "cue_text": "a lost websocket acknowledgement leaves an order that can never be called off"
   },
   {
    "cue_id": "cue-04",
@@ -73,7 +77,8 @@
    "sd": 0.1131,
    "designated_score": 0.5596,
    "designated_rank": 4,
-   "top1_in_accept": true
+   "top1_in_accept": true,
+   "cue_text": "never cancel before broker confirms"
   },
   {
    "cue_id": "cue-05",
@@ -89,7 +94,8 @@
    "sd": 0.0699,
    "designated_score": 0.2857,
    "designated_rank": 1,
-   "top1_in_accept": true
+   "top1_in_accept": true,
+   "cue_text": "browser window comes up empty"
   },
   {
    "cue_id": "cue-06",
@@ -105,7 +111,8 @@
    "sd": 0.0697,
    "designated_score": 0.389,
    "designated_rank": 1,
-   "top1_in_accept": true
+   "top1_in_accept": true,
+   "cue_text": "the app starts but nothing paints inside the frame"
   },
   {
    "cue_id": "cue-07",
@@ -121,7 +128,8 @@
    "sd": 0.0543,
    "designated_score": 0.2084,
    "designated_rank": 1,
-   "top1_in_accept": true
+   "top1_in_accept": true,
+   "cue_text": "how close should two vectors be before we call them the same thing"
   },
   {
    "cue_id": "cue-08",
@@ -137,7 +145,8 @@
    "sd": 0.1128,
    "designated_score": 0.4466,
    "designated_rank": 6,
-   "top1_in_accept": true
+   "top1_in_accept": true,
+   "cue_text": "opening a new trade killed the protective stop on the other side and left shares unguarded"
   },
   {
    "cue_id": "cue-09",
@@ -153,7 +162,8 @@
    "sd": 0.1108,
    "designated_score": 0.4586,
    "designated_rank": 23,
-   "top1_in_accept": false
+   "top1_in_accept": false,
+   "cue_text": "which long term java release do we move the trading platform to and why"
   },
   {
    "cue_id": "cue-10",
@@ -169,7 +179,8 @@
    "sd": 0.0988,
    "designated_score": 0.5128,
    "designated_rank": 1,
-   "top1_in_accept": true
+   "top1_in_accept": true,
+   "cue_text": "is the tick recorder costing us anything while trading live"
   },
   {
    "cue_id": "cue-11",
@@ -185,7 +196,8 @@
    "sd": 0.0964,
    "designated_score": 0.2623,
    "designated_rank": 298,
-   "top1_in_accept": false
+   "top1_in_accept": false,
+   "cue_text": "com.jats2.gateways.alpol.alpaca.orders.OrderProcessor#getAllPositions"
   },
   {
    "cue_id": "cue-12",
@@ -201,7 +213,8 @@
    "sd": 0.0646,
    "designated_score": 0.3787,
    "designated_rank": 3,
-   "top1_in_accept": true
+   "top1_in_accept": true,
+   "cue_text": "AlgoManager"
   },
   {
    "cue_id": "ctl-pos-1",
@@ -217,7 +230,8 @@
    "sd": 0.0646,
    "designated_score": 0.4827,
    "designated_rank": 1,
-   "top1_in_accept": true
+   "top1_in_accept": true,
+   "cue_text": "blank tauri webview on linux"
   },
   {
    "cue_id": "ctl-pos-2",
@@ -233,7 +247,8 @@
    "sd": 0.1019,
    "designated_score": 0.5967,
    "designated_rank": 1,
-   "top1_in_accept": true
+   "top1_in_accept": true,
+   "cue_text": "broker_position_drift on short position"
   },
   {
    "cue_id": "ctl-pos-3",
@@ -249,7 +264,8 @@
    "sd": 0.0588,
    "designated_score": 0.4223,
    "designated_rank": 1,
-   "top1_in_accept": true
+   "top1_in_accept": true,
+   "cue_text": "cosine threshold"
   },
   {
    "cue_id": "ctl-pos-4",
@@ -265,7 +281,8 @@
    "sd": 0.1004,
    "designated_score": 0.6377,
    "designated_rank": 1,
-   "top1_in_accept": true
+   "top1_in_accept": true,
+   "cue_text": "algomanager broker-confirm cleanup"
   },
   {
    "cue_id": "ctl-non-1",
@@ -281,7 +298,8 @@
    "sd": 0.0713,
    "designated_score": -1.0,
    "designated_rank": -1,
-   "top1_in_accept": false
+   "top1_in_accept": false,
+   "cue_text": "purple elephant quantum sandwich protocol"
   },
   {
    "cue_id": "ctl-non-2",
@@ -297,7 +315,8 @@
    "sd": 0.0737,
    "designated_score": -1.0,
    "designated_rank": -1,
-   "top1_in_accept": false
+   "top1_in_accept": false,
+   "cue_text": "the marzipan barometer disputes tuesday's velvet inventory"
   },
   {
    "cue_id": "ctl-non-3",
@@ -313,7 +332,8 @@
    "sd": 0.0663,
    "designated_score": -1.0,
    "designated_rank": -1,
-   "top1_in_accept": false
+   "top1_in_accept": false,
+   "cue_text": "how do i braise a wombat in lunar syrup"
   },
   {
    "cue_id": "ctl-non-4",
@@ -329,7 +349,8 @@
    "sd": 0.0678,
    "designated_score": -1.0,
    "designated_rank": -1,
-   "top1_in_accept": false
+   "top1_in_accept": false,
+   "cue_text": "seventeen accordions negotiating with a tide table"
   },
   {
    "cue_id": "ctl-non-5",
@@ -345,7 +366,8 @@
    "sd": 0.0559,
    "designated_score": -1.0,
    "designated_rank": -1,
-   "top1_in_accept": false
+   "top1_in_accept": false,
+   "cue_text": "recipe for sourdough starter in a humid basement"
   },
   {
    "cue_id": "ctl-non-6",
@@ -361,7 +383,8 @@
    "sd": 0.0605,
    "designated_score": -1.0,
    "designated_rank": -1,
-   "top1_in_accept": false
+   "top1_in_accept": false,
+   "cue_text": "what is the airspeed velocity of an unladen swallow"
   },
   {
    "cue_id": "ctl-non-7",
@@ -377,7 +400,25 @@
    "sd": 0.063,
    "designated_score": -1.0,
    "designated_rank": -1,
-   "top1_in_accept": false
+   "top1_in_accept": false,
+   "cue_text": "my cat keeps knocking the thermostat off the wall"
+  },
+  {
+   "cue_id": "cue-para",
+   "kind": "real",
+   "top1_id": "a3f47ce7",
+   "top1": 0.4501,
+   "top2": 0.4501,
+   "top3": 0.392,
+   "median": 0.1221,
+   "p90": 0.2367,
+   "p99": 0.3438,
+   "mean": 0.1233,
+   "sd": 0.0886,
+   "designated_score": 0.3371,
+   "designated_rank": 28,
+   "top1_in_accept": false,
+   "cue_text": "our test coverage looked like it fell from 77% to 34% overnight"
   },
   {
    "cue_id": "ctl-abs-1",
@@ -393,7 +434,8 @@
    "sd": 0.0669,
    "designated_score": -1.0,
    "designated_rank": -1,
-   "top1_in_accept": false
+   "top1_in_accept": false,
+   "cue_text": "how do i configure kubernetes horizontal pod autoscaling"
   },
   {
    "cue_id": "ctl-abs-2",
@@ -409,8 +451,10 @@
    "sd": 0.0903,
    "designated_score": -1.0,
    "designated_rank": -1,
-   "top1_in_accept": false
+   "top1_in_accept": false,
+   "cue_text": "the rust borrow checker rejects my mutable alias"
   }
  ],
- "_corpus_snapshot": "post-backfill, as measured against — jawata-enterprise (PRIVATE) docs/sprints/jawata-mcp/corpus-snapshots/corpus-2026-07-22-27a-stage0.mv.db.gz, 17,965,056 bytes. The pre-backfill copy (4f22292f…, 24,395,776 B) was mutated in place by the backfill and no longer exists: archive BEFORE anything writes."
+ "_corpus_snapshot": "post-backfill, as measured against — jawata-enterprise (PRIVATE) docs/sprints/jawata-mcp/corpus-snapshots/corpus-2026-07-22-27a-stage0.mv.db.gz, 17,965,056 bytes. The pre-backfill copy (4f22292f…, 24,395,776 B) was mutated in place by the backfill and no longer exists: archive BEFORE anything writes.",
+ "_cue_text": "Every cue's TEXT is committed here: the questions behind a blocking gate must be reproducible, not just their ids and scores."
 }

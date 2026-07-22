@@ -90,12 +90,15 @@ class AnalogyPolicyDerivationTest {
     @Test
     void the_committed_margin_still_holds_the_frozen_contract() throws Exception {
         List<Row> rows = rows();
-        assertEquals(25, rows.size(), "the committed profile set changed shape");
+        assertEquals(26, rows.size(), "the committed profile set changed shape");
 
         List<String> calibrationSpoken = new ArrayList<>();
         List<String> positiveSpoken = new ArrayList<>();
         List<String> wronglySpoken = new ArrayList<>();
         for (Row r : rows) {
+            if (r.id().equals("cue-para")) {
+                continue;              // criterion (c)'s cue, asserted separately
+            }
             boolean spoke = !AnalogyPolicy.speak(profileOf(r)).isEmpty();
             if (r.calibration() && spoke) {
                 calibrationSpoken.add(r.id());
@@ -147,7 +150,7 @@ class AnalogyPolicyDerivationTest {
         List<String> pass = new ArrayList<>();
         List<String> fail = new ArrayList<>();
         for (Row r : rows()) {
-            if (!r.calibration()) {
+            if (!r.calibration() || r.id().equals("cue-para")) {
                 continue;
             }
             (r.top1InAccept() && r.designatedRank() <= 12 ? pass : fail).add(r.id());
@@ -162,6 +165,27 @@ class AnalogyPolicyDerivationTest {
         assertEquals(List.of("cue-01", "cue-09", "cue-11"), fail,
             "the failing cues changed; cue-01 and cue-09 are the two standing "
             + "symptom-shaped failures D3 exists to lift, cue-11 is the FQN case");
+    }
+
+    /**
+     * Stage-0 criterion (c) — the spec's third D1 measure: "the
+     * percentage-paraphrase case ... returns the ratchet lesson". It does NOT,
+     * and this pins the failure rather than leaving the criterion unaddressed
+     * as it was until the C0 audit found it missing. The policy SPEAKS here;
+     * what fails is WHO WINS, which is ranking and therefore D3's to fix.
+     */
+    @Test
+    void criterion_c_the_paraphrase_case_currently_returns_the_wrong_answer()
+            throws Exception {
+        Row para = rows().stream().filter(r -> r.id().equals("cue-para"))
+            .findFirst().orElseThrow();
+        assertFalse(para.top1InAccept(),
+            "criterion (c) now PASSES — the paraphrase case returns the ratchet "
+            + "lesson. Update the dossier and turn this into the positive gate.");
+        assertEquals(28, para.designatedRank(),
+            "the ratchet lesson's rank for the paraphrase cue moved from 28");
+        assertFalse(AnalogyPolicy.speak(profileOf(para)).isEmpty(),
+            "the policy should still SPEAK here — the defect is ranking, not silence");
     }
 
     @Test

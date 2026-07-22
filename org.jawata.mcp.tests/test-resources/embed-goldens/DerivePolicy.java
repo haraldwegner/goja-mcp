@@ -42,7 +42,7 @@ public class DerivePolicy {
                 "/tmp/claude-1000/-home-harald-CursorProjects-jawata-studio/"
                 + "4526476c-40e7-4ce7-b547-322dc393449c/scratchpad/profiles.tsv");
             out.println("cue_id\tkind\ttop1_id\ttop1\ttop2\ttop3\tmedian\tp90\tp99\tmean\tsd"
-                      + "\tdesignated_score\tdesignated_rank\ttop1_in_accept");
+                      + "\tdesignated_score\tdesignated_rank\ttop1_in_accept\tcue_text");
 
             for (Cue q : cues) {
                 float[] v = svc.embed(q.text());
@@ -79,9 +79,10 @@ public class DerivePolicy {
                 boolean inAccept = q.acceptSet() != null
                     && q.acceptSet().stream().anyMatch(t1id::startsWith);
 
-                out.printf("%s\t%s\t%s\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%d\t%s%n",
+                out.printf("%s\t%s\t%s\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%d\t%s\t%s%n",
                     q.id(), q.nonsense() ? "NONSENSE" : "real", t1id.substring(0, 8),
-                    t1, t2, t3, median, p90, p99, mean, sd, desScore, desRank, inAccept);
+                    t1, t2, t3, median, p90, p99, mean, sd, desScore, desRank, inAccept,
+                    q.text().replace('\t', ' '));
 
                 System.out.printf("%-12s %-9s top1=%.4f t2=%.4f med=%.4f p99=%.4f sd=%.4f"
                         + "  z=%.2f  gap=%.4f  des#%d(%.4f) accept=%s  [%s]%n",
@@ -199,6 +200,10 @@ public class DerivePolicy {
         l.add(new Cue("ctl-non-5", "recipe for sourdough starter in a humid basement", null, null, true));
         l.add(new Cue("ctl-non-6", "what is the airspeed velocity of an unladen swallow", null, null, true));
         l.add(new Cue("ctl-non-7", "my cat keeps knocking the thermostat off the wall", null, null, true));
+        // Stage-0 criterion (c): the percentage-paraphrase case. Phrased in
+        // percentages, sharing almost no words with the lesson it must find.
+        l.add(new Cue("cue-para", "our test coverage looked like it fell from 77% to 34% overnight",
+                      "5f7373f4", List.of("5f7373f4"), false));
         // plausible-but-absent: software-shaped, but nothing in this corpus answers it
         l.add(new Cue("ctl-abs-1", "how do i configure kubernetes horizontal pod autoscaling", null, null, true));
         l.add(new Cue("ctl-abs-2", "the rust borrow checker rejects my mutable alias", null, null, true));
