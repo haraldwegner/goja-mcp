@@ -58,14 +58,45 @@ public final class ExperienceAnalogies {
     public static List<Analogy> rank(List<StoredEntry> candidates, RecallQuery cue,
                                      Map<String, Double> semantic, int cap,
                                      Supplier<IJdtService> jdt) {
+        return rank(candidates, cue, semantic, Map.of(), List.of(), cap, jdt);
+    }
+
+    /**
+     * Rank experience candidates, ordering by the MERGED ranking the nominator
+     * produced rather than re-deriving an order from meaning alone.
+     *
+     * <p><b>Why the extra parameters exist.</b> Until the C2b audit, this method
+     * scored every candidate as its raw cosine plus three fixed boosts — so a
+     * row nominated only by WORDS scored 0.0 and sorted below everything, and
+     * with the embedder off every row scored 0.0 and the order collapsed to
+     * newest-first. That is the very defect Sprint 27a D9 set out to end, and it
+     * survived inside the renderer while the merge above it was correct.</p>
+     *
+     * @param nominated the merged order from {@code AnalogyPolicy}, best first;
+     *                  empty falls back to meaning-then-recency as before
+     * @param lexical   word-overlap scores, used only to state a basis in words
+     */
+    public static List<Analogy> rank(List<StoredEntry> candidates, RecallQuery cue,
+                                     Map<String, Double> semantic,
+                                     Map<String, Double> lexical,
+                                     List<String> nominated, int cap,
+                                     Supplier<IJdtService> jdt) {
         record Scored(StoredEntry entry, double score, List<String> basis) {
         }
         List<Scored> scored = new ArrayList<>();
         for (StoredEntry e : candidates) {
             Set<String> basis = new LinkedHashSet<>();
-            double score = semantic.getOrDefault(e.id(), 0.0);
-            if (score > 0) {
+            double meaning = semantic.getOrDefault(e.id(), 0.0);
+            double score = meaning;
+            // "meaning-near" is a CLAIM, and it must not be made for a row the
+            // meaning path did not actually place: a row admitted on words can
+            // carry a cosine below the junk floor, and labelling that
+            // meaning-near states a basis the evidence does not support.
+            if (meaning >= AnalogyPolicy.JUNK_FLOOR) {
                 basis.add("meaning-near");
+            }
+            if (lexical.getOrDefault(e.id(), 0.0) > 0) {
+                basis.add("shares distinctive wording");
             }
 
             // BOOSTS. Deliberately additive and modest: they reorder, they never
@@ -91,7 +122,18 @@ public final class ExperienceAnalogies {
             scored.add(new Scored(e, score, List.copyOf(basis)));
         }
 
-        scored.sort(Comparator.comparingDouble(Scored::score).reversed()
+        // THE MERGED ORDER WINS when the nominator supplied one. Boosts still
+        // reorder rows the merge left tied (it ranks only what it nominated),
+        // and rows outside it keep the old meaning-then-recency ordering behind
+        // those it did rank.
+        Map<String, Integer> mergedRank = new java.util.HashMap<>();
+        for (int i = 0; i < nominated.size(); i++) {
+            mergedRank.putIfAbsent(nominated.get(i), i);
+        }
+        scored.sort(Comparator
+            .comparingInt((Scored s) -> mergedRank.getOrDefault(s.entry().id(),
+                Integer.MAX_VALUE))
+            .thenComparing(Comparator.comparingDouble(Scored::score).reversed())
             .thenComparing(s -> s.entry().createdAt() == null
                 ? 0L : -s.entry().createdAt().toEpochMilli()));
 

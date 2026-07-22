@@ -98,14 +98,28 @@ class LexicalIndexTest {
 
     @Test
     void a_rare_shared_word_outranks_a_common_one() {
+        // BOTH words must survive the discrimination cut, or this measures the
+        // cut instead of the weighting. The C2b audit caught the first version
+        // doing exactly that: "coverage" sat in 41 of 41 rows, was dropped, one
+        // row remained, and the assertion could not fail.
         List<StoredEntry> corpus = new ArrayList<>();
-        // "coverage" is everywhere; "overnight" is in one row only.
         for (int i = 0; i < 40; i++) {
+            corpus.add(row("filler-" + i, "an unrelated note, number " + i, null));
+        }
+        for (int i = 0; i < 10; i++) {          // "coverage": 12 of 52 rows
             corpus.add(row("common-" + i, "a note about coverage numbers", null));
         }
-        corpus.add(row("rare", "a note about coverage that fell overnight", null));
-        assertEquals("rare", ranked(LexicalIndex.score("coverage overnight", corpus)).get(0),
-            "the row sharing the RARE word must win — this is the whole mechanism");
+        corpus.add(row("alsoRare", "something that happened overnight", null));
+        corpus.add(row("both", "a note about coverage that fell overnight", null));
+
+        Map<String, Double> scores = LexicalIndex.score("coverage overnight", corpus);
+        assertTrue(scores.containsKey("common-0"),
+            "precondition: the common word must still COUNT, else this test is "
+            + "measuring the discrimination cut and not rarity weighting");
+        assertEquals("both", ranked(scores).get(0));
+        assertTrue(scores.get("alsoRare") > scores.get("common-0"),
+            "the row sharing only the RARE word must outscore the row sharing "
+            + "only the common one — the mechanism, tested where it applies");
     }
 
     @Test
@@ -135,16 +149,34 @@ class LexicalIndexTest {
     }
 
     @Test
-    void a_word_in_every_row_cannot_rank_anything_backwards() {
-        // A cue of nothing but a universal word must not invert the ordering;
-        // the non-negative IDF form is what guarantees it.
+    void a_universal_word_contributes_nothing_at_all() {
+        // Sharpened after the C2b audit. The previous version looped over the
+        // values of a map the cut had already emptied, so its assertion never
+        // executed — it defended reasoning that the cut had made unreachable.
         List<StoredEntry> corpus = new ArrayList<>();
         for (int i = 0; i < 10; i++) {
             corpus.add(row("r" + i, "coverage", null));
         }
-        for (double s : LexicalIndex.score("coverage", corpus).values()) {
-            assertTrue(s >= 0, "a universal term produced a negative score: " + s);
-        }
+        assertEquals(Map.of(), LexicalIndex.score("coverage", corpus),
+            "a word in every row must nominate NOTHING — not a small score");
+    }
+
+    @Test
+    void a_tiny_corpus_cannot_be_matched_lexically_and_that_is_the_intent() {
+        // The cut's honest cost, pinned so it is a decision and not a surprise:
+        // at n=1 every term is in every row, so NOTHING matches by words. On a
+        // near-empty store the meaning path carries recall alone. Stated here
+        // because the espresso test passes through this collapse as much as
+        // through the rule, and a reader deserves to know which.
+        List<StoredEntry> one = List.of(row("only", "broker confirmation ordering", null));
+        assertEquals(Map.of(), LexicalIndex.score("broker confirmation", one));
+        // At n=4 a term in one row still discriminates, and matching resumes.
+        List<StoredEntry> four = List.of(
+            row("a", "broker confirmation ordering", null),
+            row("b", "webview rendering", null),
+            row("c", "coverage ratchets", null),
+            row("d", "slot reuse", null));
+        assertEquals(List.of("a"), ranked(LexicalIndex.score("broker confirmation", four)));
     }
 
     // --- honest absence ----------------------------------------------------------------

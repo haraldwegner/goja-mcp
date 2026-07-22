@@ -400,6 +400,44 @@ class SemanticRecallTest {
             + "silence here is the expensive error, not a safe default");
     }
 
+    /**
+     * Stage 2b clause (iv), proven where the clause actually points: with NO
+     * embedder at all, a prose question still reaches the right entry by words.
+     *
+     * <p>This runs unconditionally — {@code keywordOnly} has no index, so there
+     * is nothing to be unavailable, and the C2b audit was right that proving a
+     * degrade path only when the embedder is present proves nothing about the
+     * degrade path. It also pins WHICH entry and on WHAT basis: a fixture large
+     * enough that stop-words are carried by most rows and therefore cannot
+     * match, so the hit rests on distinctive words alone.</p>
+     */
+    @Test
+    void with_no_embedder_a_prose_question_is_still_answered_by_words() {
+        String target = putExperience(
+            "never remove the algo from the map until the broker confirms",
+            "premature removal routes a late cancel callback to the wrong algo", null);
+        // Background carrying the same stop-words, so "the"/"a"/"to" are in a
+        // majority of rows and contribute nothing — the match must be earned by
+        // "broker" and "confirms".
+        for (int i = 0; i < 8; i++) {
+            putExperience("a note about the opening range and the session, number " + i,
+                "the structure of the session, to be used with the range", null);
+        }
+
+        Map<String, Object> answer = keywordOnly.recall(
+            symptom("we removed it before the broker confirms the cancel"));
+
+        assertEquals(ExperienceRetrieval.RESULT_ANALOGY, answer.get("result"),
+            "with no embedder the store must still answer a prose question by words");
+        List<Map<String, Object>> got = analogies(answer);
+        assertFalse(got.isEmpty(), "and it must return something");
+        assertEquals(target, got.get(0).get("id"),
+            "the RIGHT entry, first — not merely some entry, and not the newest");
+        assertTrue(String.valueOf(got.get(0).get("basis")).contains("shares distinctive wording"),
+            "and it must say the basis is words, since no meaning score exists: "
+            + got.get(0).get("basis"));
+    }
+
     @Test
     void the_cue_text_is_the_words_of_the_cue() {
         assertEquals("blank window rename_symbol com.foo.Bar",

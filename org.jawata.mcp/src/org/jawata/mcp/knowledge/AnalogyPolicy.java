@@ -233,23 +233,11 @@ public final class AnalogyPolicy {
      * @return 0..{@link #MAX_NOMINEES} ids, nearest first; never {@code null}
      */
     public static List<String> nominate(Map<String, Double> profile) {
-        if (profile == null || profile.isEmpty()) {
-            return List.of();
-        }
-        List<Map.Entry<String, Double>> ranked = new ArrayList<>(profile.entrySet());
-        // Score descending, then id ascending: a tie must not resolve by hash
-        // order, or the same question answers differently between runs.
-        ranked.sort(Comparator.comparingDouble(
-                (Map.Entry<String, Double> e) -> e.getValue()).reversed()
-            .thenComparing(Map.Entry::getKey));
-
-        List<String> nominees = new ArrayList<>(MAX_NOMINEES);
-        for (Map.Entry<String, Double> e : ranked) {
-            if (nominees.size() >= MAX_NOMINEES || e.getValue() < JUNK_FLOOR) {
-                break;                       // ranked, so the first miss ends it
-            }
-            nominees.add(e.getKey());
-        }
-        return List.copyOf(nominees);
+        // DELEGATES — it does not reimplement. It carried its own floor-and-cap
+        // loop until the C2b audit observed that two overloads with separate
+        // implementations can drift apart silently while the suite stays green,
+        // and that the JUNK_FLOOR and MAX_NOMINEES guarantees were being
+        // asserted largely against the copy the product does not call.
+        return nominate(profile, Map.of());
     }
 }

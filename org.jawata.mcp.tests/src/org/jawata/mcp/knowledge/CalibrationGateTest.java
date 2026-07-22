@@ -44,6 +44,10 @@ class CalibrationGateTest {
     private static final int FROZEN_K = 12;
     /** C2 clause (i): the meaning path alone, by the frozen contract. */
     private static final int EMBEDDINGS_ALONE_BAR = 9;
+    /** Stage 2b (ii): the merged ranking, at the figure recorded when D9 landed. */
+    private static final int FUSED_COMPONENT_BAR = 10;
+    /** The word stream alone — a floor under the stream, not a target. */
+    private static final int WORDS_ALONE_BAR = 4;
     /** D1 criterion (c): the cue from the first dogfood hour, and its answer. */
     private static final String PARAPHRASE_CUE =
         "our test coverage looked like it fell from 77% to 34% overnight";
@@ -51,18 +55,19 @@ class CalibrationGateTest {
 
     @Test
     void the_calibration_cues_are_answered_from_the_real_corpus() throws Exception {
+        // ABORT rather than return. This test's own javadoc says a gate that
+        // silently skips is indistinguishable from one that passed — and then it
+        // returned, which JUnit records as a PASS. Printing loudly was the
+        // mitigation; aborting is the fix, and it costs one visible "aborted" in
+        // a run without the corpus instead of one invisible green.
         String corpusPath = System.getProperty(CORPUS_PROPERTY);
-        if (corpusPath == null || !Files.exists(Path.of(corpusPath))) {
-            System.out.println("[E2 GATE] NOT RUN — no corpus at -D" + CORPUS_PROPERTY
-                + ". This is the sprint's headline gate; it is unverified in this run.");
-            return;
-        }
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+            corpusPath != null && Files.exists(Path.of(corpusPath)),
+            "[E2 GATE] NOT RUN — no corpus at -D" + CORPUS_PROPERTY
+            + ". This is the sprint's headline gate; it is unverified in this run.");
         EmbeddingService svc = EmbeddingService.shared();
-        if (!svc.available()) {
-            System.out.println("[E2 GATE] NOT RUN — embedder unavailable: "
-                + svc.unavailableReason());
-            return;
-        }
+        org.junit.jupiter.api.Assumptions.assumeTrue(svc.available(),
+            "[E2 GATE] NOT RUN — embedder unavailable: " + svc.unavailableReason());
 
         JsonNode accept;
         try (InputStream in = CalibrationGateTest.class.getResourceAsStream(ACCEPT_SETS)) {
@@ -133,8 +138,14 @@ class CalibrationGateTest {
                 }
                 Map<String, Object> unionAnswer = union.recall(query(cue, text));
                 Map<String, Object> kwAnswer = keyword.recall(query(cue, text));
-                boolean semantic = winnerIsAcceptable(unionAnswer, ok);
-                boolean kw = winnerIsAcceptable(kwAnswer, ok);
+                // BOTH HALVES, for these arms as for the others. Until the C2b
+                // audit these two were judged by the winner alone while the
+                // three below required the designated entry inside K as well —
+                // so the two arms carrying the comparison's argument were scored
+                // by a weaker rule than the arms they were tabulated beside.
+                String designatedId = cue.get("designated").asText();
+                boolean semantic = contractHolds(rankedAnswer(unionAnswer), ok, designatedId);
+                boolean kw = contractHolds(rankedAnswer(kwAnswer), ok, designatedId);
 
                 // THE EMBEDDINGS-ONLY ARM, and the frozen contract's second
                 // half. The C2 gate is written as "embeddings alone >=9/12 AND
@@ -207,8 +218,13 @@ class CalibrationGateTest {
             }
             rows.forEach(System.out::println);
             int n = accept.get("cues").size();
+            // "no-embedder", NOT "keyword": since D9 this arm runs word matching
+            // too, so calling it the old keyword path would credit the retired
+            // conjunctive rule with a score it never had. That rule measured
+            // 2/12 and is recorded in the dossier as a historical baseline, not
+            // printed here as though it were still running.
             System.out.printf("[E2 GATE] semantic %d/%d · embeddings-alone %d/%d · "
-                + "keyword %d/%d · bar %d%n",
+                + "no-embedder %d/%d · bar %d%n",
                 passed, n, embeddingsPassed, n, keywordPassed, n, BAR);
             System.out.printf("[E2 GATE] D9 arms — words-alone %d/%d · FUSED %d/%d%n",
                 lexicalPassed, n, fusedPassed, n);
@@ -224,8 +240,30 @@ class CalibrationGateTest {
                 + accept.get("cues").size() + " calibration cues; the bar is " + BAR
                 + " (C0 baseline). This is the sprint's central claim.");
             assertTrue(passed > keywordPassed,
-                "E2: semantic (" + passed + ") must strictly beat keyword ("
-                + keywordPassed + ") — otherwise the sprint bought nothing.");
+                "E2: the full union (" + passed + ") must strictly beat the "
+                + "no-embedder path (" + keywordPassed + ") — otherwise the "
+                + "meaning half of the sprint bought nothing.");
+            // Stage 2b clause (ii), ASSERTED rather than printed. The C2b audit
+            // found both D9 arms computed, reported and gated by nothing at all
+            // — a number that cannot fail is not a gate. Two bars, because the
+            // clause's own wording is about the merge and the sprint's claim is
+            // about the shipped path:
+            //   * the shipped union must not regress (BAR, asserted above);
+            //   * the merged component must not fall below what it measured
+            //     when D9 was accepted.
+            // The component sits BELOW the union by construction — it has no
+            // symbol path — so pinning it at its measured value is the honest
+            // form. Raising it is a deviation only Harald can grant.
+            assertTrue(fusedPassed >= FUSED_COMPONENT_BAR,
+                "Stage 2b (ii): the merged ranking answered " + fusedPassed + " of "
+                + accept.get("cues").size() + "; the recorded figure is "
+                + FUSED_COMPONENT_BAR + ". A drop means rank fusion cost a cue and "
+                + "must be reverted, not shipped. Failing: " + fusedFailing);
+            assertTrue(lexicalPassed >= WORDS_ALONE_BAR,
+                "the word stream answered " + lexicalPassed + " of "
+                + accept.get("cues").size() + "; the recorded figure is "
+                + WORDS_ALONE_BAR + " — below it the merge is carrying a stream "
+                + "that has stopped working");
             assertTrue(embeddingsPassed >= EMBEDDINGS_ALONE_BAR,
                 "E2 clause (i): the MEANING path alone answered " + embeddingsPassed
                 + " of " + accept.get("cues").size() + " by the frozen contract "
@@ -254,17 +292,16 @@ class CalibrationGateTest {
     @Test
     void criterion_c_the_paraphrase_case_returns_the_ratchet_lesson() throws Exception {
         String corpusPath = System.getProperty(CORPUS_PROPERTY);
-        if (corpusPath == null || !Files.exists(Path.of(corpusPath))) {
-            System.out.println("[CRITERION C] NOT RUN — no corpus at -D" + CORPUS_PROPERTY
-                + "; D1's third measure is unverified in this run.");
-            return;
-        }
+        // ABORT, never a bare return: JUnit records a return as a PASS, and this
+        // is the sprint's uniquely unreachable measure — the one place a
+        // silently-skipped gate would be most costly to mistake for a green one.
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+            corpusPath != null && Files.exists(Path.of(corpusPath)),
+            "[CRITERION C] NOT RUN — no corpus at -D" + CORPUS_PROPERTY
+            + "; D1's third measure is unverified in this run.");
         EmbeddingService svc = EmbeddingService.shared();
-        if (!svc.available()) {
-            System.out.println("[CRITERION C] NOT RUN — embedder unavailable: "
-                + svc.unavailableReason());
-            return;
-        }
+        org.junit.jupiter.api.Assumptions.assumeTrue(svc.available(),
+            "[CRITERION C] NOT RUN — embedder unavailable: " + svc.unavailableReason());
         H2ExperienceStore store = H2ExperienceStore.openMemory();
         try {
             int rivals = Integer.getInteger("jawata.embed.corpus.sample", 700);
@@ -302,30 +339,11 @@ class CalibrationGateTest {
             : new RecallQuery(null, null, null, text, null);
     }
 
-    /**
-     * The accept-set rule: whatever the answer leads with — a gated entry or the
-     * top analogy — must be an entry the frozen set says legitimately answers
-     * this cue.
-     */
-    @SuppressWarnings("unchecked")
-    private static boolean winnerIsAcceptable(Map<String, Object> answer, Set<String> acceptable) {
-        List<Map<String, Object>> entries =
-            (List<Map<String, Object>>) answer.getOrDefault("entries", List.of());
-        List<Map<String, Object>> analogies =
-            (List<Map<String, Object>>) answer.getOrDefault("analogies", List.of());
-        List<Map<String, Object>> ranked = new ArrayList<>(entries);
-        ranked.addAll(analogies);
-        for (Map<String, Object> r : ranked) {
-            String id = String.valueOf(r.get("id"));
-            for (String a : acceptable) {
-                if (id.startsWith(a)) {
-                    return true;
-                }
-            }
-            break;                            // only the WINNER counts
-        }
-        return false;
-    }
+    // The winner-only rule that used to judge the union and keyword arms lived
+    // here. It is gone: every arm is now judged by contractHolds, which checks
+    // BOTH halves of the frozen contract. Keeping a weaker rule available is how
+    // two of five arms came to be scored by it while the table above them
+    // claimed one contract for all.
 
     /** The full unfloored meaning profile for one cue — what the policy judges on. */
     private static Map<String, Double> profileOf(EmbeddingIndex index, String cue) {
@@ -334,6 +352,21 @@ class CalibrationGateTest {
             profile.put(h.id(), h.score());
         }
         return profile;
+    }
+
+    /** A recall answer as one ranking: gated entries first, then analogies. */
+    @SuppressWarnings("unchecked")
+    private static List<String> rankedAnswer(Map<String, Object> answer) {
+        List<String> ids = new ArrayList<>();
+        for (Map<String, Object> m
+                : (List<Map<String, Object>>) answer.getOrDefault("entries", List.of())) {
+            ids.add(String.valueOf(m.get("id")));
+        }
+        for (Map<String, Object> m
+                : (List<Map<String, Object>>) answer.getOrDefault("analogies", List.of())) {
+            ids.add(String.valueOf(m.get("id")));
+        }
+        return ids;
     }
 
     /** The first id of a ranking, abbreviated; "-" when the ranking is empty. */

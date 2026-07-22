@@ -65,6 +65,16 @@ public final class LexicalIndex {
      *
      * <p>A proportion, deliberately, so the rule means the same thing whatever
      * the corpus size — the property the fitted margin retired at C2 lacked.</p>
+     *
+     * <p><b>Half is a judgement, not a measurement, and is stated as one.</b> No
+     * document-frequency distribution was fitted to pick it; the argument is
+     * that a word carried by most rows cannot discriminate between them, and a
+     * majority is the natural place to put that line. Its COST is real and
+     * pinned by test: on a corpus of one row nothing matches by words at all,
+     * and on a handful of rows only terms unique to one of them do. That is
+     * acceptable because a near-empty store has no rarity to estimate and the
+     * meaning path carries recall there — but it is a limit, not a free
+     * property.</p>
      */
     static boolean discriminates(int docFreq, int corpusSize) {
         return docFreq * 2 <= corpusSize;

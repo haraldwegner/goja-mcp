@@ -267,12 +267,6 @@ public final class ExperienceRetrieval {
     }
 
     /**
-     * One brute-force semantic scan for this cue: every scored id, unfloored.
-     * Empty when there is no index, it is unavailable, or the cue is blank —
-     * the degrade path, in which the tie-break above simply contributes 0s and
-     * the ordering falls back to recency exactly as before this sprint.
-     */
-    /**
      * Sprint 27a D9 — the WORD scan for this cue: rarity-weighted overlap over
      * every live row.
      *
@@ -284,15 +278,46 @@ public final class ExperienceRetrieval {
      * <p>Needs no model, so this is also what the degrade path gains: with the
      * embedder off the store still matches on words, which the older
      * conjunctive substring rule effectively could not.</p>
+     *
+     * <p><b>COST, disclosed rather than discovered later.</b> This reads every
+     * live row and tokenises all of it on EVERY recall, on every surface, with
+     * no cache: rarity is a property of the whole corpus, so the statistics are
+     * recomputed per cue. On the ~2,080-row live store that is a full table read
+     * plus a term-frequency map per row — materially more than the meaning scan
+     * beside it, which reads only {@code id, embedding} and parses nothing.
+     * Nothing here is cached and nothing claims to be. If a profiler run shows
+     * it dominating recall latency, the fix is a cached inverted index
+     * invalidated on write; that is deliberately NOT built yet, because an
+     * unmeasured optimisation is how a cache-invalidation bug enters a store
+     * whose whole job is telling the truth.</p>
      */
     private Map<String, Double> lexicalScores(RecallQuery q) {
         String cue = cueText(q);
         if (cue.isBlank()) {
             return Map.of();
         }
-        return LexicalIndex.score(cue, store.all());
+        // REJECTED AND SUPERSEDED ROWS ARE NOT CANDIDATES. Both sibling paths
+        // enforce this — the keyword query in its SQL, EmbeddingIndex in its —
+        // and a third path that did not would let a note the user threw away
+        // come back by another door. The C2b audit found exactly that here, and
+        // the suite missed it because the guarding test's fixture holds one row
+        // whose words the cue does not contain.
+        List<StoredEntry> live = new ArrayList<>();
+        for (StoredEntry e : store.all()) {
+            if (!ExperienceEntry.REJECTED.equals(e.status())
+                    && !ExperienceEntry.SUPERSEDED.equals(e.status())) {
+                live.add(e);
+            }
+        }
+        return LexicalIndex.score(cue, live);
     }
 
+    /**
+     * One brute-force semantic scan for this cue: every scored id, unfloored.
+     * Empty when there is no index, it is unavailable, or the cue is blank —
+     * the degrade path, in which the tie-break simply contributes 0s and the
+     * ordering falls back to what the word stream and recency give.
+     */
     private Map<String, Double> meaningScores(RecallQuery q) {
         if (index == null || !index.available()) {
             return Map.of();
@@ -358,8 +383,10 @@ public final class ExperienceRetrieval {
         // embedder the profile is empty and nothing would be nominated at all,
         // which would turn the degrade path into silence. Keyword analogies
         // must survive exactly as they did in v3.3.1.
+        Map<String, Double> lexical = lexicalScores(q);
+        List<String> nominated = AnalogyPolicy.nominate(meaning, lexical);
         List<String> ids = new ArrayList<>();
-        for (String id : AnalogyPolicy.nominate(meaning, lexicalScores(q))) {
+        for (String id : nominated) {
             if (seen.add(id)) {
                 ids.add(id);
             }
@@ -377,7 +404,7 @@ public final class ExperienceRetrieval {
         }
         // The ceiling is the policy's, not a fixed two - the cap of two is what
         // hid a correct third answer.
-        return ExperienceAnalogies.rank(pool, q, meaning,
+        return ExperienceAnalogies.rank(pool, q, meaning, lexical, nominated,
             AnalogyPolicy.MAX_NOMINEES, jdt);
     }
 
