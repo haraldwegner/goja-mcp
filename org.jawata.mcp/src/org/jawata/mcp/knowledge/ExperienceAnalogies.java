@@ -162,10 +162,17 @@ public final class ExperienceAnalogies {
     /**
      * How many places an equality signal moves a row up the merged ranking.
      *
-     * <p>Ordinal images of the additive boosts (0.15 / 0.10 / 0.05), so a row
-     * that matches the cue's operation, symptom and area together moves at most
-     * six places. Bounded on purpose: equality sharpens the order the evidence
-     * produced, it does not replace it.</p>
+     * <p><b>At most three</b> — operation and area only; symptom overlap does
+     * not promote, for the reason given below. Bounded on purpose: equality
+     * sharpens the order the evidence produced, it does not replace it.</p>
+     *
+     * <p>The magnitudes are chosen, not derived: 2 for an operation match and 1
+     * for the same area of the code, ranking the more specific signal higher.
+     * They cannot admit or exclude anything, so a wrong guess costs a place or
+     * two of ordering and nothing else. An earlier version of this javadoc
+     * described them as "ordinal images of 0.15 / 0.10 / 0.05, at most six
+     * places" — left behind when the symptom term was dropped, and describing a
+     * mapping the code no longer implements.</p>
      */
     private static int promotion(List<String> basis) {
         int places = 0;
@@ -175,16 +182,28 @@ public final class ExperienceAnalogies {
         if (basis.contains("same area of the code")) {
             places += 1;
         }
-        // SYMPTOM OVERLAP IS DELIBERATELY NOT PROMOTED. Measured: promoting it
-        // cost a calibration cue (the union fell 11/12 -> 10/12, A/B'd against
-        // the identical corpus). The reason is double counting — word overlap
-        // between a symptom cue and a row's symptoms is precisely what the two
-        // ranking streams already weigh, so promoting it again adds the same
-        // evidence twice and drowns the streams' own ordering. Operation and
-        // area are different: they are exact, categorical facts neither a
-        // cosine nor a BM25 weight can see, so they are what equality has to
-        // contribute. The basis line still SAYS "similar symptom" where it
-        // applies — it is true, it is simply not counted twice.
+        // SYMPTOM OVERLAP IS DELIBERATELY NOT PROMOTED, and the reason is
+        // structural rather than numeric.
+        //
+        // symptomOverlap() fires on ANY shared token longer than three
+        // characters, across symptoms plus the summary. That is word overlap in
+        // its crudest form - no rarity weighting, no length normalisation -
+        // which is exactly what LexicalIndex already scores properly. On a prose
+        // cue it therefore fires on nearly every nominated row, so promoting it
+        // was close to a constant offset that disturbed the order only where it
+        // happened NOT to fire.
+        //
+        // Operation and area are different in kind: they read e.operation() and
+        // e.symbolFqn()/packageName(), and NEITHER field reaches either scorer -
+        // LexicalIndex.textOf is summary + symptoms + details, and the embedded
+        // text is summary + details. They are exact categorical facts no ranking
+        // stream can see, which is precisely what equality has left to add.
+        //
+        // Measured, and reported as the confirmation it is rather than as the
+        // reason: promoting symptom cost a calibration cue (union 11/12 ->
+        // 10/12, A/B'd on the identical corpus at one sample size). The basis
+        // line still SAYS "similar symptom" where it applies - it is true, it is
+        // simply not counted a second time.
         return places;
     }
 

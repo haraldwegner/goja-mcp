@@ -112,8 +112,18 @@ class CalibrationGateTest {
             List<String> fusedFailing = new ArrayList<>();
             List<String> rows = new ArrayList<>();
             // The corpus ONCE: BM25's idf is a property of the whole set, so
-            // every cue must be scored against the same rows.
-            List<StoredEntry> all = store.all();
+            // every cue must be scored against the same rows — and against the
+            // same rows PRODUCTION would use. lexicalScores filters rejected and
+            // superseded before scoring (dead rows would distort every surviving
+            // row's weight), so measuring the word arms over the raw table would
+            // score them on a population the product never sees.
+            List<StoredEntry> all = new ArrayList<>();
+            for (StoredEntry e : store.all()) {
+                if (!ExperienceEntry.REJECTED.equals(e.status())
+                        && !ExperienceEntry.SUPERSEDED.equals(e.status())) {
+                    all.add(e);
+                }
+            }
             for (JsonNode cue : accept.get("cues")) {
                 String text = cue.get("cue").asText();
                 Set<String> ok = new LinkedHashSet<>();

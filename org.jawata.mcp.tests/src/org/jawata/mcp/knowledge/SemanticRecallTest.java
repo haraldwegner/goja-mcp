@@ -481,9 +481,24 @@ class SemanticRecallTest {
             putExperience("an unrelated note number " + i, "about something else", null);
         }
 
-        Map<String, Object> answer = semantic.recall(new RecallQuery(
-            null, null, "rename_symbol",
-            "a rebuild was needed after moving code between modules", null));
+        RecallQuery cue = new RecallQuery(null, null, "rename_symbol",
+            "a rebuild was needed after moving code between modules", null);
+
+        // PRECONDITION, or this test cannot tell a working boost from a boost
+        // that does nothing: the target must NOT already lead on the evidence.
+        // Ask the same query with the operation removed — then no promotion
+        // applies — and require the rival to lead there. Only then does the
+        // assertion below measure what it claims to. The C2b sign-off named
+        // this: without it, disabling promotion() entirely would leave this
+        // test, and every calibration arm, green.
+        List<Map<String, Object>> withoutOperation = analogies(semantic.recall(
+            new RecallQuery(null, null, null, cue.symptom(), null)));
+        assertFalse(withoutOperation.isEmpty(), "precondition: analogies expected");
+        assertFalse(sameOperation.equals(withoutOperation.get(0).get("id")),
+            "precondition: with the operation removed the OTHER entry must lead, "
+            + "otherwise the operation boost is not what puts it first below");
+
+        Map<String, Object> answer = semantic.recall(cue);
         List<Map<String, Object>> got = analogies(answer);
         assertFalse(got.isEmpty(), "precondition: the cue must return analogies");
         assertEquals(sameOperation, got.get(0).get("id"),
@@ -491,6 +506,47 @@ class SemanticRecallTest {
             + "so on the path the product actually takes");
         assertTrue(String.valueOf(got.get(0).get("basis")).contains("same operation"),
             "and it must say so: " + got.get(0).get("basis"));
+    }
+
+    /**
+     * A rejected note stays gone THROUGH THE WORD PATH.
+     *
+     * <p>The C2b audit found the word stream had shipped with no status filter
+     * at all — the keyword path filters in SQL and the meaning path in its
+     * query, and the third one filtered nothing, so a note the user had thrown
+     * away could return by a new door. The existing guard did not notice,
+     * because its fixture holds one row whose words the cue does not contain.
+     * This fixture is built the other way round: the rejected row shares the
+     * cue's most distinctive words, and there are enough rows that the
+     * discrimination cut does not silence the word stream.</p>
+     */
+    @Test
+    void a_rejected_note_stays_gone_by_the_word_path_too() {
+        String doomed = putExperience(
+            "the tick recorder starves the quote thread under load",
+            "the recorder holds the lock while flushing, and quotes queue behind it", null);
+        store.setStatus(doomed, ExperienceEntry.REJECTED);
+        for (int i = 0; i < 5; i++) {
+            putExperience("an unrelated note number " + i, "about something else", null);
+        }
+
+        Map<String, Object> answer = semantic.recall(
+            symptom("the tick recorder starves the quote thread under load"));
+
+        List<String> returned = new java.util.ArrayList<>();
+        for (Map<String, Object> a : analogies(answer)) {
+            returned.add(String.valueOf(a.get("id")));
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> gated =
+            (List<Map<String, Object>>) answer.getOrDefault("entries", List.of());
+        for (Map<String, Object> e : gated) {
+            returned.add(String.valueOf(e.get("id")));
+        }
+        assertFalse(returned.contains(doomed),
+            "a rejected note must not return by ANY path — it shares every "
+            + "distinctive word of this cue, so only the status filter can "
+            + "keep it out. Returned: " + returned);
     }
 
     @Test
