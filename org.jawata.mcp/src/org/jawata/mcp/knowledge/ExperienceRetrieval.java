@@ -272,6 +272,27 @@ public final class ExperienceRetrieval {
      * the degrade path, in which the tie-break above simply contributes 0s and
      * the ordering falls back to recency exactly as before this sprint.
      */
+    /**
+     * Sprint 27a D9 — the WORD scan for this cue: rarity-weighted overlap over
+     * every live row.
+     *
+     * <p>It runs beside {@link #meaningScores} rather than instead of it,
+     * because the two miss different cues: measured on the frozen set, meaning
+     * alone answers 9 of 12 and words alone 4 of 12, and the cue words rescue
+     * is one meaning ranks 28th.</p>
+     *
+     * <p>Needs no model, so this is also what the degrade path gains: with the
+     * embedder off the store still matches on words, which the older
+     * conjunctive substring rule effectively could not.</p>
+     */
+    private Map<String, Double> lexicalScores(RecallQuery q) {
+        String cue = cueText(q);
+        if (cue.isBlank()) {
+            return Map.of();
+        }
+        return LexicalIndex.score(cue, store.all());
+    }
+
     private Map<String, Double> meaningScores(RecallQuery q) {
         if (index == null || !index.available()) {
             return Map.of();
@@ -338,7 +359,7 @@ public final class ExperienceRetrieval {
         // which would turn the degrade path into silence. Keyword analogies
         // must survive exactly as they did in v3.3.1.
         List<String> ids = new ArrayList<>();
-        for (String id : AnalogyPolicy.nominate(meaning)) {
+        for (String id : AnalogyPolicy.nominate(meaning, lexicalScores(q))) {
             if (seen.add(id)) {
                 ids.add(id);
             }

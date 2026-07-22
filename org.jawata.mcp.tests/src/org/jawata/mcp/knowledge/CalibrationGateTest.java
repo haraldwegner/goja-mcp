@@ -44,6 +44,10 @@ class CalibrationGateTest {
     private static final int FROZEN_K = 12;
     /** C2 clause (i): the meaning path alone, by the frozen contract. */
     private static final int EMBEDDINGS_ALONE_BAR = 9;
+    /** D1 criterion (c): the cue from the first dogfood hour, and its answer. */
+    private static final String PARAPHRASE_CUE =
+        "our test coverage looked like it fell from 77% to 34% overnight";
+    private static final String RATCHET_LESSON = "5f7373f4";
 
     @Test
     void the_calibration_cues_are_answered_from_the_real_corpus() throws Exception {
@@ -113,8 +117,14 @@ class CalibrationGateTest {
             int passed = 0;
             int keywordPassed = 0;
             int embeddingsPassed = 0;
+            int lexicalPassed = 0;
+            int fusedPassed = 0;
             List<String> embeddingsFailing = new ArrayList<>();
+            List<String> fusedFailing = new ArrayList<>();
             List<String> rows = new ArrayList<>();
+            // The corpus ONCE: BM25's idf is a property of the whole set, so
+            // every cue must be scored against the same rows.
+            List<StoredEntry> all = store.all();
             for (JsonNode cue : accept.get("cues")) {
                 String text = cue.get("cue").asText();
                 Set<String> ok = new LinkedHashSet<>();
@@ -140,6 +150,41 @@ class CalibrationGateTest {
                 } else {
                     embeddingsFailing.add(cue.path("id").asText());
                 }
+
+                // Sprint 27a D9 — the two NEW arms, measured before anything is
+                // wired: words alone, and the two streams merged by rank. Both
+                // are scored by the SAME frozen contract as the arms above, so
+                // the four numbers are comparable.
+                String designated = cue.get("designated").asText();
+                List<String> byWords = rankedIds(LexicalIndex.score(text, all));
+                if (contractHolds(byWords, ok, designated)) {
+                    lexicalPassed++;
+                }
+                // The UNCAPPED merged ranking: the contract asks whether the
+                // designated entry is inside the top FROZEN_K, and the nominee
+                // list is capped below that for context economy. Measuring the
+                // capped list against this contract reports regressions that
+                // are artefacts of the cap.
+                List<String> merged = AnalogyPolicy.fuse(
+                    profileOf(index, text), LexicalIndex.score(text, all));
+                if (contractHolds(merged, ok, designated)) {
+                    fusedPassed++;
+                } else {
+                    fusedFailing.add(cue.path("id").asText());
+                    // Where each stream put the designated entry, and who each
+                    // stream's winner was — the discriminating observation for
+                    // "why did merging lose a cue one stream had right".
+                    List<String> sem = rankedIds(profileOf(index, text));
+                    List<String> lex = rankedIds(LexicalIndex.score(text, all));
+                    System.out.printf("  [fused MISS] %s designated=%s%n"
+                        + "      meaning : winner=%s designatedRank=%s%n"
+                        + "      words   : winner=%s designatedRank=%s%n"
+                        + "      merged  : winner=%s designatedRank=%s%n",
+                        cue.path("id").asText(), designated,
+                        head(sem), rankOf(sem, designated),
+                        head(lex), rankOf(lex, designated),
+                        head(merged), rankOf(merged, designated));
+                }
                 if (!semantic || !kw) {
                     // DIAGNOSIS (C4 investigation): show what each arm actually
                     // returned, so a fixture defect cannot masquerade as a
@@ -161,13 +206,17 @@ class CalibrationGateTest {
                         ? text.substring(0, 56) + "…" : text));
             }
             rows.forEach(System.out::println);
+            int n = accept.get("cues").size();
             System.out.printf("[E2 GATE] semantic %d/%d · embeddings-alone %d/%d · "
                 + "keyword %d/%d · bar %d%n",
-                passed, accept.get("cues").size(),
-                embeddingsPassed, accept.get("cues").size(),
-                keywordPassed, accept.get("cues").size(), BAR);
+                passed, n, embeddingsPassed, n, keywordPassed, n, BAR);
+            System.out.printf("[E2 GATE] D9 arms — words-alone %d/%d · FUSED %d/%d%n",
+                lexicalPassed, n, fusedPassed, n);
             if (!embeddingsFailing.isEmpty()) {
                 System.out.println("[E2 GATE] embeddings-alone failing: " + embeddingsFailing);
+            }
+            if (!fusedFailing.isEmpty()) {
+                System.out.println("[E2 GATE] fused failing: " + fusedFailing);
             }
 
             assertTrue(passed >= BAR,
@@ -184,6 +233,63 @@ class CalibrationGateTest {
                 + "the bar is " + EMBEDDINGS_ALONE_BAR + ". Gating only the union "
                 + "would let the symbol path mask exactly this. Failing: "
                 + embeddingsFailing);
+        } finally {
+            store.close();
+        }
+    }
+
+    /**
+     * D1's criterion (c), and the reason Stage 2b exists: the
+     * percentage-paraphrase case from the first dogfood hour returns the
+     * ratchet lesson.
+     *
+     * <p>It is a THIRTEENTH cue, not one of the frozen twelve. It failed for the
+     * whole of Sprint 27 and through C2 here: the question is phrased in
+     * percentages and the lesson in words, so meaning ranks it 28th, and the
+     * conjunctive word rule returned nothing at all because the token
+     * {@code looked} is absent from every row. Rarity-weighted word matching
+     * ranks it 1st of 2,080 — this asserts it through the WIRED front door,
+     * not against a ranking computed inside the test.</p>
+     */
+    @Test
+    void criterion_c_the_paraphrase_case_returns_the_ratchet_lesson() throws Exception {
+        String corpusPath = System.getProperty(CORPUS_PROPERTY);
+        if (corpusPath == null || !Files.exists(Path.of(corpusPath))) {
+            System.out.println("[CRITERION C] NOT RUN — no corpus at -D" + CORPUS_PROPERTY
+                + "; D1's third measure is unverified in this run.");
+            return;
+        }
+        EmbeddingService svc = EmbeddingService.shared();
+        if (!svc.available()) {
+            System.out.println("[CRITERION C] NOT RUN — embedder unavailable: "
+                + svc.unavailableReason());
+            return;
+        }
+        H2ExperienceStore store = H2ExperienceStore.openMemory();
+        try {
+            int rivals = Integer.getInteger("jawata.embed.corpus.sample", 700);
+            loadCorpus(store, Path.of(corpusPath), rivals, Set.of(RATCHET_LESSON));
+            EmbeddingIndex index = new EmbeddingIndex(store, svc);
+            for (int pass = 0; pass < 200 && index.backfill(200) > 0; pass++) {
+                continue;
+            }
+            ExperienceRetrieval recall = new ExperienceRetrieval(store, () -> null, index);
+            Map<String, Object> answer = recall.recall(
+                new RecallQuery(null, null, null, PARAPHRASE_CUE, null));
+
+            List<String> ranked = new ArrayList<>();
+            for (String key : new String[] {"entries", "analogies"}) {
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> part =
+                    (List<Map<String, Object>>) answer.getOrDefault(key, List.of());
+                part.forEach(m -> ranked.add(String.valueOf(m.get("id"))));
+            }
+            System.out.printf("[CRITERION C] result=%s returned=%s%n",
+                answer.get("result"),
+                ranked.stream().map(s -> s.substring(0, Math.min(8, s.length()))).toList());
+            assertTrue(ranked.stream().anyMatch(id -> id.startsWith(RATCHET_LESSON)),
+                "D1 criterion (c): the coverage-collapse question must return the "
+                + "ratchet lesson. Returned: " + ranked);
         } finally {
             store.close();
         }
@@ -219,6 +325,57 @@ class CalibrationGateTest {
             break;                            // only the WINNER counts
         }
         return false;
+    }
+
+    /** The full unfloored meaning profile for one cue — what the policy judges on. */
+    private static Map<String, Double> profileOf(EmbeddingIndex index, String cue) {
+        Map<String, Double> profile = new java.util.LinkedHashMap<>();
+        for (EmbeddingIndex.Hit h : index.nearestEntries(cue, Integer.MAX_VALUE, 0.0)) {
+            profile.put(h.id(), h.score());
+        }
+        return profile;
+    }
+
+    /** The first id of a ranking, abbreviated; "-" when the ranking is empty. */
+    private static String head(List<String> ranked) {
+        return ranked.isEmpty() ? "-" : ranked.get(0).substring(0, 8);
+    }
+
+    /** 1-based position of the first id with this prefix, or "absent". */
+    private static String rankOf(List<String> ranked, String prefix) {
+        for (int i = 0; i < ranked.size(); i++) {
+            if (ranked.get(i).startsWith(prefix)) {
+                return String.valueOf(i + 1);
+            }
+        }
+        return "absent";
+    }
+
+    /** Ids of a score map, best first. */
+    private static List<String> rankedIds(Map<String, Double> scores) {
+        List<Map.Entry<String, Double>> es = new ArrayList<>(scores.entrySet());
+        es.sort(java.util.Comparator.comparingDouble(
+                (Map.Entry<String, Double> e) -> e.getValue()).reversed()
+            .thenComparing(Map.Entry::getKey));
+        return es.stream().map(Map.Entry::getKey).toList();
+    }
+
+    /**
+     * The SAME frozen contract the other arms are judged by, applied to a bare
+     * ranking: the winner is acceptable AND the designated entry is inside K.
+     * Judging a new arm by a friendlier rule would make its number
+     * incomparable with the ones it is printed beside.
+     */
+    private static boolean contractHolds(List<String> ranked, Set<String> acceptable,
+                                         String designated) {
+        if (ranked.isEmpty()) {
+            return false;
+        }
+        String winner = ranked.get(0);
+        boolean winnerOk = acceptable.stream().anyMatch(winner::startsWith);
+        boolean designatedInWindow = ranked.stream().limit(FROZEN_K)
+            .anyMatch(id -> id.startsWith(designated));
+        return winnerOk && designatedInWindow;
     }
 
     /**

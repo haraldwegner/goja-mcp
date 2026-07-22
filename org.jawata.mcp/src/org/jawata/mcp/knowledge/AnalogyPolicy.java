@@ -101,7 +101,115 @@ public final class AnalogyPolicy {
      */
     public static final int MAX_NOMINEES = 11;
 
+    /**
+     * The rank-fusion damping constant, from the method's published literature
+     * and not fitted here.
+     *
+     * <p>It exists so that the difference between rank 1 and rank 2 matters
+     * more than the difference between rank 41 and rank 42, without any stream
+     * being able to dominate on the strength of a score this code cannot
+     * interpret.</p>
+     */
+    static final int RANK_FUSION_DAMPING = 60;
+
     private AnalogyPolicy() {
+    }
+
+    /**
+     * Nominate from BOTH retrieval streams — meaning and words — merged BY
+     * RANK.
+     *
+     * <p><b>By rank, never by score.</b> A cosine similarity and a BM25 weight
+     * are different units on different scales; combining them numerically needs
+     * a weighting constant, and this sprint has already lost a checkpoint to a
+     * constant that held only on the corpus it was chosen against. Ranks carry
+     * no units and no corpus-size dependence, so the merge cannot repeat that
+     * failure. Each stream contributes {@code 1 / (damping + rank)} for the rows
+     * it ranks; a row both streams like outranks a row only one of them does,
+     * and a row only one stream finds is still nominated.</p>
+     *
+     * <p>The junk floor applies to the MEANING stream only. It is a statement
+     * about cosine similarity — below it, two texts share essentially no
+     * meaning — and applying it to a BM25 weight would be comparing a number to
+     * a threshold from a different measurement entirely.</p>
+     *
+     * @param semantic cosine per id, unfloored; empty when the embedder is off
+     * @param lexical  BM25 per id; empty when the cue has no words in common
+     *                 with anything, or when there is no lexical index
+     * @return 0..{@link #MAX_NOMINEES} ids, best first; never {@code null}
+     */
+    public static List<String> nominate(Map<String, Double> semantic,
+                                        Map<String, Double> lexical) {
+        List<String> ranked = fuse(semantic, lexical);
+        return ranked.size() <= MAX_NOMINEES
+            ? ranked : List.copyOf(ranked.subList(0, MAX_NOMINEES));
+    }
+
+    /**
+     * The FULL merged ranking, uncapped — ranking and capping kept apart so a
+     * caller that needs to ask "where does entry X rank?" is not answered by a
+     * list truncated for context economy.
+     *
+     * <p>The separation was earned: measuring the merge against a contract that
+     * asks for the designated entry within the top twelve, using a list capped
+     * at eleven, reported a regression that did not exist.</p>
+     */
+    static List<String> fuse(Map<String, Double> semantic, Map<String, Double> lexical) {
+        Map<String, Double> fused = new java.util.HashMap<>();
+        contribute(fused, rank(semantic, JUNK_FLOOR));
+        contribute(fused, rank(lexical, Double.NEGATIVE_INFINITY));
+        if (fused.isEmpty()) {
+            return List.of();
+        }
+        // TIES ARE THE COMMON CASE HERE, not a corner: with two streams, a row
+        // each stream ranks FIRST but the other does not rank at all scores
+        // identically. Breaking that by id would decide which of two disagreeing
+        // streams wins alphabetically — measured, it cost cue-08, a cue the
+        // meaning stream alone got right.
+        //
+        // So a tie falls to the meaning score. This is not a stream WEIGHT (that
+        // would be a fitted constant, the thing rank fusion exists to avoid) —
+        // it is a tie-break, and it points at the stream measured stronger on
+        // this corpus: meaning answers 9 of 12 alone, words 4 of 12.
+        final Map<String, Double> meaning = semantic == null ? Map.of() : semantic;
+        List<Map.Entry<String, Double>> ranked = new ArrayList<>(fused.entrySet());
+        ranked.sort(Comparator.comparingDouble(
+                (Map.Entry<String, Double> e) -> e.getValue()).reversed()
+            .thenComparing(Comparator.comparingDouble(
+                (Map.Entry<String, Double> e) -> meaning.getOrDefault(e.getKey(),
+                    Double.NEGATIVE_INFINITY)).reversed())
+            .thenComparing(Map.Entry::getKey));
+        List<String> out = new ArrayList<>(ranked.size());
+        for (Map.Entry<String, Double> e : ranked) {
+            out.add(e.getKey());
+        }
+        return List.copyOf(out);
+    }
+
+    /** Ids of one stream, best first, dropping anything below {@code floor}. */
+    private static List<String> rank(Map<String, Double> stream, double floor) {
+        if (stream == null || stream.isEmpty()) {
+            return List.of();
+        }
+        List<Map.Entry<String, Double>> ranked = new ArrayList<>(stream.entrySet());
+        ranked.sort(Comparator.comparingDouble(
+                (Map.Entry<String, Double> e) -> e.getValue()).reversed()
+            .thenComparing(Map.Entry::getKey));
+        List<String> out = new ArrayList<>();
+        for (Map.Entry<String, Double> e : ranked) {
+            if (e.getValue() < floor) {
+                break;                       // ranked, so the first miss ends it
+            }
+            out.add(e.getKey());
+        }
+        return out;
+    }
+
+    /** Add one ranked stream's reciprocal-rank contribution into the fused map. */
+    private static void contribute(Map<String, Double> fused, List<String> ranked) {
+        for (int i = 0; i < ranked.size(); i++) {
+            fused.merge(ranked.get(i), 1.0 / (RANK_FUSION_DAMPING + i + 1.0), Double::sum);
+        }
     }
 
     /**

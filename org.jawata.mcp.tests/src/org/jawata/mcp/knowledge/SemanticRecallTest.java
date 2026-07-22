@@ -90,10 +90,24 @@ class SemanticRecallTest {
         RecallQuery cue = symptom(
             "we deleted the order record too early and a late confirmation went to the wrong place");
 
-        // The whole premise of the sprint, stated as a comparison.
-        Map<String, Object> before = keywordOnly.recall(cue);
-        assertEquals(ExperienceRetrieval.RESULT_ABSENCE, before.get("result"),
-            "keyword recall genuinely cannot reach this - that is the Recall Gap");
+        // PREMISE CORRECTED, Sprint 27a D9. This assertion used to read
+        // "keyword recall genuinely cannot reach this - that is the Recall
+        // Gap", and it held only because the older word rule required EVERY cue
+        // token to appear. Once word matching is scored rather than
+        // conjunctive, it reaches this cue legitimately: the question says "a
+        // late confirmation went to the wrong place" and the entry says "a late
+        // cancel callback to the wrong algo" — the shared content words are
+        // "late" and "wrong", and matching on them is correct, not invented.
+        //
+        // So the gap was never "keyword cannot reach a paraphrase". It was
+        // "keyword could not reach anything a natural sentence asked for",
+        // which is a defect and is what D9 repaired. What remains true, and is
+        // what this test now asserts, is the SHARPER claim: meaning ranks the
+        // right entry FIRST.
+        Map<String, Object> byWords = keywordOnly.recall(cue);
+        assertEquals(ExperienceRetrieval.RESULT_ANALOGY, byWords.get("result"),
+            "word matching now reaches this cue through the words it shares — "
+            + "with no embedder at all, which is the degrade path D9 restores");
 
         Map<String, Object> after = semantic.recall(cue);
         assertEquals(ExperienceRetrieval.RESULT_ANALOGY, after.get("result"),

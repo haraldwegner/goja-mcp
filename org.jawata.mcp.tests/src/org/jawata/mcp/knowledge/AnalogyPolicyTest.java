@@ -107,6 +107,62 @@ class AnalogyPolicyTest {
         assertEquals(AnalogyPolicy.MAX_NOMINEES, high.size());
     }
 
+    // --- the two-stream merge (D9) ----------------------------------------------------
+
+    @Test
+    void a_row_both_streams_rank_beats_a_row_only_one_does() {
+        Map<String, Double> semantic = new LinkedHashMap<>();
+        semantic.put("both", 0.30);
+        semantic.put("semantic-only", 0.40);        // HIGHER cosine...
+        Map<String, Double> lexical = new LinkedHashMap<>();
+        lexical.put("both", 12.0);
+        lexical.put("lexical-only", 30.0);          // ...and higher BM25 elsewhere
+        // ...yet the row BOTH streams nominate wins, because agreement across
+        // two independent kinds of evidence outweighs one stream's leader.
+        assertEquals("both", AnalogyPolicy.nominate(semantic, lexical).get(0));
+    }
+
+    @Test
+    void a_row_only_the_word_stream_finds_is_still_nominated() {
+        // THE case D9 exists for: the coverage-collapse note ranks 28th by
+        // meaning and 1st by words. If one stream could veto the other, the
+        // merge would buy nothing.
+        Map<String, Double> lexicalOnly = Map.of("ratchet", 28.0);
+        assertEquals(List.of("ratchet"), AnalogyPolicy.nominate(Map.of(), lexicalOnly));
+    }
+
+    @Test
+    void the_junk_floor_applies_to_meaning_only_never_to_word_scores() {
+        // A BM25 weight of 0.05 is not "almost no shared meaning" — it is a
+        // number from a different measurement. Comparing it to a cosine floor
+        // would silently drop word matches.
+        assertEquals(List.of("worded"),
+            AnalogyPolicy.nominate(Map.of(), Map.of("worded", 0.05)));
+        // ...while the same value as a COSINE is junk and stays excluded.
+        assertEquals(List.of(), AnalogyPolicy.nominate(Map.of("meaningless", 0.05), Map.of()));
+    }
+
+    @Test
+    void two_empty_streams_yield_nothing() {
+        assertEquals(List.of(), AnalogyPolicy.nominate(Map.of(), Map.of()));
+        assertEquals(List.of(), AnalogyPolicy.nominate(null, null));
+    }
+
+    @Test
+    void the_merge_is_deterministic_when_streams_tie() {
+        Map<String, Double> semantic = new LinkedHashMap<>();
+        semantic.put("zebra", 0.5);
+        semantic.put("alpha", 0.5);
+        Map<String, Double> lexical = new LinkedHashMap<>();
+        lexical.put("zebra", 9.0);
+        lexical.put("alpha", 9.0);
+        List<String> first = AnalogyPolicy.nominate(semantic, lexical);
+        assertEquals(List.of("alpha", "zebra"), first);
+        for (int i = 0; i < 20; i++) {
+            assertEquals(first, AnalogyPolicy.nominate(semantic, lexical));
+        }
+    }
+
     // --- structural guarantees --------------------------------------------------------
 
     @Test
