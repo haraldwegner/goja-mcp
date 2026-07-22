@@ -197,5 +197,6 @@
  ],
  "_corrections": {
   "2026-07-21-keyword_cue_field": "Added the keyword_cue_field carried by gen_stage0.py's CALIB but omitted in transcription. cue-11 is queried by SYMBOL (as C0 measured it); all others by symptom. NO accept_set was changed - this corrects the cue's query form, not what counts as a right answer."
- }
+ },
+ "_frozen_for_sprint_27a": "SEALED for the duration of Sprint 27a (2026-07-22). No accept_set may be widened, and no cue changed, without Harald's recorded word. Reason: the >=11/12 bar now lands at C4 (deviation 6), and widening one accept_set is a one-line path to meeting it -- the plan audit named this as an open door. The amendment protocol in _frozen still applies on top of this seal."
 }
