@@ -75,20 +75,31 @@ public final class AnalogyPolicy {
     /**
      * How many nominees reach the agent's context.
      *
-     * <p>Every call pays this in context on every surface, hit or miss, so it
-     * is deliberately small. Measured basis (Stage 0): the accept-set winner is
-     * rank 1 in nine of twelve calibration cues and rank 3 in one more, so
-     * three nominees carry a legitimate answer for ten of twelve. The remaining
-     * three sit at ranks 23, 28 and 298 — out of reach for any
-     * context-affordable K, and each has its own fix: the first two are
-     * symptom-shaped and belong to D3 (symptoms joining the embedded text), and
-     * the third is a symbol cue the exact index path answers directly.</p>
+     * <p>Measured on the frozen calibration set, two ways. By the ACCEPT-SET
+     * reading (the frozen lists name every entry that legitimately answers a
+     * cue) three nominees already serve ten of twelve, and so do four, six and
+     * eleven — that reading is flat from 3 to 22. By the DESIGNATED reading
+     * (the one canonical entry must arrive) three serve seven, six serve nine,
+     * and eleven serve ten. So eleven delivers the best-matched entry on three
+     * more cues than three does.</p>
      *
-     * <p>Raising it is cheap and points the way the asymmetry ruling favours;
-     * if dogfood ever strands a real answer at rank 4 or 5, this is the
-     * constant that moves.</p>
+     * <p><b>The cost of those three cues, measured rather than assumed:</b> a
+     * nominee carries the entry's SUMMARY — never its body — and summaries in
+     * the live corpus run to a median of 8 words. Eleven nominees instead of
+     * three is typically ~64 extra words, ~216 at the 90th percentile. An
+     * earlier version of this constant was set to 3 and justified by "context
+     * cost", priced as eight extra <em>paragraphs</em>; that was wrong about
+     * what the carrier contains, and Harald caught it.</p>
+     *
+     * <p>At 64 words the asymmetry ruling is not close: failing to use an
+     * experience we already hold costs re-reading the code or repeating the
+     * recorded mistake; a discarded nominee costs a glance. Hence eleven.</p>
+     *
+     * <p>Two cues remain unserved at any affordable K — one whose answer ranks
+     * 23rd (symptom-shaped, D3's to lift) and one naming a Java method, which
+     * the exact index path answers directly without needing meaning at all.</p>
      */
-    public static final int MAX_NOMINEES = 3;
+    public static final int MAX_NOMINEES = 11;
 
     private AnalogyPolicy() {
     }

@@ -97,15 +97,26 @@ class AnalogyPolicyTest {
             lowBg.put("b" + i, 0.05);
             highBg.put("b" + i, 0.30);
         }
+        // Low background: only the leader clears the floor, so one nominee.
         assertEquals(List.of("top"), AnalogyPolicy.nominate(lowBg));
-        assertEquals(List.of("top", "b0", "b1"), AnalogyPolicy.nominate(highBg));
+        // High background: the leader plus as many background entries as the cap
+        // allows — the SAME leader either way. A rule that read the background
+        // would have silenced the second case; this one cannot.
+        List<String> high = AnalogyPolicy.nominate(highBg);
+        assertEquals("top", high.get(0));
+        assertEquals(AnalogyPolicy.MAX_NOMINEES, high.size());
     }
 
     // --- structural guarantees --------------------------------------------------------
 
     @Test
-    void never_nominates_more_than_three_however_many_qualify() {
-        assertEquals(3, AnalogyPolicy.nominate(profile(0.9, 0.8, 0.7, 0.6, 0.5)).size());
+    void never_nominates_more_than_the_cap_however_many_qualify() {
+        double[] fifteen = new double[15];
+        for (int i = 0; i < fifteen.length; i++) {
+            fifteen[i] = 0.9 - i * 0.01;
+        }
+        assertEquals(AnalogyPolicy.MAX_NOMINEES,
+            AnalogyPolicy.nominate(profile(fifteen)).size());
     }
 
     @Test
@@ -132,7 +143,7 @@ class AnalogyPolicyTest {
     @Test
     void the_constants_are_the_ruled_ones() {
         assertEquals(0.10, AnalogyPolicy.JUNK_FLOOR, 1e-9);
-        assertEquals(3, AnalogyPolicy.MAX_NOMINEES);
+        assertEquals(11, AnalogyPolicy.MAX_NOMINEES);
     }
 
     /**

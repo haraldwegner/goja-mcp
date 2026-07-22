@@ -134,9 +134,14 @@ class AnalogyPolicyDerivationTest {
     @Test
     void the_floor_removes_nothing_on_the_measured_set_and_that_is_recorded()
             throws Exception {
+        // Asserted on the DATA, not through nominate(): the synthetic profile a
+        // replay builds has a flat background at the cue's median, so with a
+        // cap of 11 the count would say more about the fixture's shape than
+        // about the floor. What "the floor removes nothing" means is that every
+        // measured leader clears it.
         List<String> anythingDropped = new ArrayList<>();
         for (Row r : rows()) {
-            if (AnalogyPolicy.nominate(profileOf(r)).size() < AnalogyPolicy.MAX_NOMINEES) {
+            if (r.top3() < AnalogyPolicy.JUNK_FLOOR) {
                 anythingDropped.add(r.id() + "@" + r.top3());
             }
         }
@@ -171,20 +176,26 @@ class AnalogyPolicyDerivationTest {
      * ("failing to use an experience we already hold is the expensive error")
      * that argues for K=11.</p>
      *
-     * <p>The shipped K=3 rests on reading A. That is a CHOICE between two
-     * defensible readings, not a fact, and it is pinned here with both numbers
-     * visible so it cannot be mistaken for the latter. The C2 audit caught the
-     * earlier version of this test computing only reading A while the dossier
-     * claimed both — and computing only A also made the "a larger K would buy
-     * recall" failure branch unfirable, since A is flat from 3 to 22.</p>
+     * <p><b>The shipped K=11 rests on reading B</b>, under Harald's ruling of
+     * 2026-07-22 once the cost of a nominee was measured honestly: a nominee
+     * carries a summary (median 8 words), not a body, so eleven instead of
+     * three costs ~64 words and buys the canonical entry on three more cues.
+     * An earlier K=3 rested on reading A plus a cost that did not exist.</p>
+     *
+     * <p>Both readings are pinned here so the choice between them stays
+     * visible. The C2 audit caught the first version of this test computing
+     * only reading A while the dossier claimed both — and computing only A also
+     * made the "a larger K would buy recall" branch unfirable, since A is flat
+     * from 3 to 22.</p>
      */
     @Test
     void k_is_pinned_under_both_readings_of_served() throws Exception {
         List<Row> cal = rows().stream().filter(Row::calibration).toList();
         assertEquals(12, cal.size(), "the calibration set is no longer 12 cues");
 
-        // The shipped value itself — the earlier pin held for any K in 3..22.
-        assertEquals(3, AnalogyPolicy.MAX_NOMINEES,
+        // The shipped value itself — an earlier pin asserted a figure that held
+        // for any K in 3..22, so it did not pin K at all.
+        assertEquals(11, AnalogyPolicy.MAX_NOMINEES,
             "MAX_NOMINEES moved; both readings below must be re-argued, and the "
             + "choice between them is Harald's");
 
