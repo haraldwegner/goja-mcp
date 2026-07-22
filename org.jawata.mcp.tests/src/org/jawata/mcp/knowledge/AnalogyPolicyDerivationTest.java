@@ -34,7 +34,8 @@ class AnalogyPolicyDerivationTest {
 
     /** One measured cue profile. */
     private record Row(String id, double top1, double top2, double top3, double median,
-                       double p99, double mean, double sd) {
+                       double p99, double mean, double sd,
+                       boolean top1InAccept, int designatedRank) {
         boolean calibration() {
             return id.startsWith("cue-");
         }
@@ -64,7 +65,9 @@ class AnalogyPolicyDerivationTest {
                     n.get("top1").asDouble(), n.get("top2").asDouble(),
                     n.get("top3").asDouble(), n.get("median").asDouble(),
                     n.get("p99").asDouble(), n.get("mean").asDouble(),
-                    n.get("sd").asDouble()));
+                    n.get("sd").asDouble(),
+                    n.get("top1_in_accept").asBoolean(),
+                    n.get("designated_rank").asInt()));
             }
         }
         return out;
@@ -105,12 +108,13 @@ class AnalogyPolicyDerivationTest {
             }
         }
 
-        // The frozen bar (accept-sets.json "_baseline_at_C0"): at least 11 of 12.
-        assertTrue(calibrationSpoken.size() >= 11,
-            "calibration fell below the frozen bar: " + calibrationSpoken.size() + "/12");
+        // A SPEAK RATE — how often the policy says something. This is NOT the
+        // frozen bar; an earlier version of this test called it that, which is
+        // self-marking (a rule that always speaks scores 12/12 on it). The
+        // frozen contract is asserted separately below.
         assertEquals(11, calibrationSpoken.size(),
-            "calibration outcome moved from the recorded 11/12 — re-derive and "
-            + "record the change in dossier-27a before touching the constant");
+            "the SPEAK RATE moved from the recorded 11/12 — re-derive and record "
+            + "the change in dossier-27a before touching the constant");
 
         // A positive control that goes silent is a straight regression.
         assertEquals(4, positiveSpoken.size(),
@@ -121,11 +125,43 @@ class AnalogyPolicyDerivationTest {
             "the committed nonsense control 'purple elephant quantum sandwich "
             + "protocol' must return nothing — this is D1's blocking measure");
 
-        // Two known, recorded failures; a third means the rule has drifted.
+        // TRACKED DEFECT, not an allowance. Two controls still answer, and at
+        // C2 they become BLOCKING — the strict reading, taken deliberately: if
+        // a control that should stay silent speaks, that is signal, not
+        // something to excuse. This assertion is a countdown to zero; a THIRD
+        // failure means the rule has drifted and must be re-derived.
         assertEquals(2, wronglySpoken.size(),
             "controls wrongly answered changed from the recorded 2 (ctl-non-2, "
-            + "ctl-non-6 — both match content the corpus genuinely holds): "
-            + wronglySpoken);
+            + "ctl-non-6): " + wronglySpoken);
+    }
+
+    /**
+     * THE FROZEN CONTRACT, which no test asserted until the plan audit found it
+     * missing: {@code accept-sets.json} defines a pass as the WINNER being in
+     * the cue's accept_set AND the designated entry inside the top-12. It is a
+     * RANKING measure — upstream of this policy, which is why the policy cannot
+     * move it, and why a speak rate must never be reported in its place.
+     */
+    @Test
+    void the_frozen_contract_count_is_pinned_and_does_not_regress() throws Exception {
+        List<String> pass = new ArrayList<>();
+        List<String> fail = new ArrayList<>();
+        for (Row r : rows()) {
+            if (!r.calibration()) {
+                continue;
+            }
+            (r.top1InAccept() && r.designatedRank() <= 12 ? pass : fail).add(r.id());
+        }
+        // 9/12 on embeddings alone; 10/12 counting cue-11, which accept-sets.json
+        // documents as an FQN the symbol path answers exactly and embeddings do
+        // not. Identical to Sprint 27's recorded baseline — nothing regressed.
+        assertEquals(9, pass.size(),
+            "the FROZEN-CONTRACT count moved from 9/12 embeddings-only. This is "
+            + "the measure R1's guard is written against; a change here is a "
+            + "signed-risk matter, not an editorial one. Failing: " + fail);
+        assertEquals(List.of("cue-01", "cue-09", "cue-11"), fail,
+            "the failing cues changed; cue-01 and cue-09 are the two standing "
+            + "symptom-shaped failures D3 exists to lift, cue-11 is the FQN case");
     }
 
     @Test

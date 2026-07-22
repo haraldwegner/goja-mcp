@@ -41,12 +41,17 @@ public final class AnalogyPolicy {
      * that must speak at 0.2945, and this value is the midpoint of that gap
      * rather than either edge, so the rule is not fitted to a data point.</p>
      *
-     * <p>At this value: 11 of the 12 frozen calibration cues speak (the frozen
-     * bar is ≥11), all 4 positive controls speak, and 7 of 9 nonsense /
+     * <p>At this value 11 of the 12 calibration cues SPEAK — which is a speak
+     * rate, NOT the frozen bar. The frozen contract (winner in accept_set AND
+     * designated ≤ K=12) reads 9/12 on embeddings alone, 10/12 with the symbol
+     * path, unchanged from Sprint 27; this policy cannot move it, because it
+     * decides whether to speak and not who wins. Also: all 4 positive controls
+     * speak, and 7 of 9 nonsense /
      * plausible-but-absent controls stay silent — including the committed
      * "purple elephant quantum sandwich protocol". Evidence:
-     * {@code test-resources/embed-goldens/stage0-27a-profiles.tsv} and
-     * {@code select_policy.py}; reasoning in {@code dossier-27a.md}.</p>
+     * {@code test-resources/embed-goldens/stage0-27a-profiles.json}, re-derived
+     * on every build by {@code AnalogyPolicyDerivationTest}; reasoning in
+     * {@code dossier-27a.md}.</p>
      */
     public static final double STANDOUT_MARGIN = 0.283;
 
