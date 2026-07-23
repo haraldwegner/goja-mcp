@@ -1,0 +1,527 @@
+{
+ "data": {
+  "entries": [
+   {
+    "id": "00e2e000-0000-4000-8000-000000000001",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the mash stuck at 40 degrees because the grain was milled too fine",
+    "body": {
+     "details": "a slow sparge follows a stuck mash; coarser mill settings drain clean",
+     "symptoms": []
+    },
+    "operation": "e2e-brewing"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000002",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "aphids returned within a week when the ladybirds were released too early",
+    "body": {
+     "details": "predator releases only hold after the colony has food to stay for",
+     "symptoms": []
+    },
+    "operation": "e2e-gardening"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000003",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the drawer rails bound in summer because the runners were cut cross-grain",
+    "body": {
+     "details": "seasonal movement doubles across the grain; rails want long-grain runners",
+     "symptoms": []
+    },
+    "operation": "e2e-carpentry"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000004",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the guide star drifted because the mount's polar axis was off by a degree",
+    "body": {
+     "details": "drift aligns faster than plate solving when the pole is nearly right",
+     "symptoms": []
+    },
+    "operation": "e2e-astronomy"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000005",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the sourdough collapsed after proofing past the poke-test window",
+    "body": {
+     "details": "a slow spring-back is the last safe moment; a no-spring dent is too late",
+     "symptoms": []
+    },
+    "operation": "e2e-baking"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000006",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the spinnaker wrapped when the pole was squared before the sheet was loaded",
+    "body": {
+     "details": "load the working sheet first; geometry follows tension, not the reverse",
+     "symptoms": []
+    },
+    "operation": "e2e-sailing"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000007",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the handles cracked at the join because the slip was drier than the mug body",
+    "body": {
+     "details": "joins want matched moisture; score both faces and slip generously",
+     "symptoms": []
+    },
+    "operation": "e2e-pottery"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000008",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the swarm left despite space because the brood nest was honey-bound",
+    "body": {
+     "details": "supers do not relieve a packed brood nest; checkerboarding does",
+     "symptoms": []
+    },
+    "operation": "e2e-beekeeping"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000009",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the star trails smeared because mirror slap shook the first two seconds",
+    "body": {
+     "details": "mirror lock-up or electronic first curtain removes the smear entirely",
+     "symptoms": []
+    },
+    "operation": "e2e-photography"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000010",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the curd never set because the milk was ultra-pasteurized",
+    "body": {
+     "details": "UP milk's denatured proteins cannot knit; low-temp pasteurized sets fine",
+     "symptoms": []
+    },
+    "operation": "e2e-cheesemaking"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000011",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the rope drag doubled on the traverse because the draws were all short",
+    "body": {
+     "details": "alternating long slings on wandering pitches keeps the line straight",
+     "symptoms": []
+    },
+    "operation": "e2e-climbing"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000012",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the mash stuck at 40 degrees because the grain was milled too fine (case 11)",
+    "body": {
+     "details": "a slow sparge follows a stuck mash; coarser mill settings drain clean",
+     "symptoms": []
+    },
+    "operation": "e2e-brewing"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000013",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "aphids returned within a week when the ladybirds were released too early (case 12)",
+    "body": {
+     "details": "predator releases only hold after the colony has food to stay for",
+     "symptoms": []
+    },
+    "operation": "e2e-gardening"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000014",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the drawer rails bound in summer because the runners were cut cross-grain (case 13)",
+    "body": {
+     "details": "seasonal movement doubles across the grain; rails want long-grain runners",
+     "symptoms": []
+    },
+    "operation": "e2e-carpentry"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000015",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the guide star drifted because the mount's polar axis was off by a degree (case 14)",
+    "body": {
+     "details": "drift aligns faster than plate solving when the pole is nearly right",
+     "symptoms": []
+    },
+    "operation": "e2e-astronomy"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000016",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the sourdough collapsed after proofing past the poke-test window (case 15)",
+    "body": {
+     "details": "a slow spring-back is the last safe moment; a no-spring dent is too late",
+     "symptoms": []
+    },
+    "operation": "e2e-baking"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000017",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the spinnaker wrapped when the pole was squared before the sheet was loaded (case 16)",
+    "body": {
+     "details": "load the working sheet first; geometry follows tension, not the reverse",
+     "symptoms": []
+    },
+    "operation": "e2e-sailing"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000018",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the handles cracked at the join because the slip was drier than the mug body (case 17)",
+    "body": {
+     "details": "joins want matched moisture; score both faces and slip generously",
+     "symptoms": []
+    },
+    "operation": "e2e-pottery"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000019",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the swarm left despite space because the brood nest was honey-bound (case 18)",
+    "body": {
+     "details": "supers do not relieve a packed brood nest; checkerboarding does",
+     "symptoms": []
+    },
+    "operation": "e2e-beekeeping"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000020",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the star trails smeared because mirror slap shook the first two seconds (case 19)",
+    "body": {
+     "details": "mirror lock-up or electronic first curtain removes the smear entirely",
+     "symptoms": []
+    },
+    "operation": "e2e-photography"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000021",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the curd never set because the milk was ultra-pasteurized (case 20)",
+    "body": {
+     "details": "UP milk's denatured proteins cannot knit; low-temp pasteurized sets fine",
+     "symptoms": []
+    },
+    "operation": "e2e-cheesemaking"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000022",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the rope drag doubled on the traverse because the draws were all short (case 21)",
+    "body": {
+     "details": "alternating long slings on wandering pitches keeps the line straight",
+     "symptoms": []
+    },
+    "operation": "e2e-climbing"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000023",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the mash stuck at 40 degrees because the grain was milled too fine (case 22)",
+    "body": {
+     "details": "a slow sparge follows a stuck mash; coarser mill settings drain clean",
+     "symptoms": []
+    },
+    "operation": "e2e-brewing"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000024",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "aphids returned within a week when the ladybirds were released too early (case 23)",
+    "body": {
+     "details": "predator releases only hold after the colony has food to stay for",
+     "symptoms": []
+    },
+    "operation": "e2e-gardening"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000025",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the drawer rails bound in summer because the runners were cut cross-grain (case 24)",
+    "body": {
+     "details": "seasonal movement doubles across the grain; rails want long-grain runners",
+     "symptoms": []
+    },
+    "operation": "e2e-carpentry"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000026",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the guide star drifted because the mount's polar axis was off by a degree (case 25)",
+    "body": {
+     "details": "drift aligns faster than plate solving when the pole is nearly right",
+     "symptoms": []
+    },
+    "operation": "e2e-astronomy"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000027",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the sourdough collapsed after proofing past the poke-test window (case 26)",
+    "body": {
+     "details": "a slow spring-back is the last safe moment; a no-spring dent is too late",
+     "symptoms": []
+    },
+    "operation": "e2e-baking"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000028",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the spinnaker wrapped when the pole was squared before the sheet was loaded (case 27)",
+    "body": {
+     "details": "load the working sheet first; geometry follows tension, not the reverse",
+     "symptoms": []
+    },
+    "operation": "e2e-sailing"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000029",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the handles cracked at the join because the slip was drier than the mug body (case 28)",
+    "body": {
+     "details": "joins want matched moisture; score both faces and slip generously",
+     "symptoms": []
+    },
+    "operation": "e2e-pottery"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000030",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the swarm left despite space because the brood nest was honey-bound (case 29)",
+    "body": {
+     "details": "supers do not relieve a packed brood nest; checkerboarding does",
+     "symptoms": []
+    },
+    "operation": "e2e-beekeeping"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000031",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the star trails smeared because mirror slap shook the first two seconds (case 30)",
+    "body": {
+     "details": "mirror lock-up or electronic first curtain removes the smear entirely",
+     "symptoms": []
+    },
+    "operation": "e2e-photography"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000032",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the curd never set because the milk was ultra-pasteurized (case 31)",
+    "body": {
+     "details": "UP milk's denatured proteins cannot knit; low-temp pasteurized sets fine",
+     "symptoms": []
+    },
+    "operation": "e2e-cheesemaking"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000033",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the rope drag doubled on the traverse because the draws were all short (case 32)",
+    "body": {
+     "details": "alternating long slings on wandering pitches keeps the line straight",
+     "symptoms": []
+    },
+    "operation": "e2e-climbing"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000034",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the mash stuck at 40 degrees because the grain was milled too fine (case 33)",
+    "body": {
+     "details": "a slow sparge follows a stuck mash; coarser mill settings drain clean",
+     "symptoms": []
+    },
+    "operation": "e2e-brewing"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000035",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "aphids returned within a week when the ladybirds were released too early (case 34)",
+    "body": {
+     "details": "predator releases only hold after the colony has food to stay for",
+     "symptoms": []
+    },
+    "operation": "e2e-gardening"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000036",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the drawer rails bound in summer because the runners were cut cross-grain (case 35)",
+    "body": {
+     "details": "seasonal movement doubles across the grain; rails want long-grain runners",
+     "symptoms": []
+    },
+    "operation": "e2e-carpentry"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000037",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the guide star drifted because the mount's polar axis was off by a degree (case 36)",
+    "body": {
+     "details": "drift aligns faster than plate solving when the pole is nearly right",
+     "symptoms": []
+    },
+    "operation": "e2e-astronomy"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000038",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the sourdough collapsed after proofing past the poke-test window (case 37)",
+    "body": {
+     "details": "a slow spring-back is the last safe moment; a no-spring dent is too late",
+     "symptoms": []
+    },
+    "operation": "e2e-baking"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000039",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the spinnaker wrapped when the pole was squared before the sheet was loaded (case 38)",
+    "body": {
+     "details": "load the working sheet first; geometry follows tension, not the reverse",
+     "symptoms": []
+    },
+    "operation": "e2e-sailing"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000040",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the handles cracked at the join because the slip was drier than the mug body (case 39)",
+    "body": {
+     "details": "joins want matched moisture; score both faces and slip generously",
+     "symptoms": []
+    },
+    "operation": "e2e-pottery"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000041",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the swarm left despite space because the brood nest was honey-bound (case 40)",
+    "body": {
+     "details": "supers do not relieve a packed brood nest; checkerboarding does",
+     "symptoms": []
+    },
+    "operation": "e2e-beekeeping"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000042",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the star trails smeared because mirror slap shook the first two seconds (case 41)",
+    "body": {
+     "details": "mirror lock-up or electronic first curtain removes the smear entirely",
+     "symptoms": []
+    },
+    "operation": "e2e-photography"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000043",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the curd never set because the milk was ultra-pasteurized (case 42)",
+    "body": {
+     "details": "UP milk's denatured proteins cannot knit; low-temp pasteurized sets fine",
+     "symptoms": []
+    },
+    "operation": "e2e-cheesemaking"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-000000000044",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the rope drag doubled on the traverse because the draws were all short (case 43)",
+    "body": {
+     "details": "alternating long slings on wandering pitches keeps the line straight",
+     "symptoms": []
+    },
+    "operation": "e2e-climbing"
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-00000000rej1",
+    "type": "lesson",
+    "status": "rejected",
+    "summary": "the moon phase determines the best day to prune the orchard",
+    "body": {
+     "details": "rejected as folklore: pruning outcomes tracked over two seasons showed no lunar correlation"
+    }
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-00000000sup1",
+    "type": "lesson",
+    "status": "superseded",
+    "summary": "always sand against the grain for a smoother finish",
+    "body": {
+     "details": "superseded: cross-grain scratches read worse under finish; sand WITH the grain"
+    }
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-00000000seat",
+    "type": "seat_run",
+    "status": "accepted",
+    "summary": "covered the scheduler retry loop with characterization tests before the refactor",
+    "operation": "seat:cover",
+    "body": {
+     "details": "the seat run pinned the retry loop's backoff behaviour with six characterization tests; the refactor then landed green"
+    }
+   },
+   {
+    "id": "00e2e000-0000-4000-8000-00000000glaz",
+    "type": "lesson",
+    "status": "accepted",
+    "summary": "the cone-six glaze crawled where the bisque was dusty",
+    "body": {
+     "details": "crawling follows dust and oil on bisque; a damp sponge wipe before glazing stops it"
+    }
+   }
+  ]
+ }
+}
