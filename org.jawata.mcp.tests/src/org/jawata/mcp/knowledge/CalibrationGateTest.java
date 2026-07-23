@@ -564,6 +564,14 @@ class CalibrationGateTest {
             if (row.get("package_name") == null && body.get("package") != null) {
                 row.put("package_name", String.valueOf(body.get("package")));
             }
+            // Sprint 27a D3: symptoms live under `body` in the export, but
+            // importEntries writes them to experience_symptom from the TOP-LEVEL
+            // `symptoms` key — and it is that table the embed text's LISTAGG
+            // reads. Without this lift the imported corpus carries no symptoms
+            // and the D3 measurement is of a symptom-less store, invisibly.
+            if (row.get("symptoms") == null && body.get("symptoms") instanceof List<?>) {
+                row.put("symptoms", body.get("symptoms"));
+            }
             rows.add(row);
         }
         Map<String, Object> report = store.importEntries(rows);
