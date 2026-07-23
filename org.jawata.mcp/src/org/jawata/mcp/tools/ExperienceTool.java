@@ -328,6 +328,36 @@ public final class ExperienceTool implements Tool {
         if (q != null) {
             out.put("quality", q.statsBlock());
         }
+        // Sprint 27a Stage 6 (D5's first half): embedding coverage per lane,
+        // live — n of total while the backfill runs, total of total after.
+        // Degrades honestly: no embedder → the block says so with the reason;
+        // a failed count reads "unknown", never a misleading 0.
+        try {
+            var concrete = store instanceof org.jawata.mcp.knowledge.RecoveringExperienceStore r
+                ? r.currentDelegate() : store;
+            if (concrete instanceof org.jawata.mcp.knowledge.H2ExperienceStore h2) {
+                java.util.Map<String, Object> embedding = new java.util.LinkedHashMap<>();
+                org.jawata.mcp.knowledge.EmbeddingService svc =
+                    org.jawata.mcp.knowledge.EmbeddingService.shared();
+                if (svc.available()) {
+                    var index = new org.jawata.mcp.knowledge.EmbeddingIndex(h2, svc);
+                    for (String lane : java.util.List.of("experience_entry", "tool_experience")) {
+                        long embedded = index.embeddedCount(lane);
+                        long total = index.totalCount(lane);
+                        java.util.Map<String, Object> l = new java.util.LinkedHashMap<>();
+                        l.put("embedded", embedded < 0 ? "unknown" : embedded);
+                        l.put("total", total < 0 ? "unknown" : total);
+                        embedding.put(lane, l);
+                    }
+                } else {
+                    embedding.put("available", false);
+                    embedding.put("reason", svc.unavailableReason());
+                }
+                out.put("embedding", embedding);
+            }
+        } catch (RuntimeException e) {
+            out.put("embedding", java.util.Map.of("error", e.getMessage()));
+        }
         return out;
     }
 

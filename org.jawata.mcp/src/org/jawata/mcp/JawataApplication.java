@@ -385,8 +385,15 @@ public class JawataApplication implements IApplication {
                         + " {} remaining, resumed from the smaller delta next start",
                         total, remaining);
                 } else if (remaining == 0) {
-                    log.info("Embedding backfill CONVERGED: {} row(s) in {} ms; 0 remaining",
-                        total, System.currentTimeMillis() - start);
+                    // Stage 6: completion states COVERAGE (total/total), not
+                    // just this run's row count.
+                    long entries = index.totalCount("experience_entry");
+                    long toolRows = index.totalCount("tool_experience");
+                    log.info("Embedding backfill CONVERGED: {} row(s) in {} ms; 0 remaining"
+                        + " — coverage {}/{} entries, {}/{} tool rows",
+                        total, System.currentTimeMillis() - start,
+                        index.embeddedCount("experience_entry"), entries,
+                        index.embeddedCount("tool_experience"), toolRows);
                 } else if (remaining < 0) {
                     log.warn("Embedding backfill: {} row(s) embedded, but the remaining"
                         + " count could not be read — NOT asserting convergence", total);
