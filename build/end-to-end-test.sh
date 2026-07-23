@@ -151,6 +151,7 @@ case "$D" in
     *duplicate_of*) pass "D5 a re-recorded entry is flagged as a duplicate" ;;
     *) fail "D5 write-path dedup did not fire on an identical entry" ;;
 esac
+no_score "record(dedup-flag)" "$D"
 
 # --- D6: the counters actually move, and say how to read themselves --------
 S="$(call experience '{"kind":"stats"}')"
@@ -229,20 +230,34 @@ stop_resident
 # restored rows to convergence — D5's second half, proven on the artifact.
 start_resident
 
-EMB_N=""; TOT_N=""; CONVERGED=""
+# Scoped PER LANE (C7 audit F2): the store's own "total" comes first in the
+# stats payload, so an unscoped grep compares the entry lane's embedded count
+# against the store total — cross-block and only coincidentally equal. Both
+# lanes must close: D5's amended body says "per lane".
+lane_closed() {   # lane_closed <stats-payload> <lane-name> -> 0 when embedded==total
+    local block
+    block="$(printf '%s' "$1" | grep -o "\"$2\":{[^}]*}")"
+    [ -n "$block" ] || return 1
+    local e t
+    e="$(printf '%s' "$block" | grep -oE '"embedded":[0-9]+' | cut -d: -f2)"
+    t="$(printf '%s' "$block" | grep -oE '"total":[0-9]+' | cut -d: -f2)"
+    [ -n "$e" ] && [ -n "$t" ] && [ "$e" -eq "$t" ]
+}
+ENTRY_LANE=""; CONVERGED=""
 for _ in $(seq 1 60); do
     S2="$(call experience '{"kind":"stats"}')"
-    EMB_N="$(printf '%s' "$S2" | grep -oE '"embedded":[0-9]+' | head -1 | cut -d: -f2)"
-    TOT_N="$(printf '%s' "$S2" | grep -oE '"total":[0-9]+' | head -1 | cut -d: -f2)"
-    if [ -n "$EMB_N" ] && [ -n "$TOT_N" ] && [ "$TOT_N" -gt 0 ] && [ "$EMB_N" -eq "$TOT_N" ]; then
+    ENTRY_LANE="$(printf '%s' "$S2" | grep -o '"experience_entry":{[^}]*}')"
+    ENTRY_TOT="$(printf '%s' "$ENTRY_LANE" | grep -oE '"total":[0-9]+' | cut -d: -f2)"
+    if [ -n "$ENTRY_TOT" ] && [ "$ENTRY_TOT" -gt 0 ] \
+            && lane_closed "$S2" "experience_entry" && lane_closed "$S2" "tool_experience"; then
         CONVERGED="yes"; break
     fi
     sleep 3
 done
 if [ -n "$CONVERGED" ]; then
-    pass "27a-D5cov2 the startup reconciliation converged ($EMB_N/$TOT_N)"
+    pass "27a-D5cov2 the startup reconciliation converged, BOTH lanes ($ENTRY_LANE)"
 else
-    fail "27a-D5cov2 the backfill never reached total/total (${EMB_N:-?}/${TOT_N:-?} after 180s)"
+    fail "27a-D5cov2 the backfill never closed both lanes (entry lane: ${ENTRY_LANE:-absent})"
 fi
 
 # --- 27a-D1a: fixture knowledge is reachable by MEANING ---------------------
@@ -326,8 +341,17 @@ done
 
 AN="$(call analyze '{"kind":"type","typeName":"com.example.Clean"}')"
 case "$AN" in
-    *'⚠ PRECEDENT'*) pass "27a-choke the advisory tier WARNS on the reverted target (uncharged — the call ran)" ;;
+    *'⚠ PRECEDENT'*) pass "27a-choke the IDENTITY tier WARNS on the reverted target (the steer that arms the charge; the call itself ran)" ;;
     *) fail "27a-choke no precedent warning surfaced after the revert" ;;
+esac
+# the ADVISORY tier is the different-target line (C7 audit F1 — it needs its
+# OWN probe, not the identity warn wearing its name): a call on a target the
+# precedent's situation does NOT contain retrieves it by meaning and renders
+# it advisory-only.
+AD="$(call analyze '{"kind":"type","typeName":"com.example.CleanSupport"}')"
+case "$AD" in
+    *'Similar past case'*) pass "27a-choke the ADVISORY tier speaks on a different target (advisory only, uncharged)" ;;
+    *) fail "27a-choke the advisory tier never spoke on a meaning-near different target" ;;
 esac
 # arm the charge on the EXACT (tool, target) pair the repeat will use — the
 # ledger is exact-match by design (a warning about the class does not tax the
@@ -356,9 +380,10 @@ call refactoring "{\"action\":\"plan\",\"kind\":\"compose_method\",
                 {\"startLine\":22,\"startColumn\":8,\"endLine\":22,\"endColumn\":25,\"methodName\":\"partTwo\"}]}" >/dev/null
 
 SQ="$(call experience '{"kind":"stats"}')"
-case "$SQ" in
-    *choke*) pass "27a-choke the choke surfaces feed the quality counters" ;;
-    *) fail "27a-choke no choke counter moved through the whole cycle" ;;
+FIRED_BLOCK="$(printf '%s' "$SQ" | grep -o '"recalls_fired":{[^}]*}')"
+case "$FIRED_BLOCK" in
+    *choke_*) pass "27a-choke a choke surface FIRED into the quality counters (not merely consulted)" ;;
+    *) fail "27a-choke no choke surface fired through the whole cycle (fired block: ${FIRED_BLOCK:-absent})" ;;
 esac
 case "$SQ" in
     *pre_advice*) pass "27a-choke the pre-advice surface was consulted (counter present)" ;;
@@ -389,6 +414,24 @@ W="$(call experience '{"kind":"recall",
 case "$W" in
     *crawl*|*cone-six*|*bisque*) pass "27a-D9 with the embedder OFF the store answers a prose question by WORDS" ;;
     *) fail "27a-D9 KEYWORD-ONLY DEGRADE CANNOT ANSWER PROSE (v3.4.1 shape)" ;;
+esac
+no_score "recall(words-only)" "$W"
+
+# the FULL degrade pass (C7 audit F3): the recall-honesty checks re-run
+# words-only — the contract holds without any model, not just the happy path.
+N3="$(call experience '{"kind":"recall",
+  "symptom":"the marzipan barometer forgot its velvet inventory",
+  "format":"text"}')"
+case "$N3" in
+    *'"result":"match"'*) fail "27a-D1b-deg nonsense got VOUCHED with the embedder off" ;;
+    *) pass "27a-D1b-deg nonsense is never vouched, words-only included" ;;
+esac
+G3="$(call experience '{"kind":"recall",
+  "symptom":"when in the lunar cycle is the right time to prune fruit trees",
+  "format":"text"}')"
+case "$G3" in
+    *"moon phase determines"*) fail "27a-D6r-deg the rejected note returned through the WORD path" ;;
+    *) pass "27a-D6r-deg the rejected note stays gone by words too" ;;
 esac
 
 A3="$(call experience '{"kind":"record","type":"lesson",
