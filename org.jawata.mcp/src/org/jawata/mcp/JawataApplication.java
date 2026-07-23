@@ -110,6 +110,8 @@ public class JawataApplication implements IApplication {
     private McpProtocolHandler protocolHandler;
     private volatile WorkspaceFileWatcher workspaceWatcher;
     private volatile Transport activeTransport;
+    /** Sprint 27a Stage 3b: interrupted at shutdown so the reconciliation loop exits. */
+    private volatile Thread embeddingBackfillThread;
 
     // Static instance for loading state access by tools
     private static volatile JawataApplication instance;
@@ -291,33 +293,6 @@ public class JawataApplication implements IApplication {
     }
 
     /**
-     * Sprint 10 v1.4.0: load projects from {@code workspace.json} in the
-     * Eclipse {@code -data} directory if present, otherwise fall back to
-     * {@code JAVA_PROJECT_PATH}. This runs asynchronously so the MCP server
-     * can respond to {@code initialize} immediately while loading proceeds.
-     *
-     * v1.7.1 (bug #5): also check the parent of the OSGi data dir. The
-     * JawataLauncher wrapper injects a UUID subdir into {@code -data} for
-     * session isolation, so OSGi's {@code osgi.instance.area} ends up at
-     * {@code <workspace>/<uuid>/} while the manager writes workspace.json at
-     * {@code <workspace>/workspace.json}. Without the parent-fallback every
-     * non-manager-spawned JVM (Cursor, Claude Code, etc.) saw an empty
-     * project list.
-     */
-    /**
-     * v3.4.1: give the already-stored entries their vectors, in the background.
-     *
-     * <p>How many per pass is a trade: too few and a large store takes many
-     * restarts to become searchable; too many and the resident spends minutes of
-     * CPU on start-up. {@code BATCH} embeds roughly a thousand entries, which is
-     * a few minutes on the scalar path and well under one with the Vector API —
-     * and it runs at low priority off the start-up path either way.</p>
-     *
-     * <p>Progress is LOGGED with the remaining count, because a store that is
-     * half-embedded answers half the questions it should, and a silent partial
-     * state is indistinguishable from a broken one.</p>
-     */
-    /**
      * The embedding index over the experience store, or {@code null} when the
      * store is not an H2 one (the meaning path needs the H2 vector column).
      *
@@ -333,6 +308,56 @@ public class JawataApplication implements IApplication {
         return null;
     }
 
+    /**
+     * Sprint 27a D5 (Stage 3b) — the STARTUP RECONCILIATION.
+     *
+     * <p>It embeds a batch, then the next, then the next, until the delta is
+     * ZERO — every row that lacks a current-identity vector has one. It does not
+     * embed one batch and stop: that left a store larger than the batch
+     * permanently part-embedded (the live store sat at 1,037 of 2,080 all day,
+     * with three frozen calibration entries in the unreachable half), and it is
+     * a prerequisite for Stage 4, where bumping the embedder identity
+     * invalidates every vector — a one-batch cap would leave the store WORSE
+     * than before the bump.</p>
+     *
+     * <p>Resumable by construction: each row is written as it is embedded
+     * (Harald's design), so an interrupted run leaves a smaller delta for the
+     * next start rather than losing work. Scale was never the constraint — one
+     * user's store — so the batch is a unit of work, not a stopping condition.</p>
+     *
+     * <p>Two ways it ends, both clean: {@code backfill} returns 0 (the delta is
+     * closed — it does NOT then spin re-checking an empty delta), or the thread
+     * is interrupted at shutdown. It stays a MIN_PRIORITY daemon off the
+     * start-up path, so the resident answers {@code initialize} immediately
+     * while this runs.</p>
+     */
+    /**
+     * The reconciliation loop itself, extracted so it can be DRIVEN by a test
+     * rather than only reasoned about inside a daemon thread.
+     *
+     * <p>Embeds batch after batch until {@code backfill} returns 0 — the delta
+     * is closed — or {@code interrupted} becomes true. It never spins on an
+     * empty delta: {@code backfill} returning 0 IS the loop's exit, not a
+     * condition it re-polls. Returns the total embedded.</p>
+     *
+     * @param interrupted checked before each pass; {@code true} ends the loop
+     *                    with a clean partial (shutdown), by construction
+     *                    resumable since each row was persisted as it embedded
+     */
+    public static int reconcileEmbeddings(org.jawata.mcp.knowledge.EmbeddingIndex index,
+                                   int batch, java.util.function.BooleanSupplier interrupted) {
+        int total = 0;
+        int done;
+        while (!interrupted.getAsBoolean() && (done = index.backfill(batch)) > 0) {
+            total += done;
+            long remaining = Math.max(0, index.totalCount("experience_entry")
+                - index.embeddedCount("experience_entry"));
+            log.info("Embedding backfill: +{} this pass ({} total), {} remaining",
+                done, total, remaining);
+        }
+        return total;
+    }
+
     private void startEmbeddingBackfill(org.jawata.mcp.knowledge.H2ExperienceStore h2) {
         final int batch = 1000;
         Thread t = new Thread(() -> {
@@ -346,13 +371,14 @@ public class JawataApplication implements IApplication {
                     return;
                 }
                 long start = System.currentTimeMillis();
-                int done = index.backfill(batch);
-                long remaining = index.totalCount("experience_entry")
-                    - index.embeddedCount("experience_entry");
-                if (done > 0) {
-                    log.info("Embedding backfill: {} row(s) in {} ms; {} still without"
-                        + " a vector (picked up on the next start)",
-                        done, System.currentTimeMillis() - start, Math.max(0, remaining));
+                int total = reconcileEmbeddings(index, batch,
+                    () -> Thread.currentThread().isInterrupted());
+                if (Thread.currentThread().isInterrupted()) {
+                    log.info("Embedding backfill interrupted at shutdown after {} row(s);"
+                        + " the next start resumes from the smaller delta", total);
+                } else if (total > 0) {
+                    log.info("Embedding backfill CONVERGED: {} row(s) in {} ms; 0 remaining",
+                        total, System.currentTimeMillis() - start);
                 } else {
                     log.info("Embedding backfill: nothing to do — every row has a"
                         + " current vector");
@@ -365,9 +391,24 @@ public class JawataApplication implements IApplication {
         }, "jawata-embedding-backfill");
         t.setDaemon(true);
         t.setPriority(Thread.MIN_PRIORITY);
+        embeddingBackfillThread = t;
         t.start();
     }
 
+    /**
+     * Sprint 10 v1.4.0: load projects from {@code workspace.json} in the
+     * Eclipse {@code -data} directory if present, otherwise fall back to
+     * {@code JAVA_PROJECT_PATH}. This runs asynchronously so the MCP server
+     * can respond to {@code initialize} immediately while loading proceeds.
+     *
+     * <p>v1.7.1 (bug #5): also check the parent of the OSGi data dir. The
+     * JawataLauncher wrapper injects a UUID subdir into {@code -data} for
+     * session isolation, so OSGi's {@code osgi.instance.area} ends up at
+     * {@code <workspace>/<uuid>/} while the manager writes workspace.json at
+     * {@code <workspace>/workspace.json}. Without the parent-fallback every
+     * non-manager-spawned JVM (Cursor, Claude Code, etc.) saw an empty
+     * project list.</p>
+     */
     private void autoLoadProjects() {
         Path dataDir = resolveDataDir();
         if (dataDir != null) {
@@ -955,6 +996,15 @@ public class JawataApplication implements IApplication {
     @Override
     public void stop() {
         log.info("Stop requested");
+        // Sprint 27a Stage 3b: end the reconciliation loop rather than let the
+        // store close under it. It is a daemon, so the JVM would not wait — but
+        // an interrupt lets it log where it stopped and leave a clean smaller
+        // delta, instead of failing mid-embed against a closing store.
+        Thread backfill = embeddingBackfillThread;
+        if (backfill != null) {
+            backfill.interrupt();
+            embeddingBackfillThread = null;
+        }
         Transport t = activeTransport;
         if (t != null) {
             t.close();
