@@ -6,9 +6,12 @@ import org.eclipse.jdt.core.dom.AnnotationTypeDeclaration;
 import org.eclipse.jdt.core.dom.AnnotationTypeMemberDeclaration;
 import org.eclipse.jdt.core.dom.BodyDeclaration;
 import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.core.ICompilationUnit;
+import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.dom.EnumConstantDeclaration;
 import org.eclipse.jdt.core.dom.EnumDeclaration;
 import org.eclipse.jdt.core.dom.FieldDeclaration;
+import org.eclipse.jdt.core.dom.Javadoc;
 import org.eclipse.jdt.core.dom.MethodDeclaration;
 import org.eclipse.jdt.core.dom.Modifier;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
@@ -50,21 +53,17 @@ public final class JavadocLackDetector extends AbstractAstDetector {
     @Override
     protected void analyze(CompilationUnit ast, String filePath, IJdtService service,
                            int threshold, List<Finding> out) {
+        String source = sourceOf(ast);
         for (Object o : ast.types()) {
             if (o instanceof AbstractTypeDeclaration td) {
-                walkType(td, "", ast, filePath, out);
+                walkType(td, "", ast, filePath, out, false, source);
             }
         }
     }
 
     private void walkType(AbstractTypeDeclaration td, String enclosing,
-                          CompilationUnit ast, String filePath, List<Finding> out) {
-        walkType(td, enclosing, ast, filePath, out, false);
-    }
-
-    private void walkType(AbstractTypeDeclaration td, String enclosing,
                           CompilationUnit ast, String filePath, List<Finding> out,
-                          boolean implicitlyExported) {
+                          boolean implicitlyExported, String source) {
         // A type nested in an interface or annotation is implicitly public (JLS)
         // regardless of its declared modifiers — v2.14.1, audit finding: the
         // modifier-only check silently dropped that population.
@@ -74,7 +73,7 @@ public final class JavadocLackDetector extends AbstractAstDetector {
         String typeName = enclosing.isEmpty()
             ? td.getName().getIdentifier()
             : enclosing + "." + td.getName().getIdentifier();
-        if (td.getJavadoc() == null) {
+        if (!isDocumented(td, ast, source)) {
             out.add(finding(ast, td, filePath, typeName,
                 kindWord(td) + " '" + typeName + "' is public API and has no Javadoc."));
         }
@@ -84,7 +83,7 @@ public final class JavadocLackDetector extends AbstractAstDetector {
         if (td instanceof EnumDeclaration ed) {
             for (Object c : ed.enumConstants()) {
                 EnumConstantDeclaration constant = (EnumConstantDeclaration) c;
-                if (constant.getJavadoc() == null) {
+                if (!isDocumented(constant, ast, source)) {
                     String symbol = typeName + "#" + constant.getName().getIdentifier();
                     out.add(finding(ast, constant, filePath, symbol,
                         "Enum constant '" + symbol + "' is public API and has no Javadoc."));
@@ -94,11 +93,11 @@ public final class JavadocLackDetector extends AbstractAstDetector {
         for (Object o : td.bodyDeclarations()) {
             BodyDeclaration bd = (BodyDeclaration) o;
             if (bd instanceof AbstractTypeDeclaration nested) {
-                walkType(nested, typeName, ast, filePath, out, membersImplicitlyPublic);
+                walkType(nested, typeName, ast, filePath, out, membersImplicitlyPublic, source);
                 continue;
             }
             boolean exported = membersImplicitlyPublic || isExported(bd.getModifiers());
-            if (!exported || bd.getJavadoc() != null) {
+            if (!exported || isDocumented(bd, ast, source)) {
                 continue;
             }
             if (bd instanceof MethodDeclaration m) {
@@ -128,6 +127,63 @@ public final class JavadocLackDetector extends AbstractAstDetector {
                                    String filePath, String symbol, String message) {
         int line = ast.getLineNumber(node.getStartPosition());
         return new Finding("javadoc_lack", filePath, line, -1, "warning", message, symbol);
+    }
+
+    /**
+     * Whether {@code bd} carries Javadoc — {@link BodyDeclaration#getJavadoc()}
+     * with a source-grounded fallback for jawata-mcp#8: JDT's comment mapper does
+     * not attach doc comments to the members of a {@code record} (the type
+     * itself, and every second field observed), so {@code getJavadoc()} returns
+     * {@code null} on a member whose {@code /** *}{@code /} is right there on
+     * disk. The fallback consults the parsed comment list against the source: a
+     * {@code Javadoc} comment either <b>absorbed</b> into the node's own range
+     * (its start equals the node's start — the record-type case) or
+     * <b>immediately preceding</b> it (whitespace-only gap — the field case)
+     * documents the node. When the AST was not built from a compilation unit
+     * (no source), only the attachment answer is available.
+     */
+    private static boolean isDocumented(BodyDeclaration bd, CompilationUnit ast, String source) {
+        if (bd.getJavadoc() != null) {
+            return true;
+        }
+        if (source == null) {
+            return false;
+        }
+        int start = bd.getStartPosition();
+        for (Object o : ast.getCommentList()) {
+            if (!(o instanceof Javadoc jd)) {
+                continue;
+            }
+            int js = jd.getStartPosition();
+            int je = js + jd.getLength();
+            if (js == start) {
+                return true; // the record-type quirk: comment absorbed into the node's range
+            }
+            if (je <= start && je >= 0 && start <= source.length() && isBlankBetween(source, je, start)) {
+                return true; // a doc comment sits immediately before, whitespace only between
+            }
+        }
+        return false;
+    }
+
+    private static boolean isBlankBetween(String source, int from, int to) {
+        for (int i = from; i < to; i++) {
+            if (!Character.isWhitespace(source.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static String sourceOf(CompilationUnit ast) {
+        try {
+            if (ast.getTypeRoot() instanceof ICompilationUnit icu) {
+                return icu.getSource();
+            }
+        } catch (JavaModelException e) {
+            // No readable source — isDocumented falls back to the attachment answer.
+        }
+        return null;
     }
 
     private static boolean isExported(int modifiers) {

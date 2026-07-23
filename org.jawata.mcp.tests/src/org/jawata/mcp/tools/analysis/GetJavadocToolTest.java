@@ -72,6 +72,43 @@ class GetJavadocToolTest {
         assertNotNull(data.get("hasDocumentation"));
     }
 
+    @Test
+    @DisplayName("jawata-mcp#8: inline tags render to plain text; nothing truncates at '{'")
+    @SuppressWarnings("unchecked")
+    void inlineTagsAreRenderedNotTruncated() throws Exception {
+        Path projectPath = helper.getFixturePath("simple-maven");
+        String recordPath = projectPath
+            .resolve("src/main/java/com/example/RecordParamDoc.java").toString();
+
+        ObjectNode args = objectMapper.createObjectNode();
+        args.put("filePath", recordPath);
+        args.put("line", 17);    // 0-based: `public record RecordParamDoc(...)`
+        args.put("column", 16);  // on the type name
+
+        ToolResponse r = tool.execute(args);
+        assertTrue(r.isSuccess(), () -> "refused: " + (r.getError() != null ? r.getError().getMessage() : "?"));
+        Map<String, Object> data = getData(r);
+        assertEquals(Boolean.TRUE, data.get("hasDocumentation"));
+
+        String summary = (String) data.get("summary");
+        assertNotNull(summary);
+        assertFalse(summary.contains("{"),
+            "the summary must not be cut off at an inline tag: " + summary);
+        // The {@link #current} at the end rendered to plain text and the sentence survived.
+        assertTrue(summary.contains("current exists"),
+            "the tail after the inline tag must survive: " + summary);
+
+        List<Map<String, String>> params = (List<Map<String, String>>) data.get("params");
+        assertNotNull(params, "the @param tags must parse");
+        String modelDesc = params.stream()
+            .filter(p -> "model".equals(p.get("name")))
+            .map(p -> p.get("description")).findFirst().orElse("");
+        assertFalse(modelDesc.contains("{"),
+            "the @param description must not be cut off at {@code}: " + modelDesc);
+        assertTrue(modelDesc.contains("sentence-transformers/all-MiniLM-L6-v2"),
+            "the {@code} content must render into the description: " + modelDesc);
+    }
+
     @Test @DisplayName("requires filePath, line, column parameters")
     void requiresParameters() {
         ObjectNode noFile = objectMapper.createObjectNode();

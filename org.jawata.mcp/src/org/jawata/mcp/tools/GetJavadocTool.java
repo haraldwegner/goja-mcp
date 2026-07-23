@@ -182,6 +182,12 @@ public class GetJavadocTool extends AbstractTool {
             .replaceAll("(?m)^\\s*\\*\\s?", "")
             .trim();
 
+        // jawata-mcp#8: render inline tags ({@link}, {@code}, …) to plain text
+        // BEFORE any @-boundary detection. Their embedded '@' was being read as a
+        // block-tag start, so a summary or a @param description was truncated at
+        // the first '{' — e.g. "... which is why {" cut off "{@link ...} throws".
+        cleaned = renderInlineTags(cleaned);
+
         // Extract summary (everything before first @tag)
         int firstTag = cleaned.indexOf("@");
         String summary;
@@ -271,6 +277,42 @@ public class GetJavadocTool extends AbstractTool {
         if (versionMatcher.find()) {
             data.put("version", versionMatcher.group(1).trim());
         }
+    }
+
+    private static final Pattern INLINE_TAG = Pattern.compile("\\{@(\\w+)\\s*([^{}]*)\\}");
+
+    /**
+     * Replace Javadoc inline tags with readable plain text so no stray {@code @}
+     * survives to be mistaken for a block-tag boundary (jawata-mcp#8):
+     * {@code @link}/{@code @linkplain} render to their label, else the bare
+     * reference; {@code @inheritDoc} renders to nothing; {@code @code},
+     * {@code @literal}, {@code @value} and any other tag render to their
+     * content verbatim.
+     */
+    static String renderInlineTags(String text) {
+        if (text == null || text.indexOf('{') < 0) {
+            return text;
+        }
+        Matcher m = INLINE_TAG.matcher(text);
+        StringBuilder sb = new StringBuilder();
+        while (m.find()) {
+            String tag = m.group(1);
+            String content = m.group(2).trim();
+            String replacement = switch (tag) {
+                case "link", "linkplain" -> {
+                    int sp = content.indexOf(' ');
+                    if (sp < 0) {
+                        yield content.startsWith("#") ? content.substring(1) : content;
+                    }
+                    yield content.substring(sp + 1).trim();
+                }
+                case "inheritDoc" -> "";
+                default -> content; // code, literal, value, …
+            };
+            m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+        }
+        m.appendTail(sb);
+        return sb.toString();
     }
 
     private String getElementKind(IJavaElement element) {
