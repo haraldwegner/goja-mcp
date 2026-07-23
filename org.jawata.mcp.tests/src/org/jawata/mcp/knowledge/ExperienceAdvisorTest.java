@@ -10,6 +10,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -83,14 +84,19 @@ class ExperienceAdvisorTest {
                 Confidence.HIGH).symbol("com.example.OrderService").build())
             .operation("compose_method").build());
 
-        // SPEAK: a fitting precedent reaches the agent.
+        // SPEAK: a fitting precedent reaches the agent. Counted to PRE_ADVICE —
+        // its own surface, not the choke's advisory tier, which is a different
+        // surface writing a different key.
         advisor.adviseBefore("compose_method", "com.example.OrderService");
-        assertEquals(1L, ledger.counters().get("fired.choke_advisory"),
-            "a speak must increment the surface's fired counter");
+        assertEquals(1L, ledger.counters().get("fired.pre_advice"),
+            "a speak must increment the pre-advice surface's fired counter");
+        assertNull(ledger.counters().get("fired.choke_advisory"),
+            "and it must NOT report as the choke advisory tier — that conflates "
+            + "two surfaces under one key");
 
         // ABSTAIN: nothing to say, and that silence is counted too.
         advisor.adviseBefore("rename_symbol", "com.other.Nothing");
-        assertEquals(1L, ledger.counters().get("silent.choke_advisory"),
+        assertEquals(1L, ledger.counters().get("silent.pre_advice"),
             "an abstain must increment the surface's silent counter — without it, "
             + "a surface that never speaks is indistinguishable from one never used");
     }
@@ -163,6 +169,11 @@ class ExperienceAdvisorTest {
             "and it must be THAT lesson: " + byMeaning);
         assertTrue(byMeaning.get(0).contains("judge whether it transfers"),
             "labelled as an analogy, never a vouched fact: " + byMeaning.get(0));
+        // Clause 4: the rendering carries PROVENANCE — where it was learned — so
+        // a nominee never floats free of its origin. The lesson is anchored to
+        // com.example.legacy.Mover, so its analogy line names it.
+        assertTrue(byMeaning.get(0).contains("learned on com.example.legacy.Mover"),
+            "the analogy must carry its provenance in words: " + byMeaning.get(0));
         assertNotNull(target);
     }
 

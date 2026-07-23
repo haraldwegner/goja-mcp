@@ -59,6 +59,11 @@ public final class QualityLedger {
     public static final String SURFACE_CHOKE_PRECEDENT = "choke_precedent";
     /** The choke's advisory tier: a similar case on a DIFFERENT target. */
     public static final String SURFACE_CHOKE_ADVISORY = "choke_advisory";
+    /** The refactoring pre-advice surface (adviseBefore). Distinct from the
+     *  choke tier — Sprint 27a wired pre-advice to run the union recall, and it
+     *  must count as its OWN surface or its speak/abstain is conflated with the
+     *  choke's and neither can be read honestly. */
+    public static final String SURFACE_PRE_ADVICE = "pre_advice";
     /** The session-start domain primer. */
     public static final String SURFACE_PRIMER = "primer";
     /** A driven seat run's recall — the caller must NAME this one

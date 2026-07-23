@@ -442,9 +442,16 @@ public class ToolRegistry {
             }
             org.jawata.mcp.learn.PrecedentSteer.Verdict verdict =
                 org.jawata.mcp.learn.PrecedentSteer.evaluate(name, identity);
+            // Sprint 27a: both tiers count their ABSTAIN as well as their speak.
+            // A tier that stayed silent and a tier never consulted must not look
+            // identical — that is the exact gap QualityLedger.silent exists to
+            // close, and until now the choke fired only on speak.
             if (verdict.steer() != null) {
                 response.appendSteering(verdict.steer());
                 measure(q -> q.fired(
+                    org.jawata.mcp.knowledge.QualityLedger.SURFACE_CHOKE_PRECEDENT));
+            } else {
+                measure(q -> q.silent(
                     org.jawata.mcp.knowledge.QualityLedger.SURFACE_CHOKE_PRECEDENT));
             }
             if (similar != null) {
@@ -454,6 +461,9 @@ public class ToolRegistry {
                     + "advisory only, judge the transfer): `" + similar.tool() + "` "
                     + ("compiled".equals(similar.outcome()) ? "worked" : similar.outcome())
                     + " in: " + similar.situation());
+            } else {
+                measure(q -> q.silent(
+                    org.jawata.mcp.knowledge.QualityLedger.SURFACE_CHOKE_ADVISORY));
             }
             // v3.3.1: a NEGATIVE precedent was just SURFACED — remember it, so a
             // later use of that tool on this target owes the written justification

@@ -83,6 +83,36 @@ class DispatchRecallTest {
         return new RecallQuery(null, null, null, s, null);
     }
 
+    /**
+     * Sprint 27a C3 — dispatch degrades to keyword UNCONDITIONALLY, embedder off.
+     *
+     * <p>The other dispatch tests run against whichever retriever {@code setUp}
+     * chose, so the keyword path was exercised only in an environment where the
+     * embedder failed to load — not pinned. This builds the keyword-only
+     * retriever explicitly and proves a seeded seat run is still recalled by
+     * word, so the dispatch surface never goes dark because the model is
+     * absent.</p>
+     */
+    @Test
+    void dispatch_degrades_to_keyword_when_the_embedder_is_off() {
+        ExperienceRetrieval keywordOnly = ExperienceRetrieval.keywordOnly(store, () -> null);
+        seatRun("javadoc-writer", "com.example.PurityCheck",
+            "document the undocumented public methods", "accepted", "applied");
+
+        // Keyword recall matches the SUMMARY ("seat javadoc-writer on
+        // com.example.PurityCheck: applied"), not the journal detail — so the
+        // cue is worded from what the keyword path can see. That is the honest
+        // degrade contract: without meaning, exact words are all there is.
+        Map<String, Object> answer = keywordOnly.recall(symptom(
+            "javadoc-writer on com.example.PurityCheck"));
+        Map<String, Object> dispatch = firstDispatch(answer);
+        assertNotNull(dispatch,
+            "with no embedder the seeded seat run must still recall by keyword, "
+            + "carrying its dispatch block");
+        assertEquals("javadoc-writer", dispatch.get("seat"),
+            "and it is the seeded run: " + dispatch);
+    }
+
     /** The dispatch block of the first analogy that carries one, or null. */
     @SuppressWarnings("unchecked")
     private static Map<String, Object> firstDispatch(Map<String, Object> result) {

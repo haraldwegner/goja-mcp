@@ -131,6 +131,49 @@ class PrecedentPushTest {
             "the choke surfaces whatever the injected retriever returns — the seam is real");
     }
 
+    /**
+     * Sprint 27a C3 (F1/F2) — the CHOKE advisory tier counts BOTH ways, driven
+     * through the real choke, not through the pre-advice surface.
+     *
+     * <p>The C3 audit found the advisory tier's abstain fired no counter at all,
+     * and that a test on the pre-advice surface (a DIFFERENT surface sharing the
+     * key) appeared to cover it. This drives the choke itself: a similar-case
+     * hit makes the tier SPEAK; an empty lane makes it stay SILENT; both are
+     * counted, under the choke_advisory key that only the choke writes.</p>
+     */
+    @Test
+    void the_choke_advisory_tier_counts_both_a_speak_and_a_silence() throws Exception {
+        H2ExperienceStore store = H2ExperienceStore.openMemory();
+        org.jawata.mcp.knowledge.QualityLedger ledger =
+            new org.jawata.mcp.knowledge.QualityLedger(store);
+
+        // SPEAK: a precedent on a DIFFERENT target (situation names com.other.Far,
+        // the call targets com.foo.Bar) → the advisory tier surfaces one line.
+        ToolRegistry speak = new ToolRegistry();
+        speak.setQualityLedger(ledger);
+        speak.setPrecedentRetriever((query, limit) -> List.of(
+            new ToolExperience("s1", "move com.other.Far", "move",
+                ToolExperience.OUTCOME_REVERTED, "{}")));
+        speak.register(mock("analyze", a -> ToolResponse.success(Map.of("ok", true))));
+        speak.callTool("analyze", json("{\"typeName\":\"com.foo.Bar\"}"), "s1");
+        assertEquals(1L, ledger.counters().get("fired.choke_advisory"),
+            "a similar-case advisory must increment the choke advisory tier's fired counter");
+
+        // SILENCE: an EMPTY lane → the tier says nothing, and the silence is
+        // counted. This is also the only silence the tier has under the
+        // 'distance nominates' ruling — the floor does not fire on a non-empty
+        // lane, so 'nothing stands out' reduces to 'nothing is there'.
+        ToolRegistry silent = new ToolRegistry();
+        silent.setQualityLedger(ledger);
+        silent.setPrecedentRetriever((query, limit) -> List.of());
+        silent.register(mock("analyze", a -> ToolResponse.success(Map.of("ok", true))));
+        silent.callTool("analyze", json("{\"typeName\":\"com.foo.Bar\"}"), "s2");
+        assertEquals(1L, ledger.counters().get("silent.choke_advisory"),
+            "an empty lane must increment the choke advisory tier's silent counter — "
+            + "without it a tier that never speaks looks like one never consulted");
+        store.close();
+    }
+
     @Test
     void the_store_stays_general_alongside_the_tool_lane() {
         H2ExperienceStore store = H2ExperienceStore.openMemory();

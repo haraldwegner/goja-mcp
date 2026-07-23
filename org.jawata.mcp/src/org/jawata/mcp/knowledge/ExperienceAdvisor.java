@@ -82,7 +82,7 @@ public final class ExperienceAdvisor implements Advisor {
         // surface — so the quality ledger records when this surface actually
         // reaches the agent, and when it stays silent, as a side effect of the
         // normal call rather than through a separate feed.
-        Map<String, Object> r = retrieval.recall(q, QualityLedger.SURFACE_CHOKE_ADVISORY);
+        Map<String, Object> r = retrieval.recall(q, QualityLedger.SURFACE_PRE_ADVICE);
 
         // A vouched entry leads; failing that, the meaning/word NOMINEES recall
         // already computed. Before Sprint 27a this method read `entries` only
